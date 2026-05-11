@@ -1,0 +1,18 @@
+{
+  "name": "headlamp-crossplane",
+  "version": "1.0.0",
+  "description": "Crossplane plugin for Headlamp",
+  "main": "main.js",
+  "scripts": {
+    "build": "npx @kinvolk/headlamp-plugin build",
+    "start": "npx @kinvolk/headlamp-plugin start"
+  },
+  "keywords": ["Crossplane", "Headlamp", "Kubernetes"],
+  "author": "Me",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "devDependencies": {
+    "@kinvolk/headlamp-plugin": "^0.13.1",
+    "@types/react": "^18.3.28"
+  }
+}
