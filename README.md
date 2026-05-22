@@ -1,6 +1,6 @@
 # headlamp-crossplane-plugin
 
-A [Headlamp](https://headlamp.dev) plugin that adds a Crossplane section to the sidebar with views for Providers, Managed Resources, and Compositions.
+A [Headlamp™](https://headlamp.dev) plugin that adds a Crossplane section to the sidebar with views for Providers, Managed Resources, and Compositions.
 
 ## Development
 
