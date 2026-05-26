@@ -3,12 +3,15 @@ import {
   registerSidebarEntry,
 } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
-import CrossplaneOverview from './overview';
-import ProviderList from './providers/ProviderList';
-import ProviderDetail from './providers/ProviderDetail';
-import ManagedList from './managed/ManagedList';
-import ManagedDetail from './managed/ManagedDetail';
-import ResourceList from './resources/ResourceList';
+import CrossplaneOverview from './src/overview';
+import AlertsView from './src/alerts/AlertsView';
+import ProviderList from './src/providers/ProviderList';
+import ProviderDetail from './src/providers/ProviderDetail';
+import ManagedList from './src/managed/ManagedList';
+import ManagedDetail from './src/managed/ManagedDetail';
+import ResourceList from './src/resources/ResourceList';
+import ProviderConfigDetail from './src/providerconfigs/ProviderConfigDetail';
+import DependencyGraph from './src/graph/DependencyGraph';
 
 // Crossplane white icon from https://github.com/cncf/artwork/tree/main/projects/crossplane/icon/white
 const crossplaneIcon = {
@@ -36,6 +39,13 @@ registerSidebarEntry({
 
 registerSidebarEntry({
   parent: 'crossplane',
+  name: 'crossplane-alerts',
+  label: 'Alerts',
+  url: '/crossplane/alerts',
+});
+
+registerSidebarEntry({
+  parent: 'crossplane',
   name: 'crossplane-providers',
   label: 'Providers',
   url: '/crossplane/providers',
@@ -59,6 +69,14 @@ registerRoute({
 });
 
 registerRoute({
+  path: '/crossplane/alerts',
+  sidebar: 'crossplane-alerts',
+  name: 'crossplaneAlerts',
+  exact: true,
+  component: () => React.createElement(AlertsView),
+});
+
+registerRoute({
   path: '/crossplane/providers',
   sidebar: 'crossplane-providers',
   name: 'crossplaneProviders',
@@ -72,6 +90,14 @@ registerRoute({
   name: 'crossplaneProviderDetail',
   exact: true,
   component: () => React.createElement(ProviderDetail),
+});
+
+registerRoute({
+  path: '/crossplane/providers/:providerName/providerconfigs/:configName',
+  sidebar: 'crossplane-providers',
+  name: 'crossplaneProviderConfigDetail',
+  exact: true,
+  component: () => React.createElement(ProviderConfigDetail),
 });
 
 // Namespaced managed resource detail (namespace + name both present)
@@ -107,4 +133,22 @@ registerRoute({
   name: 'crossplaneResources',
   exact: true,
   component: () => React.createElement(ResourceList),
+});
+
+// Dependency graph — cluster-scoped
+registerRoute({
+  path: '/crossplane/graph/:providerName/:group/:plural/:name',
+  sidebar: 'crossplane-providers',
+  name: 'crossplaneGraphCluster',
+  exact: true,
+  component: () => React.createElement(DependencyGraph),
+});
+
+// Dependency graph — namespaced
+registerRoute({
+  path: '/crossplane/graph/:providerName/:group/:plural/:namespace/:name',
+  sidebar: 'crossplane-providers',
+  name: 'crossplaneGraphNamespaced',
+  exact: true,
+  component: () => React.createElement(DependencyGraph),
 });

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { getApiProxy } from '../helpers';
+import { getApiProxy, clusterPrefix, detectExternalManager } from '../helpers';
 
-const { Typography, Box, Chip, CircularProgress, Paper, Button } =
+const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Accordion, AccordionSummary, AccordionDetails } =
   (window as any).pluginLib?.MuiCore ?? {};
 
 function useCustomResource(
@@ -18,7 +18,6 @@ function useCustomResource(
   useEffect(() => {
     if (!group || !plural || !name) return;
     const nsPath = namespace ? `namespaces/${namespace}/` : '';
-    // Try versions in order
     const tryVersions = ['v1alpha1', 'v1beta1', 'v1'];
     let cancelled = false;
 
@@ -131,6 +130,22 @@ function ProviderPodSection({
   );
 }
 
+const managerColors: Record<string, string> = {
+  helm: '#7b1fa2',
+  'flux-kustomization': '#00796b',
+  'flux-helmrelease': '#00695c',
+  argocd: '#e65100',
+  kro: '#1565c0',
+};
+
+const managerLabels: Record<string, string> = {
+  helm: 'Helm',
+  'flux-kustomization': 'Flux Kustomization',
+  'flux-helmrelease': 'Flux HelmRelease',
+  argocd: 'ArgoCD',
+  kro: 'Kro',
+};
+
 export default function ManagedDetail() {
   const params = useParams<{
     providerName: string;
@@ -140,8 +155,8 @@ export default function ManagedDetail() {
     namespace?: string;
   }>();
   const { providerName, group, plural, name, namespace } = params;
+  const history = useHistory();
 
-  // Determine cluster name from URL
   const clusterMatch = window.location.pathname.match(/^\/c\/([^/]+)/);
   const cluster = clusterMatch?.[1] ?? 'main';
 
@@ -167,6 +182,21 @@ export default function ManagedDetail() {
   }
 
   const conditions: any[] = item?.status?.conditions ?? [];
+  const failingConditions = conditions.filter((c: any) => c.status === 'False');
+  const annotations: Record<string, string> = item?.metadata?.annotations ?? {};
+  const providerConfigRef: string = item?.spec?.providerConfigRef?.name ?? '';
+  const compositeRef: string = annotations['crossplane.io/composite'] ?? '';
+  const claimName: string = annotations['crossplane.io/claim-name'] ?? '';
+  const claimNamespace: string = annotations['crossplane.io/claim-namespace'] ?? '';
+  const atProvider = item?.status?.atProvider;
+
+  const managerInfo = detectExternalManager(item);
+
+  const hasRelationships = !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
+
+  const graphUrl = namespace
+    ? `${clusterPrefix()}/crossplane/graph/${providerName}/${group}/${plural}/${namespace}/${name}`
+    : `${clusterPrefix()}/crossplane/graph/${providerName}/${group}/${plural}/${name}`;
 
   return (
     <Box p={3}>
@@ -177,11 +207,16 @@ export default function ManagedDetail() {
         {group} · {namespace ? `Namespace: ${namespace}` : 'Cluster-scoped'}
       </Typography>
 
+      {/* Error banners */}
+      {failingConditions.map((c: any) => (
+        <Alert key={c.type} severity="error" style={{ marginBottom: 8 }}>
+          <strong>{c.type}:</strong> {c.reason} — {c.message}
+        </Alert>
+      ))}
+
       {/* Info */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>
-          Info
-        </Typography>
+        <Typography variant="h6" gutterBottom>Info</Typography>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
             {[
@@ -207,39 +242,133 @@ export default function ManagedDetail() {
         </table>
       </Paper>
 
+      {/* Relationships */}
+      {hasRelationships && (
+        <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+            <Typography variant="h6">Relationships</Typography>
+            <Button size="small" variant="outlined" onClick={() => history.push(graphUrl)}>
+              View Dependency Graph
+            </Button>
+          </Box>
+          <Box display="flex" flexDirection="column" gap={1}>
+            {providerConfigRef && (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                  ProviderConfig:
+                </Typography>
+                <span
+                  style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                  onClick={() =>
+                    history.push(
+                      `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
+                    )
+                  }
+                >
+                  {providerConfigRef}
+                </span>
+              </Box>
+            )}
+            {compositeRef && (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                  Composite Resource:
+                </Typography>
+                <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                  {compositeRef}
+                </Typography>
+              </Box>
+            )}
+            {claimName && (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                  Claim:
+                </Typography>
+                <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                  {claimNamespace}/{claimName}
+                </Typography>
+              </Box>
+            )}
+            {managerInfo.manager && (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                  Managed by:
+                </Typography>
+                <span
+                  style={{
+                    padding: '2px 10px',
+                    borderRadius: 10,
+                    background: managerColors[managerInfo.manager] ?? '#555',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {managerLabels[managerInfo.manager] ?? managerInfo.manager}
+                  {managerInfo.ref ? ` · ${managerInfo.ref}` : ''}
+                </span>
+              </Box>
+            )}
+          </Box>
+        </Paper>
+      )}
+
       {/* Conditions */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>
-          Conditions
-        </Typography>
+        <Typography variant="h6" gutterBottom>Conditions</Typography>
         <ConditionTable conditions={conditions} />
       </Paper>
 
-      {/* Provider Pod Logs */}
-      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>
-          Provider Pod Logs
-        </Typography>
-        <ProviderPodSection providerName={providerName} cluster={cluster} />
-      </Paper>
+      {/* Observed State (atProvider) */}
+      {atProvider && Object.keys(atProvider).length > 0 && (
+        <Accordion style={{ marginBottom: 24 }}>
+          <AccordionSummary expandIcon={<span>▾</span>}>
+            <Typography variant="h6">Observed State (atProvider)</Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <pre
+              style={{
+                background: '#f5f5f5',
+                padding: 12,
+                borderRadius: 4,
+                overflow: 'auto',
+                fontSize: 12,
+                maxHeight: 400,
+                margin: 0,
+              }}
+            >
+              {JSON.stringify(atProvider, null, 2)}
+            </pre>
+          </AccordionDetails>
+        </Accordion>
+      )}
 
-      {/* Raw Spec */}
+      {/* Raw Spec (collapsed by default) */}
+      <Accordion style={{ marginBottom: 24 }}>
+        <AccordionSummary expandIcon={<span>▾</span>}>
+          <Typography variant="h6">Spec (JSON)</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          <pre
+            style={{
+              background: '#f5f5f5',
+              padding: 12,
+              borderRadius: 4,
+              overflow: 'auto',
+              fontSize: 12,
+              maxHeight: 400,
+              margin: 0,
+            }}
+          >
+            {JSON.stringify(item?.spec ?? {}, null, 2)}
+          </pre>
+        </AccordionDetails>
+      </Accordion>
+
+      {/* Provider Pod Logs */}
       <Paper elevation={1} style={{ padding: 16 }}>
-        <Typography variant="h6" gutterBottom>
-          Spec (JSON)
-        </Typography>
-        <pre
-          style={{
-            background: '#f5f5f5',
-            padding: 12,
-            borderRadius: 4,
-            overflow: 'auto',
-            fontSize: 12,
-            maxHeight: 400,
-          }}
-        >
-          {JSON.stringify(item?.spec ?? {}, null, 2)}
-        </pre>
+        <Typography variant="h6" gutterBottom>Provider Pod Logs</Typography>
+        <ProviderPodSection providerName={providerName} cluster={cluster} />
       </Paper>
     </Box>
   );

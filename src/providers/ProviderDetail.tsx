@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { useCRDsForProvider, clusterPrefix } from '../helpers';
+import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy } from '../helpers';
 
-const { Typography, Box, Chip, CircularProgress, Button, Paper } =
+const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
 
 function ConditionRow({ cond }: { cond: any }) {
@@ -23,11 +24,43 @@ function ConditionRow({ cond }: { cond: any }) {
   );
 }
 
-function ProviderConfigs({ currentRevision }: { currentRevision: string }) {
-  const [crds] = useCRDsForProvider('', currentRevision);
+function conditionChip(conditions: any[], type: string) {
+  const cond = conditions?.find((c: any) => c.type === type);
+  if (!cond) return <Chip label="—" size="small" />;
+  const ok = cond.status === 'True';
+  return (
+    <Chip
+      label={ok ? type : `Not ${type}`}
+      size="small"
+      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+    />
+  );
+}
+
+function ProviderConfigsSection({
+  providerName,
+  currentRevision,
+}: {
+  providerName: string;
+  currentRevision: string;
+}) {
+  const history = useHistory();
+  const [crds] = useCRDsForProvider(providerName, currentRevision);
+  const [configs, setConfigs] = useState<any[] | null>(null);
+
   const configCrd = crds?.find(
     (crd: any) => crd.jsonData?.spec?.names?.plural === 'providerconfigs'
   );
+
+  useEffect(() => {
+    if (!configCrd) return;
+    const group: string = configCrd.jsonData?.spec?.group ?? '';
+    const topVersion: string = configCrd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
+    getApiProxy()
+      .request(`/apis/${group}/${topVersion}/providerconfigs`, { isJSON: true })
+      .then((res: any) => setConfigs(res?.items ?? []))
+      .catch(() => setConfigs([]));
+  }, [configCrd?.metadata?.name]);
 
   if (!configCrd) {
     return (
@@ -37,11 +70,53 @@ function ProviderConfigs({ currentRevision }: { currentRevision: string }) {
     );
   }
 
+  if (configs === null) return <CircularProgress size={16} />;
+  if (configs.length === 0) {
+    return (
+      <Typography variant="body2" color="textSecondary">
+        No ProviderConfigs found.
+      </Typography>
+    );
+  }
+
   return (
-    <Typography variant="body2" color="textSecondary">
-      ProviderConfig CRD found: {configCrd.metadata?.name}
-      {' '}(navigate to the cluster CRD view to manage configs)
-    </Typography>
+    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead>
+        <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
+          {['Name', 'Credentials', 'Actions'].map((h) => (
+            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {configs.map((cfg: any) => {
+          const cfgName: string = cfg.metadata?.name ?? '';
+          const secretRef = cfg.spec?.credentials?.secretRef;
+          const credLabel = secretRef
+            ? `${secretRef.namespace}/${secretRef.name}`
+            : cfg.spec?.credentials?.source ?? '—';
+          return (
+            <tr key={cfgName} style={{ borderBottom: '1px solid #f0f0f0' }}>
+              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{cfgName}</td>
+              <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'monospace' }}>{credLabel}</td>
+              <td style={{ padding: '8px 12px' }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() =>
+                    history.push(
+                      `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${cfgName}`
+                    )
+                  }
+                >
+                  View
+                </Button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
@@ -73,6 +148,7 @@ function ManagedResourceSection({
         const plural = crd.jsonData?.spec?.names?.plural ?? '';
         const kind = crd.jsonData?.spec?.names?.kind ?? '';
         const scope = crd.jsonData?.spec?.scope ?? '';
+        if (plural === 'providerconfigs') return null;
         return (
           <Box
             key={crd.metadata.name}
@@ -108,8 +184,74 @@ function ManagedResourceSection({
   );
 }
 
+function AllInstancesTab({ providerName }: { providerName: string }) {
+  const history = useHistory();
+  const { items, loading } = useAllManagedResources(providerName);
+
+  if (loading) {
+    return (
+      <Box p={2} display="flex" alignItems="center" gap={2}>
+        <CircularProgress size={20} />
+        <Typography>Loading instances…</Typography>
+      </Box>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <Box p={2}>
+        <Typography variant="body2" color="textSecondary">No instances found.</Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead>
+        <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
+          {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map((h) => (
+            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item: any) => {
+          const itemName: string = item.metadata?.name ?? '';
+          const ns: string = item.metadata?.namespace ?? '';
+          const conditions: any[] = item.status?.conditions ?? [];
+          const created = item.metadata?.creationTimestamp
+            ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
+            : '—';
+          const detailUrl = ns
+            ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
+            : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${itemName}`;
+          return (
+            <tr
+              key={`${item._group}/${item._plural}/${ns}/${itemName}`}
+              style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+              onClick={() => history.push(detailUrl)}
+            >
+              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
+              <td style={{ padding: '8px 12px' }}>
+                <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
+                {ns && (
+                  <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>
+                )}
+              </td>
+              <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Ready')}</td>
+              <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Synced')}</td>
+              <td style={{ padding: '8px 12px', fontSize: 12 }}>{created}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 export default function ProviderDetail() {
   const { name } = useParams<{ name: string }>();
+  const [tab, setTab] = useState(0);
   const [providers, error] = Provider.useList();
 
   if (!providers && !error) {
@@ -136,85 +278,102 @@ export default function ProviderDetail() {
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const controllerRef = provider.jsonData?.status?.controller?.configRef?.name ?? '';
 
+  const hasError = conditions.some((c: any) => c.status === 'False');
+
   return (
     <Box p={3}>
       <Typography variant="h4" gutterBottom>
         Provider: {name}
       </Typography>
 
-      {/* Basic Info */}
-      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>
-          Provider Info
-        </Typography>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <tbody>
-            {[
-              ['Package', packageRef],
-              ['Current Revision', currentRevision],
-              ['Controller', controllerRef],
-              [
-                'Created',
-                provider.metadata?.creationTimestamp
-                  ? new Date(provider.metadata.creationTimestamp).toLocaleString()
-                  : '—',
-              ],
-            ].map(([label, value]) => (
-              <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 600, width: 180 }}>{label}</td>
-                <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
-                  {value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Paper>
+      {hasError && (
+        <Alert severity="error" style={{ marginBottom: 16 }}>
+          {conditions.filter((c: any) => c.status === 'False').map((c: any) => (
+            <div key={c.type}>
+              <strong>{c.type}:</strong> {c.reason} — {c.message}
+            </div>
+          ))}
+        </Alert>
+      )}
 
-      {/* Conditions */}
-      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>
-          Conditions
-        </Typography>
-        {conditions.length === 0 ? (
-          <Typography variant="body2" color="textSecondary">
-            No conditions reported.
-          </Typography>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-                {['Type', 'Status', 'Reason', 'Message'].map((h) => (
-                  <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
-                    {h}
-                  </th>
+      <Tabs value={tab} onChange={(_: any, v: number) => setTab(v)} style={{ marginBottom: 24 }}>
+        <Tab label="Overview" />
+        <Tab label="All Instances" />
+      </Tabs>
+
+      {tab === 0 && (
+        <>
+          {/* Basic Info */}
+          <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+            <Typography variant="h6" gutterBottom>Provider Info</Typography>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {[
+                  ['Package', packageRef],
+                  ['Current Revision', currentRevision],
+                  ['Controller', controllerRef],
+                  [
+                    'Created',
+                    provider.metadata?.creationTimestamp
+                      ? new Date(provider.metadata.creationTimestamp).toLocaleString()
+                      : '—',
+                  ],
+                ].map(([label, value]) => (
+                  <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                    <td style={{ padding: '6px 12px', fontWeight: 600, width: 180 }}>{label}</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
+                      {value}
+                    </td>
+                  </tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {conditions.map((c: any) => (
-                <ConditionRow key={c.type} cond={c} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Paper>
+              </tbody>
+            </table>
+          </Paper>
 
-      {/* Provider Configs */}
-      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>
-          Provider Configs
-        </Typography>
-        <ProviderConfigs currentRevision={currentRevision} />
-      </Paper>
+          {/* Conditions */}
+          <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+            <Typography variant="h6" gutterBottom>Conditions</Typography>
+            {conditions.length === 0 ? (
+              <Typography variant="body2" color="textSecondary">No conditions reported.</Typography>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
+                    {['Type', 'Status', 'Reason', 'Message'].map((h) => (
+                      <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {conditions.map((c: any) => (
+                    <ConditionRow key={c.type} cond={c} />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Paper>
 
-      {/* Managed Resources */}
-      <Paper elevation={1} style={{ padding: 16 }}>
-        <Typography variant="h6" gutterBottom>
-          Managed Resource Types
-        </Typography>
-        <ManagedResourceSection providerName={name} currentRevision={currentRevision} />
-      </Paper>
+          {/* Provider Configs */}
+          <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+            <Typography variant="h6" gutterBottom>Provider Configs</Typography>
+            <ProviderConfigsSection providerName={name} currentRevision={currentRevision} />
+          </Paper>
+
+          {/* Managed Resource Types */}
+          <Paper elevation={1} style={{ padding: 16 }}>
+            <Typography variant="h6" gutterBottom>Managed Resource Types</Typography>
+            <ManagedResourceSection providerName={name} currentRevision={currentRevision} />
+          </Paper>
+        </>
+      )}
+
+      {tab === 1 && (
+        <Paper elevation={1} style={{ padding: 0 }}>
+          <AllInstancesTab providerName={name} />
+        </Paper>
+      )}
     </Box>
   );
 }
