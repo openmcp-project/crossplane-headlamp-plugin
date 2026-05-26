@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { ProviderRevision } from '../common/Resources';
 
@@ -28,6 +29,12 @@ export function isReady(resource: any): boolean {
 
 export function isSynced(resource: any): boolean {
   return getSyncedStatus(resource) === 'success';
+}
+
+// Returns the message field of a condition by type, or ''.
+export function getConditionMessage(resource: any, type: string): string {
+  const conditions: any[] = resource?.status?.conditions ?? resource?.jsonData?.status?.conditions ?? [];
+  return conditions.find((c: any) => c.type === type)?.message ?? '';
 }
 
 // ── ApiProxy accessor ─────────────────────────────────────────────────────────
@@ -99,6 +106,161 @@ export function providerPodLogsUrl(
 // ── Cluster-aware routing ────────────────────────────────────────────────────
 
 export function clusterPrefix(): string {
-  const match = window.location.pathname.match(/^(\/c\/[^/]+)/);
+  // Headlamp may be served under a base path (e.g. /api/headlamp) — strip it first.
+  const base = (window as any).headlampBaseUrl ?? '';
+  const pathname = base && window.location.pathname.startsWith(base)
+    ? window.location.pathname.slice(base.length)
+    : window.location.pathname;
+  const match = pathname.match(/^(\/c\/[^/]+)/);
   return match?.[1] ?? '';
+}
+
+// ── Flat MR type ─────────────────────────────────────────────────────────────
+
+export interface FlatMR {
+  _providerName: string;
+  _group: string;
+  _plural: string;
+  _kind: string;
+  _scope: string;
+  [key: string]: any;
+}
+
+// ── useAllManagedResources ────────────────────────────────────────────────────
+
+/**
+ * Fetches all managed resource instances across all providers.
+ * Fires parallel requests for every CRD type owned by every provider.
+ * Returns a flat array of instances with provider metadata attached.
+ *
+ * Pass `filterProviderName` to scope to a single provider.
+ */
+export function useAllManagedResources(filterProviderName?: string): {
+  items: FlatMR[];
+  loading: boolean;
+} {
+  const [providers] = (K8s as any).ResourceClasses?.Provider
+    ? (K8s as any).ResourceClasses.Provider.useList()
+    : [null];
+
+  // We need Provider list — import it dynamically to avoid circular dep
+  // Instead we receive it via a separate hook usage below
+  const [allCrds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
+  const [revisions] = ProviderRevision.useList();
+
+  const [items, setItems] = useState<FlatMR[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!allCrds || !revisions) return;
+
+    // Build map: revisionName → crds[]
+    const revisionCrdMap = new Map<string, any[]>();
+    for (const rev of revisions ?? []) {
+      const refs: any[] = rev.jsonData?.status?.objectRefs ?? [];
+      const crdNames = new Set(
+        refs.filter((r: any) => r.kind === 'CustomResourceDefinition').map((r: any) => r.name)
+      );
+      const crds = (allCrds as any[]).filter((c: any) => crdNames.has(c.metadata?.name));
+      revisionCrdMap.set(rev.metadata?.name, crds);
+    }
+
+    // We fetch provider list ourselves via direct API call
+    getApiProxy()
+      .request('/apis/pkg.crossplane.io/v1/providers', { isJSON: true })
+      .then((res: any) => {
+        const providerList: any[] = res?.items ?? [];
+        const filtered = filterProviderName
+          ? providerList.filter((p: any) => p.metadata?.name === filterProviderName)
+          : providerList;
+
+        const allFetches: Promise<FlatMR[]>[] = [];
+
+        for (const provider of filtered) {
+          const providerName: string = provider.metadata?.name ?? '';
+          const currentRevision: string = provider.status?.currentRevision ?? '';
+          const crds = revisionCrdMap.get(currentRevision) ?? [];
+
+          for (const crd of crds) {
+            const group: string = crd.jsonData?.spec?.group ?? '';
+            const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
+            const kind: string = crd.jsonData?.spec?.names?.kind ?? '';
+            const scope: string = crd.jsonData?.spec?.scope ?? 'Cluster';
+            const topVersion: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
+
+            // Skip ProviderConfig CRDs — they're not managed resources
+            if (plural === 'providerconfigs' || plural === 'providerconfig') continue;
+
+            const fetch = getApiProxy()
+              .request(`/apis/${group}/${topVersion}/${plural}`, { isJSON: true })
+              .then((r: any) =>
+                (r?.items ?? []).map((item: any) => ({
+                  ...item,
+                  _providerName: providerName,
+                  _group: group,
+                  _plural: plural,
+                  _kind: kind,
+                  _scope: scope,
+                }))
+              )
+              .catch(() => [] as FlatMR[]);
+
+            allFetches.push(fetch);
+          }
+        }
+
+        return Promise.all(allFetches);
+      })
+      .then((results: FlatMR[][]) => {
+        setItems(results.flat());
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [allCrds, revisions, filterProviderName]);
+
+  return { items, loading };
+}
+
+// ── detectExternalManager ────────────────────────────────────────────────────
+
+export type ExternalManager =
+  | 'helm'
+  | 'flux-kustomization'
+  | 'flux-helmrelease'
+  | 'argocd'
+  | 'kro'
+  | null;
+
+export interface ExternalManagerInfo {
+  manager: ExternalManager;
+  ref: string;
+}
+
+export function detectExternalManager(resource: any): ExternalManagerInfo {
+  const annotations: Record<string, string> = resource?.metadata?.annotations ?? {};
+  const labels: Record<string, string> = resource?.metadata?.labels ?? {};
+
+  if (labels['helm.sh/chart'] || labels['app.kubernetes.io/managed-by'] === 'Helm') {
+    return { manager: 'helm', ref: labels['helm.sh/chart'] ?? labels['app.kubernetes.io/instance'] ?? '' };
+  }
+  if (annotations['kustomize.toolkit.fluxcd.io/name']) {
+    return { manager: 'flux-kustomization', ref: annotations['kustomize.toolkit.fluxcd.io/name'] };
+  }
+  if (annotations['helm.toolkit.fluxcd.io/name']) {
+    return { manager: 'flux-helmrelease', ref: annotations['helm.toolkit.fluxcd.io/name'] };
+  }
+  if (annotations['argocd.argoproj.io/app-name'] || labels['argocd.argoproj.io/app-name']) {
+    return {
+      manager: 'argocd',
+      ref: annotations['argocd.argoproj.io/app-name'] ?? labels['argocd.argoproj.io/app-name'],
+    };
+  }
+  if (labels['kro.run/resourcegraphgroup'] || labels['kro.run/instance']) {
+    return {
+      manager: 'kro',
+      ref: labels['kro.run/instance'] ?? labels['kro.run/resourcegraphgroup'] ?? '',
+    };
+  }
+
+  return { manager: null, ref: '' };
 }
