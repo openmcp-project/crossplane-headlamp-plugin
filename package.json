@@ -7,12 +7,16 @@
     "build": "npx @kinvolk/headlamp-plugin build",
     "start": "npx @kinvolk/headlamp-plugin start"
   },
-  "keywords": ["Crossplane", "Headlamp", "Kubernetes"],
+  "keywords": [
+    "Crossplane",
+    "Headlamp",
+    "Kubernetes"
+  ],
   "author": "Me",
   "license": "Apache-2.0",
   "type": "commonjs",
   "devDependencies": {
-    "@kinvolk/headlamp-plugin": "^0.13.1",
+    "@kinvolk/headlamp-plugin": "^0.14.0",
     "@types/react": "^18.3.28",
     "reactflow": "^11"
   }
