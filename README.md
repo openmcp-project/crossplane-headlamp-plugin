@@ -15,13 +15,27 @@ A [Headlamp™](https://headlamp.dev) plugin that adds a Crossplane section to t
 npm install
 ```
 
-### Run in dev mode (hot-reload against a running Headlamp)
+### Local development with ui-frontend-open-source (recommended)
+
+The fastest way to iterate is from the parent `ui-frontend-open-source` repo using the Taskfile tasks. This builds both plugins and hot-syncs them directly into the running Headlamp pod — no restart needed.
+
+**One-time setup** (creates the kind cluster, deploys Headlamp, port-forwards to `localhost:8090`):
 
 ```bash
-npm start
+# from ui-frontend-open-source/
+task headlamp:setup
 ```
 
-This starts the Headlamp plugin dev server. Open Headlamp and it will pick up the plugin automatically via the watch mechanism.
+**Every time you change plugin code** (builds + syncs both plugins live into the pod):
+
+```bash
+# from ui-frontend-open-source/
+task headlamp:deploy-plugins
+```
+
+Then hard-refresh the browser (`Cmd+Shift+R`) to pick up the new build.
+
+> **Important:** The build entry point is `src/index.tsx`. Do **not** edit the root `index.tsx` — it is not used by the build tool and will be ignored.
 
 ### Build for production
 

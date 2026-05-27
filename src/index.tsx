@@ -35,7 +35,6 @@ registerSidebarEntry({
   url: '/crossplane/overview',
 });
 
-
 registerSidebarEntry({
   parent: 'crossplane',
   name: 'crossplane-providers',
@@ -59,7 +58,6 @@ registerRoute({
   exact: true,
   component: () => React.createElement(CrossplaneOverview),
 });
-
 
 registerRoute({
   path: '/crossplane/providers',

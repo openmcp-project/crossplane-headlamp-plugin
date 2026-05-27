@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy } from '../helpers';
+import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -148,7 +148,7 @@ function ManagedResourceSection({
         const plural = crd.jsonData?.spec?.names?.plural ?? '';
         const kind = crd.jsonData?.spec?.names?.kind ?? '';
         const scope = crd.jsonData?.spec?.scope ?? '';
-        if (plural === 'providerconfigs') return null;
+        if (NON_MANAGED_PLURALS.has(plural)) return null;
         return (
           <Box
             key={crd.metadata.name}

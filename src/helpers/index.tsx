@@ -115,6 +115,20 @@ export function clusterPrefix(): string {
   return match?.[1] ?? '';
 }
 
+// ── Non-managed CRD types (infrastructure resources, no Ready/Synced) ────────
+
+// These CRDs are owned by providers but are NOT managed resources.
+// They don't have Ready/Synced conditions and must be excluded from MR counts,
+// health stats, and the Resources view.
+export const NON_MANAGED_PLURALS = new Set([
+  'providerconfigs',
+  'providerconfig',
+  'providerconfigusages',
+  'providerconfigusage',
+  'storeconfigs',
+  'storeconfig',
+]);
+
 // ── Flat MR type ─────────────────────────────────────────────────────────────
 
 export interface FlatMR {
@@ -188,8 +202,8 @@ export function useAllManagedResources(filterProviderName?: string): {
             const scope: string = crd.jsonData?.spec?.scope ?? 'Cluster';
             const topVersion: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
 
-            // Skip ProviderConfig CRDs — they're not managed resources
-            if (plural === 'providerconfigs' || plural === 'providerconfig') continue;
+            // Skip infrastructure CRDs — they have no Ready/Synced conditions
+            if (NON_MANAGED_PLURALS.has(plural)) continue;
 
             const fetch = getApiProxy()
               .request(`/apis/${group}/${topVersion}/${plural}`, { isJSON: true })
