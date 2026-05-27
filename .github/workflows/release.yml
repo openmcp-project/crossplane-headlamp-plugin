@@ -1,9 +1,11 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version in semver format, e.g. v1.0.0'
+        required: true
 
 jobs:
   release:
@@ -25,14 +27,46 @@ jobs:
       - name: Build plugin
         run: npm run build
 
-      - name: Package plugin
+      - name: Package plugin tar.gz for ArtifactHub
         run: |
-          tar -czf headlamp-crossplane.tar.gz \
-            -C dist main.js \
-            package.json
+          VERSION=${{ github.event.inputs.version }}
+          SEMVER=${VERSION#v}
+          mkdir -p package/headlamp-crossplane
+          cp dist/main.js package/headlamp-crossplane/main.js
+          cp package.json package/headlamp-crossplane/package.json
+          tar -czf headlamp-crossplane-${SEMVER}.tar.gz -C package headlamp-crossplane
+          echo "TARBALL=headlamp-crossplane-${SEMVER}.tar.gz" >> $GITHUB_ENV
+          echo "SEMVER=${SEMVER}" >> $GITHUB_ENV
+
+      - name: Write artifacthub-pkg.yml for this version
+        run: |
+          CHECKSUM=$(sha256sum ${{ env.TARBALL }} | awk '{print $1}')
+          SEMVER=${{ env.SEMVER }}
+          VERSION=${{ github.event.inputs.version }}
+          TEMPLATE="artifacthub/1.0.0/artifacthub-pkg.yml"
+          PKGFILE="artifacthub/${SEMVER}/artifacthub-pkg.yml"
+          mkdir -p "artifacthub/${SEMVER}"
+          cp "$TEMPLATE" "$PKGFILE"
+          sed -i "s|version: .*|version: ${SEMVER}|" "$PKGFILE"
+          sed -i "s|/releases/download/v[^/]*/headlamp-crossplane-[^.]*\.tar\.gz|/releases/download/${VERSION}/headlamp-crossplane-${SEMVER}.tar.gz|" "$PKGFILE"
+          sed -i "s|sha256:.*|sha256:${CHECKSUM}|" "$PKGFILE"
+          echo "PKGFILE=${PKGFILE}" >> $GITHUB_ENV
+
+      - name: Commit artifacthub-pkg.yml and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add artifacthub/
+          git diff --staged --quiet || git commit -m "chore: add artifacthub metadata for ${{ github.event.inputs.version }}"
+          git pull --rebase origin main
+          git tag ${{ github.event.inputs.version }}
+          git push origin HEAD:main --follow-tags
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: headlamp-crossplane.tar.gz
+          tag_name: ${{ github.event.inputs.version }}
+          files: |
+            dist/main.js
+            ${{ env.TARBALL }}
           generate_release_notes: true

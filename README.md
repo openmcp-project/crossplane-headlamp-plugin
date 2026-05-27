@@ -98,29 +98,15 @@ kubectl rollout restart deployment headlamp -n headlamp
 
 ## Release
 
-Releases are automated via GitHub Actions (`.github/workflows/release.yml`).
+Trigger a release via the [GitHub Actions release workflow](../../actions/workflows/release.yml) by clicking **Run workflow** and entering the semver version (e.g. `v1.0.0`). The workflow:
 
-Push a semver tag to trigger a build and publish a GitHub Release with the plugin tarball:
+- Creates a git tag
+- Builds the plugin and uploads `main.js` + a `headlamp-crossplane-<version>.tar.gz` as GitHub Release assets
+- Updates `artifacthub/<version>/artifacthub-pkg.yml` with the correct checksum and commits it
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+Once published, the plugin is installable via Headlamp's plugin manager using its ArtifactHub URL.
 
-The workflow produces `headlamp-crossplane.tar.gz` containing `main.js` and `package.json`, which is what the Headlamp `pluginsManager` expects.
-
-## Consuming in the deployment chart
-
-In `headlamp-deployment` set:
-
-```yaml
-headlamp:
-  pluginsManager:
-    configContent: |
-      plugins:
-        - name: headlamp-crossplane
-          source: https://github.com/<your-org>/headlamp-crossplane-plugin/releases/latest/download/headlamp-crossplane.tar.gz
-```
+> **First-time setup:** See the [ArtifactHub Headlamp plugins documentation](https://artifacthub.io/docs/topics/repositories/headlamp-plugins/). Register the repository on [artifacthub.io](https://artifacthub.io) (type: Headlamp, packages URL: `https://github.com/openmcp-project/crossplane-ui-plugin/artifacthub`), then fill in the `repositoryID` and owner email in `artifacthub/artifacthub-repo.yml`.
 
 ## Support, Feedback, Contributing
 
