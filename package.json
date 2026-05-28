@@ -1,6 +1,6 @@
 {
   "name": "headlamp-crossplane",
-  "version": "1.0.0",
+  "version": "0.0.2",
   "description": "Crossplane plugin for Headlamp",
   "main": "main.js",
   "scripts": {
