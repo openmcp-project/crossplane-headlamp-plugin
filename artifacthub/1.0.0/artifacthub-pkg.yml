@@ -9,8 +9,8 @@ changes:
     description: "Initial release"
 annotations:
   headlamp/plugin/archive-url: >-
-    https://github.com/openmcp-project/crossplane-ui-plugin/releases/download/v1.0.0/headlamp-crossplane-1.0.0.tar.gz
+    https://github.com/openmcp-project/crossplane-headlamp-plugin/releases/download/v1.0.0/headlamp-crossplane-1.0.0.tar.gz
   # Placeholder — automatically replaced by the release workflow after building the tar.gz.
-  headlamp/plugin/archive-checksum: sha256:REPLACE_WITH_CHECKSUM
+  headlamp/plugin/archive-checksum: sha256:14aa77b8f816536efb382135b361d6fd6dc8337b1d973255331a64dd281bfc35
   headlamp/plugin/version-compat: ">=0.22"
   headlamp/plugin/distro-compat: in-cluster,web
