@@ -1,0 +1,16 @@
+version: "3"
+
+vars:
+  UI_FRONTEND_DIR:
+    sh: cd "$(dirname $(pwd))/ui-frontend" 2>/dev/null && pwd || echo ""
+
+tasks:
+  dev:
+    desc: "Bootstrap local Headlamp kind cluster (delegates to ui-frontend). Usage: task dev"
+    cmds:
+      - task -d ../ui-frontend headlamp:dev
+
+  update:
+    desc: "Build this plugin and hot-sync it into the running headlamp-dev pod. Usage: task update"
+    cmds:
+      - task -d ../ui-frontend headlamp:update
