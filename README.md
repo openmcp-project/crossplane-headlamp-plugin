@@ -8,29 +8,28 @@ A [Headlamp™](https://headlamp.dev) plugin that adds a Crossplane section to t
 
 - Node.js >= 18
 - npm
-
-### Install dependencies
+- `kind`, `kubectl`, `helm` (for local cluster)
 
 ```bash
 npm install
 ```
 
-### Local development with ui-frontend-open-source (recommended)
+### Local development (recommended)
 
-The fastest way to iterate is from the parent `ui-frontend-open-source` repo using the Taskfile tasks. This builds both plugins and hot-syncs them directly into the running Headlamp pod — no restart needed.
+The cluster setup and plugin iteration is managed centrally from the `ui-frontend` repo. Both this plugin and the kiosk plugin are built and synced together.
 
-**One-time setup** (creates the kind cluster, deploys Headlamp, port-forwards to `localhost:8090`):
+**One-time setup** (creates the kind cluster, deploys Headlamp with latest ArtifactHub plugin releases, port-forwards to `localhost:8090`):
 
 ```bash
-# from ui-frontend-open-source/
-task headlamp:setup
+# from ui-frontend/ or from this repo
+task dev
 ```
 
-**Every time you change plugin code** (builds + syncs both plugins live into the pod):
+**Every time you change plugin code** (builds + hot-syncs all local plugins into the pod, no restart needed):
 
 ```bash
-# from ui-frontend-open-source/
-task headlamp:deploy-plugins
+# from ui-frontend/ or from this repo
+task update
 ```
 
 Then hard-refresh the browser (`Cmd+Shift+R`) to pick up the new build.
@@ -42,58 +41,6 @@ Then hard-refresh the browser (`Cmd+Shift+R`) to pick up the new build.
 ```bash
 npm run build
 # Output: dist/main.js
-```
-
-### Test locally in-cluster
-
-1. Build the plugin:
-
-```bash
-npm run build
-```
-
-2. Create a ConfigMap from the build output:
-
-```bash
-kubectl create configmap headlamp-crossplane-plugin \
-  --from-file=main.js=dist/main.js \
-  --from-file=package.json=package.json \
-  -n headlamp --dry-run=client -o yaml | kubectl apply -f -
-```
-
-3. Install (or upgrade) Headlamp mounting the ConfigMap as a plugin volume. Add these overrides to your local `values.local.yaml`:
-
-```yaml
-headlamp:
-  volumes:
-    - name: crossplane-plugin
-      configMap:
-        name: headlamp-crossplane-plugin
-  volumeMounts:
-    - name: crossplane-plugin
-      mountPath: /headlamp/user-plugins/headlamp-crossplane/main.js
-      subPath: main.js
-    - name: crossplane-plugin
-      mountPath: /headlamp/user-plugins/headlamp-crossplane/package.json
-      subPath: package.json
-```
-
-```bash
-helm upgrade --install headlamp ../headlamp-deployment/helm/ \
-  -n headlamp --create-namespace \
-  -f ../headlamp-deployment/helm/values.yaml \
-  -f values.local.yaml
-```
-
-4. To iterate: rebuild, re-apply the ConfigMap, then restart the pod:
-
-```bash
-npm run build
-kubectl create configmap headlamp-crossplane-plugin \
-  --from-file=main.js=dist/main.js \
-  --from-file=package.json=package.json \
-  -n headlamp --dry-run=client -o yaml | kubectl apply -f -
-kubectl rollout restart deployment headlamp -n headlamp
 ```
 
 ## Release
