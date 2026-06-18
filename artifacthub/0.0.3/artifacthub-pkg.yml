@@ -9,7 +9,7 @@ changes:
     description: "Initial release"
 annotations:
   headlamp/plugin/archive-url: >-
-    https://github.com/openmcp-project/crossplane-headlamp-plugin/releases/download/v0.0.2/headlamp-crossplane-0.0.2.tar.gz
+    https://github.com/openmcp-project/crossplane-headlamp-plugin/releases/download/v0.0.3/headlamp-crossplane-0.0.3.tar.gz
   headlamp/plugin/archive-checksum: sha256:87a874317e67677b58e38dd89f6a3db862c36e39e078ecc719568a145116aca6
   headlamp/plugin/version-compat: ">=0.22"
   headlamp/plugin/distro-compat: in-cluster,web
