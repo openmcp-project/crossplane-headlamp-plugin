@@ -47,6 +47,7 @@ jobs:
           PKGFILE="artifacthub/${SEMVER}/artifacthub-pkg.yml"
           mkdir -p "artifacthub/${SEMVER}"
           cp "$TEMPLATE" "$PKGFILE"
+          [ -f "artifacthub/0.0.2/README.md" ] && cp "artifacthub/0.0.2/README.md" "artifacthub/${SEMVER}/README.md"
           sed -i "s|version: .*|version: ${SEMVER}|" "$PKGFILE"
           sed -i "s|https://github.com/openmcp-project/[^/]*/releases/download/v[^/]*/headlamp-crossplane-[^.]*\.tar\.gz|https://github.com/openmcp-project/crossplane-headlamp-plugin/releases/download/${VERSION}/headlamp-crossplane-${SEMVER}.tar.gz|" "$PKGFILE"
           sed -i "s|sha256:.*|sha256:${CHECKSUM}|" "$PKGFILE"

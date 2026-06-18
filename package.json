@@ -1,6 +1,6 @@
 {
   "name": "headlamp-crossplane",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Crossplane plugin for Headlamp",
   "main": "main.js",
   "scripts": {
@@ -12,12 +12,12 @@
     "Headlamp",
     "Kubernetes"
   ],
-  "author": "Me",
+  "author": "openmcp-project",
   "license": "Apache-2.0",
   "type": "commonjs",
   "devDependencies": {
-    "@kinvolk/headlamp-plugin": "^0.14.0",
-    "@types/react": "^18.3.28",
-    "reactflow": "^11"
+    "@kinvolk/headlamp-plugin": "0.13.1",
+    "@types/react": "18.3.28",
+    "reactflow": "11.11.4"
   }
 }
