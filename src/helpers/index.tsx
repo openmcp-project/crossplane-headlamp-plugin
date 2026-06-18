@@ -127,6 +127,8 @@ export const NON_MANAGED_PLURALS = new Set([
   'providerconfigusage',
   'storeconfigs',
   'storeconfig',
+  'resourceusages',
+  'resourceusage',
 ]);
 
 // ── Flat MR type ─────────────────────────────────────────────────────────────
