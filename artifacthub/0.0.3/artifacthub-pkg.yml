@@ -1,7 +1,7 @@
 version: 0.0.3
 name: headlamp_crossplane
 displayName: Crossplane
-createdAt: "2026-05-28T00:00:00Z"
+createdAt: "2026-06-23T00:00:00Z"
 description: Adds a Crossplane section to the sidebar with views for Providers, Managed Resources, and Compositions.
 logoURL: "https://avatars.githubusercontent.com/u/45158470?s=200&v=4"
 changes:
