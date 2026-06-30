@@ -86,50 +86,6 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
   );
 }
 
-function ProviderPodSection({
-  providerName,
-  cluster,
-}: {
-  providerName: string;
-  cluster: string;
-}) {
-  const history = useHistory();
-  const [pods] = K8s.ResourceClasses.Pod.useList({ namespace: 'crossplane-system' });
-
-  const providerPod = pods?.find(
-    (pod: any) =>
-      pod.metadata?.labels?.['pkg.crossplane.io/revision']?.includes(providerName) ||
-      pod.metadata?.name?.includes(providerName)
-  );
-
-  if (!pods) return <CircularProgress size={16} />;
-  if (!providerPod) {
-    return (
-      <Typography variant="body2" color="textSecondary">
-        No provider pod found for {providerName} in crossplane-system namespace.
-      </Typography>
-    );
-  }
-
-  const podName = providerPod.metadata?.name ?? '';
-  const podNs = providerPod.metadata?.namespace ?? 'crossplane-system';
-
-  return (
-    <Box display="flex" alignItems="center" gap={2}>
-      <Typography variant="body2">
-        Provider pod: <strong>{podName}</strong>
-      </Typography>
-      <Button
-        size="small"
-        variant="contained"
-        onClick={() => history.push(`/c/${cluster}/pods/${podNs}/${podName}/logs`)}
-      >
-        View Logs
-      </Button>
-    </Box>
-  );
-}
-
 const managerColors: Record<string, string> = {
   helm: '#7b1fa2',
   'flux-kustomization': '#00796b',
@@ -156,9 +112,6 @@ export default function ManagedDetail() {
   }>();
   const { providerName, group, plural, name, namespace } = params;
   const history = useHistory();
-
-  const clusterMatch = window.location.pathname.match(/^\/c\/([^/]+)/);
-  const cluster = clusterMatch?.[1] ?? 'main';
 
   const [item, error] = useCustomResource(group, plural, name, namespace);
 
@@ -193,10 +146,6 @@ export default function ManagedDetail() {
   const managerInfo = detectExternalManager(item);
 
   const hasRelationships = !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
-
-  const graphUrl = namespace
-    ? `${clusterPrefix()}/crossplane/graph/${providerName}/${group}/${plural}/${namespace}/${name}`
-    : `${clusterPrefix()}/crossplane/graph/${providerName}/${group}/${plural}/${name}`;
 
   return (
     <Box p={3}>
@@ -247,9 +196,6 @@ export default function ManagedDetail() {
         <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
           <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
             <Typography variant="h6">Relationships</Typography>
-            <Button size="small" variant="outlined" onClick={() => history.push(graphUrl)}>
-              View Dependency Graph
-            </Button>
           </Box>
           <Box display="flex" flexDirection="column" gap={1}>
             {providerConfigRef && (
@@ -365,11 +311,7 @@ export default function ManagedDetail() {
         </AccordionDetails>
       </Accordion>
 
-      {/* Provider Pod Logs */}
-      <Paper elevation={1} style={{ padding: 16 }}>
-        <Typography variant="h6" gutterBottom>Provider Pod Logs</Typography>
-        <ProviderPodSection providerName={providerName} cluster={cluster} />
-      </Paper>
+      {/* Provider Pod Logs — hidden until 404 issue is resolved */}
     </Box>
   );
 }

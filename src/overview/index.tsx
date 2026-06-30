@@ -3,7 +3,7 @@ import { useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { clusterPrefix, useAllManagedResources, useCRDsForProvider, getApiProxy } from '../helpers';
 
-const { Typography, Box, Paper, CircularProgress, Alert, Chip } =
+const { Typography, Box, Paper, CircularProgress, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
 
 // ── Donut chart (pure SVG) ────────────────────────────────────────────────────
@@ -320,14 +320,7 @@ export default function CrossplaneOverview() {
   const mrNotReady = mrTotal - mrReady;
   const mrNotSynced = mrTotal - mrSynced;
 
-  const providerTotal = providers.length;
-  const providerHealthy = providers.filter((p: any) =>
-    p.jsonData?.status?.conditions?.find((c: any) => c.type === 'Healthy')?.status === 'True'
-  ).length;
-  const providerUnhealthy = providerTotal - providerHealthy;
-
   const resourcesBase = `${clusterPrefix()}/crossplane/resources`;
-  const providersBase = `${clusterPrefix()}/crossplane/providers`;
 
   const mrReadySlices: DonutSlice[] = [
     {
@@ -349,16 +342,6 @@ export default function CrossplaneOverview() {
       onClick: mrNotSynced > 0 ? () => history.push(`${resourcesBase}?status=not-synced`) : undefined,
     },
   ];
-  const providerSlices: DonutSlice[] = [
-    {
-      value: providerHealthy, color: '#4caf50', label: 'Healthy',
-      onClick: providerHealthy > 0 ? () => history.push(`${providersBase}?status=healthy`) : undefined,
-    },
-    {
-      value: providerUnhealthy, color: '#f44336', label: 'Unhealthy',
-      onClick: providerUnhealthy > 0 ? () => history.push(`${providersBase}?status=unhealthy`) : undefined,
-    },
-  ];
 
   return (
     <Box p={3}>
@@ -377,11 +360,8 @@ export default function CrossplaneOverview() {
       <Typography variant="overline" color="textSecondary" style={{ letterSpacing: 1.5 }}>
         Providers
       </Typography>
-      <Box display="flex" gap={2} mb={3} mt={0.5} flexWrap="wrap">
-        <DonutCard title="Health" slices={providerSlices} total={providerTotal} />
-      </Box>
 
-      <Box display="flex" flexDirection="column" gap={2}>
+      <Box display="flex" flexDirection="column" gap={2} mt={0.5}>
         {providers.map((provider: any) => (
           <ProviderCard
             key={provider.metadata.name}

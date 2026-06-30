@@ -55,23 +55,29 @@ function useInstancesForCRD(crd: any, expanded: boolean, statusFilter: StatusFil
   return { instances: filtered, loading };
 }
 
-function useCRDInstanceCounts(crds: any[] | null): Map<string, number> | null {
-  const [counts, setCounts] = useState<Map<string, number> | null>(null);
+function useCRDInstanceCounts(crds: any[] | null): Map<string, { total: number; ready: number; notReady: number }> | null {
+  const [counts, setCounts] = useState<Map<string, { total: number; ready: number; notReady: number }> | null>(null);
 
   useEffect(() => {
     if (!crds) { setCounts(null); return; }
     if (crds.length === 0) { setCounts(new Map()); return; }
     let cancelled = false;
-    const result = new Map<string, number>();
+    const result = new Map<string, { total: number; ready: number; notReady: number }>();
     const fetches = crds.map((crd: any) => {
       const group: string = crd.jsonData?.spec?.group ?? '';
       const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
       const ver: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-      if (!group || !plural) { result.set(crd.metadata.name, 0); return Promise.resolve(); }
+      if (!group || !plural) { result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0 }); return Promise.resolve(); }
       return getApiProxy()
         .request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
-        .then((res: any) => { result.set(crd.metadata.name, res?.items?.length ?? 0); })
-        .catch(() => { result.set(crd.metadata.name, 0); });
+        .then((res: any) => {
+          const items: any[] = res?.items ?? [];
+          const ready = items.filter((i: any) =>
+            i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
+          ).length;
+          result.set(crd.metadata.name, { total: items.length, ready, notReady: items.length - ready });
+        })
+        .catch(() => { result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0 }); });
     });
     Promise.all(fetches).then(() => { if (!cancelled) setCounts(new Map(result)); });
     return () => { cancelled = true; };
@@ -134,15 +140,6 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
   return (
     <Box style={{ background: '#f9f9f9', borderTop: '1px solid #e8e8e8' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ borderBottom: '1px solid #e0e0e0', background: '#f0f0f0' }}>
-            <th style={{ padding: '6px 12px 6px 40px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#555' }}>Name</th>
-            {isNamespaced && <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#555' }}>Namespace</th>}
-            <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#555' }}>Ready</th>
-            <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#555' }}>Synced</th>
-            <th style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#555' }}>Age</th>
-          </tr>
-        </thead>
         <tbody>
           {instances.map((inst: any) => {
             const instName: string = inst.metadata?.name ?? '';
@@ -164,13 +161,24 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
                 }}
                 onClick={() => history.push(detailUrl)}
               >
-                <td style={{ padding: '6px 12px 6px 40px' }}>
+                {/* col 1: indent spacer */}
+                <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
+                {/* col 2: name */}
+                <td style={{ padding: '6px 12px' }}>
                   <span style={{ color: '#1976d2', textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
+                  {isNamespaced && ns && (
+                    <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
+                  )}
                 </td>
-                {isNamespaced && <td style={{ padding: '6px 12px', fontSize: 12, color: '#555' }}>{ns}</td>}
-                <td style={{ padding: '6px 12px' }}>{readyChip(conditions)}</td>
-                <td style={{ padding: '6px 12px' }}>{syncedChip(conditions)}</td>
-                <td style={{ padding: '6px 12px', fontSize: 12, color: '#888' }}>{created}</td>
+                {/* col 3+4: group/version/scope spacers — empty, keeps alignment */}
+                <td style={{ padding: '6px 12px', fontSize: 12, color: '#aaa' }} colSpan={3}>{created}</td>
+                {/* col 6: health — aligns with parent "Health" column */}
+                <td style={{ padding: '6px 12px 6px 20px', textAlign: 'right' as const, whiteSpace: 'nowrap' as const }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {readyChip(conditions)}
+                    {syncedChip(conditions)}
+                  </span>
+                </td>
               </tr>
             );
           })}
@@ -190,7 +198,7 @@ type SortDir = 'asc' | 'desc';
 function CRDRow({ crd, providerName, count, statusFilter }: {
   crd: any;
   providerName: string;
-  count: number;
+  count: { total: number; ready: number; notReady: number };
   statusFilter: StatusFilter;
 }) {
   const history = useHistory();
@@ -201,7 +209,7 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
   const kind: string = crd.jsonData?.spec?.names?.kind ?? '';
   const scope: string = crd.jsonData?.spec?.scope ?? '';
   const topVersion: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-  const hasInstances = count > 0;
+  const hasInstances = count.total > 0;
 
   // Auto-expand if a status filter is active and there are instances
   useEffect(() => {
@@ -233,8 +241,21 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
           <Chip label={scope} size="small"
             style={{ background: scope === 'Cluster' ? '#1976d2' : '#7b1fa2', color: '#fff', fontWeight: 600 }} />
         </td>
-        <td style={{ padding: '8px 12px', fontWeight: 600, textAlign: 'right' as const, paddingRight: 20 }}>
-          {count}
+        <td style={{ padding: '8px 12px', textAlign: 'right' as const, paddingRight: 20 }}>
+          {hasInstances ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {count.notReady > 0 && (
+                <Chip label={`${count.notReady} not ready`} size="small"
+                  style={{ background: '#f44336', color: '#fff', fontWeight: 600 }} />
+              )}
+              {count.ready > 0 && (
+                <Chip label={`${count.ready} ready`} size="small"
+                  style={{ background: '#4caf50', color: '#fff', fontWeight: 600 }} />
+              )}
+            </span>
+          ) : (
+            <span style={{ color: '#bbb', fontSize: 12 }}>—</span>
+          )}
         </td>
       </tr>
       {expanded && (
@@ -271,10 +292,9 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
 
   const visibleCrds = (() => {
     if (!crds) return [];
-    // Exclude infrastructure CRDs that have no Ready/Synced conditions
     let list = crds.filter((c: any) => !NON_MANAGED_PLURALS.has(c.jsonData?.spec?.names?.plural ?? ''));
     if (hideUnused && counts !== null) {
-      list = list.filter((c: any) => (counts.get(c.metadata.name) ?? 0) > 0);
+      list = list.filter((c: any) => (counts.get(c.metadata.name)?.total ?? 0) > 0);
     }
     if (lc) {
       list = list.filter((c: any) => {
@@ -289,7 +309,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
       else if (sortKey === 'group') { va = a.jsonData?.spec?.group ?? ''; vb = b.jsonData?.spec?.group ?? ''; }
       else if (sortKey === 'version') { va = a.jsonData?.spec?.versions?.[0]?.name ?? ''; vb = b.jsonData?.spec?.versions?.[0]?.name ?? ''; }
       else if (sortKey === 'scope') { va = a.jsonData?.spec?.scope ?? ''; vb = b.jsonData?.spec?.scope ?? ''; }
-      else if (sortKey === 'instances') { va = counts?.get(a.metadata.name) ?? 0; vb = counts?.get(b.metadata.name) ?? 0; }
+      else if (sortKey === 'instances') { va = counts?.get(a.metadata.name)?.total ?? 0; vb = counts?.get(b.metadata.name)?.total ?? 0; }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
       return 0;
@@ -332,13 +352,13 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
               <SortHeader label="Group" sk="group" />
               <SortHeader label="Version" sk="version" />
               <SortHeader label="Scope" sk="scope" />
-              <SortHeader label="Instances" sk="instances" />
+              <SortHeader label="Health" sk="instances" />
             </tr>
           </thead>
           <tbody>
             {visibleCrds.map((crd: any) => (
               <CRDRow key={crd.metadata.name} crd={crd} providerName={provider.metadata.name}
-                count={counts?.get(crd.metadata.name) ?? 0} statusFilter={statusFilter} />
+                count={counts?.get(crd.metadata.name) ?? { total: 0, ready: 0, notReady: 0 }} statusFilter={statusFilter} />
             ))}
           </tbody>
         </table>
