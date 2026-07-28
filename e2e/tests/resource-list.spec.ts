@@ -3,11 +3,11 @@ import { gotoCrossplaneResources } from '../helpers';
 
 const CLUSTER = 'main';
 
-/** Uncheck "Hide unused" if checked, using the label text for a reliable locator. */
+/** Uncheck "Hide unused" if checked. */
 async function uncheckHideUnused(page: any) {
-  const label = page.locator('label:has-text("Hide unused")');
-  const checkbox = label.locator('input[type="checkbox"]');
-  if (await checkbox.isChecked({ timeout: 10_000 })) {
+  const checkbox = page.getByRole('checkbox', { name: /hide unused/i });
+  const checked = await checkbox.isChecked({ timeout: 10_000 }).catch(() => false);
+  if (checked) {
     await checkbox.uncheck();
     await page.waitForTimeout(300);
   }
@@ -91,8 +91,8 @@ test.describe('Resource List', () => {
 
     const totalRows = await page.locator('tbody tr').count();
 
-    const label = page.locator('label:has-text("Hide unused")');
-    await label.locator('input[type="checkbox"]').check();
+    const label = page.getByRole('checkbox', { name: /hide unused/i });
+    await label.check();
     await page.waitForTimeout(500);
     const filteredRows = await page.locator('tbody tr').count();
 
