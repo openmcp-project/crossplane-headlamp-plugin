@@ -3,9 +3,12 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version in semver format, e.g. v1.0.0'
+      nextVersion:
+        description: "Specify the release version in semver format v[major].[minor].[patch] e.g. v0.0.0"
         required: true
+
+permissions:
+  contents: read
 
 jobs:
   release:
@@ -14,11 +17,23 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
-          node-version: "lts/*"
+          fetch-depth: 0
+
+      - name: Check if tag already exists
+        run: |
+          if git rev-parse ${{ github.event.inputs.nextVersion }} >/dev/null 2>&1; then
+            echo "Tag ${{ github.event.inputs.nextVersion }} already exists."
+            exit 1
+          else
+            echo "Tag does not exist. Building release version ${{ github.event.inputs.nextVersion }}"
+          fi
+
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4
+        with:
+          node-version: "20"
           cache: npm
 
       - name: Install dependencies
@@ -29,7 +44,7 @@ jobs:
 
       - name: Package plugin tar.gz for ArtifactHub
         run: |
-          VERSION=${{ github.event.inputs.version }}
+          VERSION=${{ github.event.inputs.nextVersion }}
           SEMVER=${VERSION#v}
           mkdir -p package/headlamp-crossplane
           cp dist/main.js package/headlamp-crossplane/main.js
@@ -42,7 +57,7 @@ jobs:
         run: |
           CHECKSUM=$(sha256sum ${{ env.TARBALL }} | awk '{print $1}')
           SEMVER=${{ env.SEMVER }}
-          VERSION=${{ github.event.inputs.version }}
+          VERSION=${{ github.event.inputs.nextVersion }}
           TEMPLATE="artifacthub/0.0.2/artifacthub-pkg.yml"
           PKGFILE="artifacthub/${SEMVER}/artifacthub-pkg.yml"
           mkdir -p "artifacthub/${SEMVER}"
@@ -58,15 +73,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add artifacthub/
-          git diff --staged --quiet || git commit -m "chore: add artifacthub metadata for ${{ github.event.inputs.version }}"
+          git diff --staged --quiet || git commit -m "chore: add artifacthub metadata for ${{ github.event.inputs.nextVersion }}"
           git pull --rebase origin main
-          git tag ${{ github.event.inputs.version }}
+          git tag ${{ github.event.inputs.nextVersion }}
           git push origin HEAD:main --follow-tags
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
         with:
-          tag_name: ${{ github.event.inputs.version }}
+          tag_name: ${{ github.event.inputs.nextVersion }}
           files: |
             dist/main.js
             ${{ env.TARBALL }}
