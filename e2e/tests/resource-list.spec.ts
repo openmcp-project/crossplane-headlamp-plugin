@@ -42,7 +42,8 @@ test.describe('Resource List', () => {
     await gotoCrossplaneResources(page);
     await uncheckHideUnused(page);
 
-    const searchInput = page.locator('input[placeholder*="Search"]');
+    // Scope to the plugin toolbar, not the global Headlamp search bar
+    const searchInput = page.locator('input[placeholder*="Search kind"]');
     await searchInput.fill('NopResource');
     await page.waitForTimeout(300);
 
@@ -61,8 +62,9 @@ test.describe('Resource List', () => {
     await gotoCrossplaneResources(page);
     await uncheckHideUnused(page);
 
-    await page.locator('[role="combobox"]').first().click();
-    await page.locator('[role="option"]:has-text("Not Ready")').click();
+    // Click the Status select label text to open it
+    await page.locator('text=Status').first().click();
+    await page.locator('[role="option"]:has-text("Not Ready"), li:has-text("Not Ready")').first().click();
 
     await expect(page).toHaveURL(/status=not-ready/);
     await expect(page.locator('text=Filtered view')).toBeVisible();
