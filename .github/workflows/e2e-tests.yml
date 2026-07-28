@@ -9,6 +9,10 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+
 
     steps:
       - uses: actions/checkout@v4
@@ -136,10 +140,22 @@ jobs:
       # ── Artifacts ────────────────────────────────────────────────────────────
 
       - name: Upload screenshots
+        id: upload
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-screenshots
           path: e2e/screenshots/
           retention-days: 14
+
+      - name: Comment screenshot link on PR
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SCREENSHOTS=$(ls e2e/screenshots/*.png 2>/dev/null | xargs -I{} basename {} | sed 's/^/- /' || echo "none")
+          gh pr comment ${{ github.event.pull_request.number }} --body "### E2E Screenshots
+          Artifact: [e2e-screenshots](${{ steps.upload.outputs.artifact-url }})
+
+          ${SCREENSHOTS}"
 
