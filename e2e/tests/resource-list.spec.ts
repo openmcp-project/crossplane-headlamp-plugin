@@ -3,25 +3,29 @@ import { gotoCrossplaneResources } from '../helpers';
 
 const CLUSTER = 'main';
 
+/** Uncheck "Hide unused" if checked, using the label text for a reliable locator. */
+async function uncheckHideUnused(page: any) {
+  const label = page.locator('label:has-text("Hide unused")');
+  const checkbox = label.locator('input[type="checkbox"]');
+  if (await checkbox.isChecked({ timeout: 10_000 })) {
+    await checkbox.uncheck();
+    await page.waitForTimeout(300);
+  }
+}
+
 test.describe('Resource List', () => {
   test('renders provider section with CRD rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
 
     await expect(page.locator('text=Managed Resources')).toBeVisible();
-    await expect(page.locator('text=provider-nop')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('text=provider-nop').first()).toBeVisible({ timeout: 20_000 });
 
     await page.screenshot({ path: 'e2e/screenshots/resources-initial.png', fullPage: true });
   });
 
   test('expanding a CRD row loads instances', async ({ page }) => {
     await gotoCrossplaneResources(page);
-
-    // Uncheck "Hide unused" so all CRD types are visible
-    const checkbox = page.locator('input[type="checkbox"]');
-    if (await checkbox.isChecked()) {
-      await checkbox.uncheck();
-    }
-    await page.waitForTimeout(500);
+    await uncheckHideUnused(page);
 
     const chevron = page.locator('text=▸').first();
     if (await chevron.isVisible({ timeout: 5_000 })) {
@@ -36,22 +40,17 @@ test.describe('Resource List', () => {
 
   test('search filters CRD rows by kind', async ({ page }) => {
     await gotoCrossplaneResources(page);
-
-    // Uncheck "Hide unused" so all CRD types are visible before searching
-    const checkbox = page.locator('input[type="checkbox"]');
-    if (await checkbox.isChecked()) {
-      await checkbox.uncheck();
-    }
-    await page.waitForTimeout(500);
+    await uncheckHideUnused(page);
 
     const searchInput = page.locator('input[placeholder*="Search"]');
     await searchInput.fill('NopResource');
     await page.waitForTimeout(300);
 
-    const rows = page.locator('tbody tr');
-    const count = await rows.count();
+    // All visible kind cells should contain 'nop'
+    const kindCells = page.locator('tbody tr td:nth-child(2)');
+    const count = await kindCells.count();
     for (let i = 0; i < count; i++) {
-      const text = await rows.nth(i).textContent();
+      const text = await kindCells.nth(i).textContent();
       expect(text?.toLowerCase()).toContain('nop');
     }
 
@@ -60,13 +59,7 @@ test.describe('Resource List', () => {
 
   test('status filter updates URL and auto-expands rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
-
-    // Uncheck "Hide unused" first so rows exist to filter
-    const checkbox = page.locator('input[type="checkbox"]');
-    if (await checkbox.isChecked()) {
-      await checkbox.uncheck();
-    }
-    await page.waitForTimeout(500);
+    await uncheckHideUnused(page);
 
     await page.locator('[role="combobox"]').first().click();
     await page.locator('[role="option"]:has-text("Not Ready")').click();
@@ -78,6 +71,8 @@ test.describe('Resource List', () => {
   });
 
   test('clear filter resets URL and banner', async ({ page }) => {
+    // Go through the helper to authenticate first, then navigate with filter
+    await gotoCrossplaneResources(page);
     await page.goto(`/c/${CLUSTER}/crossplane/resources?status=not-ready`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
@@ -92,18 +87,12 @@ test.describe('Resource List', () => {
 
   test('hide unused checkbox removes zero-instance rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
+    await uncheckHideUnused(page);
 
-    const checkbox = page.locator('input[type="checkbox"]');
-
-    // Uncheck to show all types first
-    if (await checkbox.isChecked()) {
-      await checkbox.uncheck();
-    }
-    await page.waitForTimeout(500);
     const totalRows = await page.locator('tbody tr').count();
 
-    // Re-check to hide unused
-    await checkbox.check();
+    const label = page.locator('label:has-text("Hide unused")');
+    await label.locator('input[type="checkbox"]').check();
     await page.waitForTimeout(500);
     const filteredRows = await page.locator('tbody tr').count();
 
