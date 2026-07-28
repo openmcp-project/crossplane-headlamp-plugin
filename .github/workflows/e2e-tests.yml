@@ -113,14 +113,22 @@ jobs:
       - name: Build plugin
         run: npm run build
 
-      - name: Inject plugin into Headlamp pod
+      - name: Inject plugin into Headlamp via ConfigMap
         run: |
-          POD=$(kubectl get pod -n headlamp -l app.kubernetes.io/name=headlamp -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n headlamp "$POD" -- mkdir -p /headlamp/plugins/headlamp_crossplane
-          kubectl cp dist/main.js "headlamp/${POD}:/headlamp/plugins/headlamp_crossplane/main.js"
-          kubectl cp package.json "headlamp/${POD}:/headlamp/plugins/headlamp_crossplane/package.json"
-          # Restart the pod so Headlamp picks up the plugin on boot
-          kubectl rollout restart deployment/headlamp -n headlamp
+          # Store plugin files in ConfigMaps so they survive pod restarts
+          kubectl create configmap headlamp-plugin-main-js \
+            --from-file=main.js=dist/main.js \
+            -n headlamp --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap headlamp-plugin-package-json \
+            --from-file=package.json=package.json \
+            -n headlamp --dry-run=client -o yaml | kubectl apply -f -
+          # Patch the deployment to mount both ConfigMaps into the plugins dir
+          kubectl patch deployment headlamp -n headlamp --type=json -p='[
+            {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"plugin-main-js","configMap":{"name":"headlamp-plugin-main-js"}}},
+            {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"plugin-package-json","configMap":{"name":"headlamp-plugin-package-json"}}},
+            {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"plugin-main-js","mountPath":"/headlamp/plugins/headlamp_crossplane/main.js","subPath":"main.js"}},
+            {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"plugin-package-json","mountPath":"/headlamp/plugins/headlamp_crossplane/package.json","subPath":"package.json"}}
+          ]'
           kubectl rollout status deployment/headlamp -n headlamp --timeout=2m
 
       - name: Port-forward Headlamp
