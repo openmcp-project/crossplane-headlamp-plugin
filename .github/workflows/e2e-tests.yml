@@ -1,0 +1,144 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      # ── Cluster ──────────────────────────────────────────────────────────────
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: headlamp-e2e
+
+      # ── Crossplane ───────────────────────────────────────────────────────────
+
+      - name: Install Crossplane
+        run: |
+          helm repo add crossplane-stable https://charts.crossplane.io/stable
+          helm repo update
+          helm install crossplane crossplane-stable/crossplane \
+            --namespace crossplane-system \
+            --create-namespace \
+            --wait \
+            --timeout 5m
+
+      - name: Install provider-nop
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: pkg.crossplane.io/v1
+          kind: Provider
+          metadata:
+            name: provider-nop
+          spec:
+            package: xpkg.upbound.io/crossplane-contrib/provider-nop:v0.2.0
+          EOF
+          kubectl wait provider/provider-nop --for=condition=Healthy --timeout=5m
+
+      - name: Create NopResource instances
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: nop.crossplane.io/v1alpha1
+          kind: NopResource
+          metadata:
+            name: example-ready
+          spec:
+            forProvider:
+              conditionAfter:
+                - conditionType: Ready
+                  conditionStatus: "True"
+                  time: 0s
+                - conditionType: Synced
+                  conditionStatus: "True"
+                  time: 0s
+          ---
+          apiVersion: nop.crossplane.io/v1alpha1
+          kind: NopResource
+          metadata:
+            name: example-not-ready
+          spec:
+            forProvider:
+              conditionAfter:
+                - conditionType: Ready
+                  conditionStatus: "False"
+                  time: 0s
+                - conditionType: Synced
+                  conditionStatus: "True"
+                  time: 0s
+          EOF
+
+      # ── Headlamp ─────────────────────────────────────────────────────────────
+
+      - name: Install Headlamp
+        run: |
+          helm repo add headlamp https://headlamp-k8s.github.io/headlamp/
+          helm repo update
+          helm install headlamp headlamp/headlamp \
+            --namespace headlamp \
+            --create-namespace \
+            --set replicaCount=1 \
+            --wait \
+            --timeout 5m
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Inject plugin into Headlamp pod
+        run: |
+          POD=$(kubectl get pod -n headlamp -l app.kubernetes.io/name=headlamp -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec -n headlamp "$POD" -- mkdir -p /headlamp/plugins/headlamp_crossplane
+          kubectl cp dist/main.js "headlamp/${POD}:/headlamp/plugins/headlamp_crossplane/main.js"
+          kubectl cp package.json "headlamp/${POD}:/headlamp/plugins/headlamp_crossplane/package.json"
+
+      - name: Port-forward Headlamp
+        run: |
+          kubectl port-forward -n headlamp svc/headlamp 4466:80 &
+          # Wait for port-forward to be ready
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:4466 > /dev/null && break
+            sleep 2
+          done
+
+      # ── Tests ────────────────────────────────────────────────────────────────
+
+      - name: Run Playwright E2E tests
+        run: npm run test:e2e
+        env:
+          HEADLAMP_URL: http://localhost:4466
+
+      # ── Artifacts ────────────────────────────────────────────────────────────
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: e2e/screenshots/
+          retention-days: 14
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: e2e/report/
+          retention-days: 14
