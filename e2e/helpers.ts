@@ -3,8 +3,12 @@ import type { Page } from '@playwright/test';
 const HEADLAMP_TOKEN = process.env.HEADLAMP_TOKEN ?? '';
 const CLUSTER = 'main';
 
+let authenticated = false;
+
 /** Authenticate against Headlamp by filling in the token form if it appears. */
 async function authenticate(page: Page) {
+  if (authenticated) return;
+
   const authHeader = page.locator('h1:has-text("Authentication")');
   const hasAuthPage = await authHeader
     .waitFor({ state: 'visible', timeout: 10_000 })
@@ -18,12 +22,16 @@ async function authenticate(page: Page) {
     page.waitForNavigation({ timeout: 15_000 }).catch(() => {}),
     page.click('button:has-text("Authenticate")'),
   ]);
+
+  authenticated = true;
+  await page.screenshot({ path: 'e2e/screenshots/debug-after-auth.png', fullPage: true }).catch(() => {});
 }
 
 /** Navigate to the Crossplane overview page, authenticating if needed. */
 export async function gotoCrossplaneOverview(page: Page) {
   await page.goto(`/c/${CLUSTER}/crossplane/overview`, { waitUntil: 'domcontentloaded' });
   await authenticate(page);
+  await page.screenshot({ path: 'e2e/screenshots/debug-overview-loaded.png', fullPage: true }).catch(() => {});
   await page.waitForSelector('text=Loading Crossplane…', { state: 'detached', timeout: 30_000 }).catch(() => {});
 }
 
@@ -31,5 +39,6 @@ export async function gotoCrossplaneOverview(page: Page) {
 export async function gotoCrossplaneResources(page: Page) {
   await page.goto(`/c/${CLUSTER}/crossplane/resources`, { waitUntil: 'domcontentloaded' });
   await authenticate(page);
+  await page.screenshot({ path: 'e2e/screenshots/debug-resources-loaded.png', fullPage: true }).catch(() => {});
   await page.waitForSelector('text=Loading providers…', { state: 'detached', timeout: 30_000 }).catch(() => {});
 }

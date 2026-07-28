@@ -151,7 +151,9 @@ jobs:
         if: always()
         with:
           name: e2e-screenshots
-          path: e2e/screenshots/
+          path: |
+            e2e/screenshots/
+            test-results/
           retention-days: 14
 
       - name: Comment screenshot link on PR
