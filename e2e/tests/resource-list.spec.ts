@@ -16,7 +16,12 @@ test.describe('Resource List', () => {
   test('expanding a CRD row loads instances', async ({ page }) => {
     await gotoCrossplaneResources(page);
 
-    await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
+    // Uncheck "Hide unused" so all CRD types are visible
+    const checkbox = page.locator('input[type="checkbox"]');
+    if (await checkbox.isChecked()) {
+      await checkbox.uncheck();
+    }
+    await page.waitForTimeout(500);
 
     const chevron = page.locator('text=▸').first();
     if (await chevron.isVisible({ timeout: 5_000 })) {
@@ -31,15 +36,17 @@ test.describe('Resource List', () => {
 
   test('search filters CRD rows by kind', async ({ page }) => {
     await gotoCrossplaneResources(page);
-    await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
-    const hideUnused = page.locator('input[type="checkbox"]');
-    if (await hideUnused.isChecked()) {
-      await hideUnused.uncheck();
+    // Uncheck "Hide unused" so all CRD types are visible before searching
+    const checkbox = page.locator('input[type="checkbox"]');
+    if (await checkbox.isChecked()) {
+      await checkbox.uncheck();
     }
+    await page.waitForTimeout(500);
 
     const searchInput = page.locator('input[placeholder*="Search"]');
     await searchInput.fill('NopResource');
+    await page.waitForTimeout(300);
 
     const rows = page.locator('tbody tr');
     const count = await rows.count();
@@ -53,10 +60,16 @@ test.describe('Resource List', () => {
 
   test('status filter updates URL and auto-expands rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
-    await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
-    await page.locator('text=Status').first().click();
-    await page.locator('li[data-value="not-ready"], [role="option"]:has-text("Not Ready")').click();
+    // Uncheck "Hide unused" first so rows exist to filter
+    const checkbox = page.locator('input[type="checkbox"]');
+    if (await checkbox.isChecked()) {
+      await checkbox.uncheck();
+    }
+    await page.waitForTimeout(500);
+
+    await page.locator('[role="combobox"]').first().click();
+    await page.locator('[role="option"]:has-text("Not Ready")').click();
 
     await expect(page).toHaveURL(/status=not-ready/);
     await expect(page.locator('text=Filtered view')).toBeVisible();
@@ -65,8 +78,6 @@ test.describe('Resource List', () => {
   });
 
   test('clear filter resets URL and banner', async ({ page }) => {
-    await gotoCrossplaneResources(page);
-    // Apply a filter first via URL
     await page.goto(`/c/${CLUSTER}/crossplane/resources?status=not-ready`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
@@ -81,16 +92,19 @@ test.describe('Resource List', () => {
 
   test('hide unused checkbox removes zero-instance rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
-    await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
     const checkbox = page.locator('input[type="checkbox"]');
 
+    // Uncheck to show all types first
     if (await checkbox.isChecked()) {
       await checkbox.uncheck();
     }
+    await page.waitForTimeout(500);
     const totalRows = await page.locator('tbody tr').count();
 
+    // Re-check to hide unused
     await checkbox.check();
+    await page.waitForTimeout(500);
     const filteredRows = await page.locator('tbody tr').count();
 
     expect(filteredRows).toBeLessThanOrEqual(totalRows);

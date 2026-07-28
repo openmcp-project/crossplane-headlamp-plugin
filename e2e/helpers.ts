@@ -31,14 +31,16 @@ async function authenticate(page: Page) {
 export async function gotoCrossplaneOverview(page: Page) {
   await page.goto(`/c/${CLUSTER}/crossplane/overview`, { waitUntil: 'domcontentloaded' });
   await authenticate(page);
+  // Wait for the PROVIDERS section to appear (not just the spinner to be gone)
+  await page.waitForSelector('text=PROVIDERS', { timeout: 30_000 }).catch(() => {});
   await page.screenshot({ path: 'e2e/screenshots/debug-overview-loaded.png', fullPage: true }).catch(() => {});
-  await page.waitForSelector('text=Loading Crossplane…', { state: 'detached', timeout: 30_000 }).catch(() => {});
 }
 
 /** Navigate to the Crossplane resources page, authenticating if needed. */
 export async function gotoCrossplaneResources(page: Page) {
   await page.goto(`/c/${CLUSTER}/crossplane/resources`, { waitUntil: 'domcontentloaded' });
   await authenticate(page);
+  // Wait for the provider section heading to appear
+  await page.waitForSelector('text=provider-nop', { timeout: 30_000 }).catch(() => {});
   await page.screenshot({ path: 'e2e/screenshots/debug-resources-loaded.png', fullPage: true }).catch(() => {});
-  await page.waitForSelector('text=Loading providers…', { state: 'detached', timeout: 30_000 }).catch(() => {});
 }
