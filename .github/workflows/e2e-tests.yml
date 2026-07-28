@@ -119,6 +119,9 @@ jobs:
           kubectl exec -n headlamp "$POD" -- mkdir -p /headlamp/plugins/headlamp_crossplane
           kubectl cp dist/main.js "headlamp/${POD}:/headlamp/plugins/headlamp_crossplane/main.js"
           kubectl cp package.json "headlamp/${POD}:/headlamp/plugins/headlamp_crossplane/package.json"
+          # Restart the pod so Headlamp picks up the plugin on boot
+          kubectl rollout restart deployment/headlamp -n headlamp
+          kubectl rollout status deployment/headlamp -n headlamp --timeout=2m
 
       - name: Port-forward Headlamp
         run: |
