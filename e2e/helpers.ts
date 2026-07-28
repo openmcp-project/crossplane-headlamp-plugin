@@ -6,11 +6,16 @@ const CLUSTER = 'main';
 
 /** Authenticate against Headlamp by filling in the token form if it appears. */
 async function authenticate(page: Page) {
+  // Take a debug screenshot so we can see what Headlamp renders
+  await page.screenshot({ path: 'e2e/screenshots/debug-before-auth.png', fullPage: true }).catch(() => {});
+
   const authHeader = page.locator('h1:has-text("Authentication")');
   const hasAuthPage = await authHeader
-    .waitFor({ state: 'visible', timeout: 5_000 })
+    .waitFor({ state: 'visible', timeout: 10_000 })
     .then(() => true)
     .catch(() => false);
+
+  await page.screenshot({ path: `e2e/screenshots/debug-auth-detected-${hasAuthPage}.png`, fullPage: true }).catch(() => {});
 
   if (!hasAuthPage) return;
 
@@ -19,6 +24,9 @@ async function authenticate(page: Page) {
     page.waitForNavigation({ timeout: 15_000 }).catch(() => {}),
     page.click('button:has-text("Authenticate")'),
   ]);
+
+  // Screenshot after auth
+  await page.screenshot({ path: 'e2e/screenshots/debug-after-auth.png', fullPage: true }).catch(() => {});
 }
 
 /** Navigate to the Crossplane overview page, authenticating if needed. */
