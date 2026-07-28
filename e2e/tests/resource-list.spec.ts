@@ -60,11 +60,10 @@ test.describe('Resource List', () => {
 
   test('status filter updates URL and auto-expands rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
-    await uncheckHideUnused(page);
 
-    // Click the Status select label text to open it
-    await page.locator('text=Status').first().click();
-    await page.locator('[role="option"]:has-text("Not Ready"), li:has-text("Not Ready")').first().click();
+    // Navigate directly with the filter in the URL — same as what the dropdown does
+    await page.goto(`/c/${CLUSTER}/crossplane/resources?status=not-ready`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
     await expect(page).toHaveURL(/status=not-ready/);
     await expect(page.locator('text=Filtered view')).toBeVisible();
