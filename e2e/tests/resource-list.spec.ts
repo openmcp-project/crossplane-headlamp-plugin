@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { gotoCrossplaneResources } from '../helpers';
 
+const CLUSTER = 'main';
+
 test.describe('Resource List', () => {
   test('renders provider section with CRD rows', async ({ page }) => {
     await gotoCrossplaneResources(page);
@@ -14,17 +16,13 @@ test.describe('Resource List', () => {
   test('expanding a CRD row loads instances', async ({ page }) => {
     await gotoCrossplaneResources(page);
 
-    // Wait for counts to load so rows are visible
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
-    // Find the first expandable row (has ▸ chevron) and click it
     const chevron = page.locator('text=▸').first();
     if (await chevron.isVisible({ timeout: 5_000 })) {
       await chevron.click();
-      // Instance sub-table or "No instances" message should appear
       await expect(
-        page.locator('text=Loading instances…, text=No instances found., text=No instances match')
-          .or(page.locator('table tbody tr').nth(1))
+        page.locator('text=Loading instances…').or(page.locator('text=No instances found.')).or(page.locator('table tbody tr').nth(1))
       ).toBeVisible({ timeout: 15_000 });
 
       await page.screenshot({ path: 'e2e/screenshots/resources-expanded.png', fullPage: true });
@@ -35,7 +33,6 @@ test.describe('Resource List', () => {
     await gotoCrossplaneResources(page);
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
-    // Uncheck "Hide unused" first so we have rows to search
     const hideUnused = page.locator('input[type="checkbox"]');
     if (await hideUnused.isChecked()) {
       await hideUnused.uncheck();
@@ -44,7 +41,6 @@ test.describe('Resource List', () => {
     const searchInput = page.locator('input[placeholder*="Search"]');
     await searchInput.fill('NopResource');
 
-    // Only rows matching "NopResource" should remain visible
     const rows = page.locator('tbody tr');
     const count = await rows.count();
     for (let i = 0; i < count; i++) {
@@ -59,7 +55,6 @@ test.describe('Resource List', () => {
     await gotoCrossplaneResources(page);
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
-    // Open the Status dropdown and select "Not Ready"
     await page.locator('text=Status').first().click();
     await page.locator('li[data-value="not-ready"], [role="option"]:has-text("Not Ready")').click();
 
@@ -70,7 +65,9 @@ test.describe('Resource List', () => {
   });
 
   test('clear filter resets URL and banner', async ({ page }) => {
-    await page.goto('/crossplane/resources?status=not-ready');
+    await gotoCrossplaneResources(page);
+    // Apply a filter first via URL
+    await page.goto(`/c/${CLUSTER}/crossplane/resources?status=not-ready`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
     await expect(page.locator('text=Filtered view')).toBeVisible();
@@ -88,13 +85,11 @@ test.describe('Resource List', () => {
 
     const checkbox = page.locator('input[type="checkbox"]');
 
-    // First uncheck to show all
     if (await checkbox.isChecked()) {
       await checkbox.uncheck();
     }
     const totalRows = await page.locator('tbody tr').count();
 
-    // Now check to hide unused
     await checkbox.check();
     const filteredRows = await page.locator('tbody tr').count();
 

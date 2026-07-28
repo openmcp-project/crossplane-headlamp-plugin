@@ -131,6 +131,9 @@ jobs:
 
       # ── Tests ────────────────────────────────────────────────────────────────
 
+      - name: Create screenshots dir
+        run: mkdir -p e2e/screenshots
+
       - name: Run Playwright E2E tests
         run: npm run test:e2e
         env:
