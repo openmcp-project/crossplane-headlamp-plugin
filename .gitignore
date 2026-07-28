@@ -2,3 +2,5 @@ node_modules
 dist
 kubeconfig*
 *.yaml
+e2e/screenshots/
+coverage/
