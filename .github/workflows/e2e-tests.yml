@@ -96,8 +96,15 @@ jobs:
             --namespace headlamp \
             --create-namespace \
             --set replicaCount=1 \
+            --set config.oidc.clientID="" \
+            --set config.pluginsDir=/headlamp/plugins \
             --wait \
             --timeout 5m
+
+      - name: Create Headlamp service account token
+        run: |
+          TOKEN=$(kubectl create token headlamp --namespace headlamp --duration=1h)
+          echo "HEADLAMP_TOKEN=${TOKEN}" >> $GITHUB_ENV
 
       - name: Build plugin
         run: npm run build
@@ -124,6 +131,7 @@ jobs:
         run: npm run test:e2e
         env:
           HEADLAMP_URL: http://localhost:4466
+          HEADLAMP_TOKEN: ${{ env.HEADLAMP_TOKEN }}
 
       # ── Artifacts ────────────────────────────────────────────────────────────
 
