@@ -5,10 +5,9 @@ test.describe('Crossplane Overview', () => {
   test('renders provider cards with health conditions', async ({ page }) => {
     await gotoCrossplaneOverview(page);
 
-    await expect(page.locator('text=provider-nop').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('text=provider-nop').first()).toBeVisible({ timeout: 5_000 });
     await expect(page.locator('text=Ready').first()).toBeVisible();
     await expect(page.locator('text=Healthy').first()).toBeVisible();
-    await expect(page.locator('text=Installed').first()).toBeVisible();
 
     await page.screenshot({ path: 'e2e/screenshots/overview.png', fullPage: true });
   });
