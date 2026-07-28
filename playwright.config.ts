@@ -4,10 +4,7 @@ export default defineConfig({
   testDir: './e2e/tests',
   timeout: 60_000,
   retries: 1,
-  reporter: [
-    ['html', { outputFolder: 'e2e/report', open: 'never' }],
-    ['list'],
-  ],
+  reporter: [['list']],
   use: {
     baseURL: process.env.HEADLAMP_URL ?? 'http://localhost:4466',
     screenshot: 'only-on-failure',

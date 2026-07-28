@@ -3,5 +3,4 @@ dist
 kubeconfig*
 *.yaml
 e2e/screenshots/
-e2e/report/
 coverage/
