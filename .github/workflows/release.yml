@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout code
@@ -68,21 +69,32 @@ jobs:
           sed -i "s|sha256:.*|sha256:${CHECKSUM}|" "$PKGFILE"
           echo "PKGFILE=${PKGFILE}" >> $GITHUB_ENV
 
-      - name: Commit artifacthub-pkg.yml and tag
+      - name: Tag and create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git tag ${{ github.event.inputs.nextVersion }}
+          git push origin ${{ github.event.inputs.nextVersion }}
+          gh release create ${{ github.event.inputs.nextVersion }} \
+            --generate-notes \
+            --target ${{ github.sha }} \
+            dist/main.js \
+            ${{ env.TARBALL }}
+
+      - name: Open PR with artifacthub metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ github.event.inputs.nextVersion }}
+          BRANCH="chore/artifacthub-${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
           git add artifacthub/
-          git diff --staged --quiet || git commit -m "chore: add artifacthub metadata for ${{ github.event.inputs.nextVersion }}"
-          git pull --rebase origin main
-          git tag ${{ github.event.inputs.nextVersion }}
-          git push origin HEAD:main --follow-tags
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
-        with:
-          tag_name: ${{ github.event.inputs.nextVersion }}
-          files: |
-            dist/main.js
-            ${{ env.TARBALL }}
-          generate_release_notes: true
+          git diff --staged --quiet || git commit -m "chore: add artifacthub metadata for ${VERSION}"
+          git push --force origin "${BRANCH}"
+          gh pr create \
+            --title "chore: add artifacthub metadata for ${VERSION}" \
+            --body "Automated PR created by the release workflow for ${VERSION}. Merge to complete the ArtifactHub publish." \
+            --base main \
+            --head "${BRANCH}" || true
