@@ -29,5 +29,8 @@
     "jsdom": "^24.1.0",
     "reactflow": "11.11.4",
     "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "monaco-yaml": "^5.5.1"
   }
 }
