@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
+import * as jsYaml from 'js-yaml';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
 import { xpColors } from '../common/colors';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader, SimpleEditor } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function ConditionRow({ cond }: { cond: any }) {
   const ok = cond.status === 'True';
@@ -297,6 +298,7 @@ export default function ProviderDetail() {
       <Tabs value={tab} onChange={(_: any, v: number) => setTab(v)} style={{ marginBottom: 24 }}>
         <Tab label="Overview" />
         <Tab label="All Instances" />
+        <Tab label="YAML" />
       </Tabs>
 
       {tab === 0 && (
@@ -371,6 +373,22 @@ export default function ProviderDetail() {
         <Paper elevation={1} style={{ padding: 0 }}>
           <AllInstancesTab providerName={name} />
         </Paper>
+      )}
+
+      {tab === 2 && (
+        <Box style={{ border: '1px solid #e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
+          {SimpleEditor ? (
+            <SimpleEditor
+              language="yaml"
+              value={jsYaml.dump(provider.jsonData)}
+              onChange={() => {}}
+            />
+          ) : (
+            <pre style={{ padding: 16, fontSize: 12, fontFamily: 'monospace', overflow: 'auto', margin: 0 }}>
+              {jsYaml.dump(provider.jsonData)}
+            </pre>
+          )}
+        </Box>
       )}
     </SectionBox>
   );
