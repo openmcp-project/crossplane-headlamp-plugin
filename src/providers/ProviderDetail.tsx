@@ -6,10 +6,36 @@ import { xpColors } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
 import { YamlEditor } from '../common/YamlEditor';
 import { openManagedDetail } from '../managed/ManagedDetail';
+import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetail';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
 const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+
+// ── Shared props type ─────────────────────────────────────────────────────────
+
+export interface ProviderDetailProps {
+  name: string;
+}
+
+// ── Activity launcher ─────────────────────────────────────────────────────────
+
+export function openProviderDetail(props: ProviderDetailProps) {
+  const Activity = (window as any).pluginLib?.Activity;
+  if (!Activity?.launch) {
+    console.warn('Activity.launch not available in this version of Headlamp');
+    return;
+  }
+  Activity.launch({
+    id: `provider-detail:${props.name}`,
+    location: 'split-right',
+    temporary: true,
+    title: props.name,
+    content: <ProviderDetailView {...props} />,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function ConditionRow({ cond }: { cond: any }) {
   const ok = cond.status === 'True';
@@ -49,7 +75,6 @@ function ProviderConfigsSection({
   providerName: string;
   currentRevision: string;
 }) {
-  const history = useHistory();
   const [crds] = useCRDsForProvider(providerName, currentRevision);
   const [configs, setConfigs] = useState<any[] | null>(null);
 
@@ -108,11 +133,7 @@ function ProviderConfigsSection({
                 <Button
                   size="small"
                   variant="outlined"
-                  onClick={() =>
-                    history.push(
-                      `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${cfgName}`
-                    )
-                  }
+                  onClick={() => openProviderConfigDetail({ providerName, configName: cfgName })}
                 >
                   View
                 </Button>
@@ -251,8 +272,7 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
   );
 }
 
-export default function ProviderDetail() {
-  const { name } = useParams<{ name: string }>();
+export function ProviderDetailView({ name }: ProviderDetailProps) {
   const [tab, setTab] = useState(0);
   const [providers, error] = Provider.useList();
 
@@ -381,4 +401,11 @@ export default function ProviderDetail() {
       )}
     </SectionBox>
   );
+}
+
+// ── Routed page ───────────────────────────────────────────────────────────────
+
+export default function ProviderDetail() {
+  const { name } = useParams<{ name: string }>();
+  return <ProviderDetailView name={name} />;
 }
