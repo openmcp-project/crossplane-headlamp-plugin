@@ -60,16 +60,17 @@ interface YamlEditorProps {
   item: any;
   onSave: (obj: any) => Promise<void>;
   readOnly?: boolean;
+  initialStage?: Stage;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) {
+export function YamlEditor({ item, onSave, readOnly = false, initialStage }: YamlEditorProps) {
   const monaco = useMonaco();
   useKubernetesSchema(monaco);
 
   const originalYaml = jsYaml.dump(item);
-  const [stage, setStage] = useState<Stage>('view');
+  const [stage, setStage] = useState<Stage>(initialStage ?? 'view');
   const [value, setValue] = useState(originalYaml);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);

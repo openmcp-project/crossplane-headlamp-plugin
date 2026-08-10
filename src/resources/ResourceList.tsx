@@ -272,9 +272,8 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
 
 // ── Provider section ──────────────────────────────────────────────────────────
 
-function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSort, statusFilter }: {
+function ProviderSection({ provider, search, sortKey, sortDir, onSort, statusFilter }: {
   provider: any;
-  hideUnused: boolean;
   search: string;
   sortKey: SortKey;
   sortDir: SortDir;
@@ -288,13 +287,13 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
   );
 
   const loading = crds === null && !crdErr;
-  const countsLoading = hideUnused && crds !== null && counts === null;
+  const countsLoading = crds !== null && counts === null;
   const lc = search.toLowerCase();
 
   const visibleCrds = (() => {
     if (!crds) return [];
     let list = crds.filter((c: any) => !NON_MANAGED_PLURALS.has(c.jsonData?.spec?.names?.plural ?? ''));
-    if (hideUnused && counts !== null) {
+    if (counts !== null) {
       list = list.filter((c: any) => (counts.get(c.metadata.name)?.total ?? 0) > 0);
     }
     if (lc) {
@@ -341,7 +340,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
       ) : visibleCrds.length === 0 ? (
         <Box px={2} py={1.5}>
           <Typography variant="body2" color="textSecondary">
-            {lc ? 'No types match your search.' : hideUnused ? 'No resource types with instances.' : 'No CRDs found.'}
+            {lc ? 'No types match your search.' : 'No resource types with instances.'}
           </Typography>
         </Box>
       ) : (
@@ -381,7 +380,6 @@ export default function ResourceList() {
   const history = useHistory();
   const location = useLocation();
   const [providers, providerErr] = Provider.useList();
-  const [hideUnused, setHideUnused] = useState(true);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('kind');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -506,28 +504,19 @@ export default function ResourceList() {
                 </MenuItem>
               ))}
             </TextField>
-            {providerNames.length > 1 && (
-              <TextField
-                select
-                size="small"
-                value={providerFilter}
-                onChange={(e: any) => setProviderFilter(e.target.value)}
-                style={{ width: 160 }}
-              >
-                <MenuItem value="all">All providers</MenuItem>
-                {providerNames.map((n: string) => (
-                  <MenuItem key={n} value={n}>{n}</MenuItem>
-                ))}
-              </TextField>
-            )}
-            <Chip
-              label="Hide unused"
+            <TextField
+              select
               size="small"
-              onClick={() => setHideUnused((v: boolean) => !v)}
-              color={hideUnused ? 'primary' : 'default'}
-              variant={hideUnused ? 'filled' : 'outlined'}
-              style={{ cursor: 'pointer' }}
-            />
+              value={providerFilter}
+              onChange={(e: any) => setProviderFilter(e.target.value)}
+              style={{ width: 160 }}
+              disabled={providerNames.length <= 1}
+            >
+              <MenuItem value="all">All providers</MenuItem>
+              {providerNames.map((n: string) => (
+                <MenuItem key={n} value={n}>{n}</MenuItem>
+              ))}
+            </TextField>
           </Box>,
         ],
       }}
@@ -568,7 +557,6 @@ export default function ResourceList() {
         <ProviderSection
           key={p.metadata.name}
           provider={p}
-          hideUnused={hideUnused}
           search={search}
           sortKey={sortKey}
           sortDir={sortDir}
