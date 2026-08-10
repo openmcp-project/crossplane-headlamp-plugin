@@ -1,14 +1,14 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import * as jsYaml from 'js-yaml';
 import { getApiProxy, detectExternalManager } from '../helpers';
 import { xpColors } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
+import { YamlEditor } from '../common/YamlEditor';
 import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetail';
 
-const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Tabs, Tab } =
+const { Typography, Box, Chip, CircularProgress, Paper, Alert, Tabs, Tab } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader, SimpleEditor } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── Shared props type ─────────────────────────────────────────────────────────
 
@@ -128,53 +128,15 @@ const managerLabels: Record<string, string> = {
 function YamlTab({ item, group, plural, name, namespace, version }: {
   item: any; group: string; plural: string; name: string; namespace?: string; version: string;
 }) {
-  const [yamlValue, setYamlValue] = useState<string>(() => jsYaml.dump(item));
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-
-  useEffect(() => {
-    setYamlValue(jsYaml.dump(item));
-    setSaveError(null);
-    setSaveSuccess(false);
-  }, [item]);
-
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setSaveError(null);
-    setSaveSuccess(false);
-    try {
-      const parsed = jsYaml.load(yamlValue);
-      const nsPath = namespace ? `namespaces/${namespace}/` : '';
-      const url = `/apis/${group}/${version}/${nsPath}${plural}/${name}`;
-      await getApiProxy().put(url, parsed);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (e: any) {
-      setSaveError(String(e?.message ?? e));
-    } finally {
-      setSaving(false);
-    }
-  }, [yamlValue, group, plural, name, namespace, version]);
+  async function handleSave(obj: any) {
+    const nsPath = namespace ? `namespaces/${namespace}/` : '';
+    const url = `/apis/${group}/${version}/${nsPath}${plural}/${name}`;
+    await getApiProxy().put(url, obj);
+  }
 
   return (
-    <Box>
-      {saveError && <Alert severity="error" style={{ marginBottom: 12 }}>{saveError}</Alert>}
-      {saveSuccess && <Alert severity="success" style={{ marginBottom: 12 }}>Saved successfully.</Alert>}
-      <Box style={{ border: '1px solid #e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
-        {SimpleEditor ? (
-          <SimpleEditor language="yaml" value={yamlValue}
-            onChange={(val: string | undefined) => setYamlValue(val ?? '')} />
-        ) : (
-          <textarea value={yamlValue} onChange={(e) => setYamlValue(e.target.value)}
-            style={{ width: '100%', minHeight: 500, fontFamily: 'monospace', fontSize: 12, padding: 12, border: 'none', outline: 'none', resize: 'vertical' }} />
-        )}
-      </Box>
-      <Box mt={1.5} display="flex" justifyContent="flex-end">
-        <Button variant="contained" size="small" disabled={saving} onClick={handleSave}>
-          {saving ? 'Saving…' : 'Save'}
-        </Button>
-      </Box>
+    <Box style={{ height: 600 }}>
+      <YamlEditor item={item} onSave={handleSave} />
     </Box>
   );
 }
@@ -213,7 +175,7 @@ export function ManagedDetailView({ providerName, group, plural, name, namespace
   return (
     <SectionBox
       title={`${item?.kind ?? plural}: ${name}`}
-      subtitle={`${group} · ${namespace ? `Namespace: ${namespace}` : 'Cluster-scoped'}`}
+      subtitle={group}
       headerProps={{ headerStyle: 'main' }}
     >
       <Tabs value={tab} onChange={(_: any, v: number) => setTab(v)} style={{ marginBottom: 24 }}>

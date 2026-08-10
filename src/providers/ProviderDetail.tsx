@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
-import * as jsYaml from 'js-yaml';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
 import { xpColors } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
+import { YamlEditor } from '../common/YamlEditor';
 import { openManagedDetail } from '../managed/ManagedDetail';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader, SimpleEditor } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function ConditionRow({ cond }: { cond: any }) {
   const ok = cond.status === 'True';
@@ -375,18 +375,8 @@ export default function ProviderDetail() {
       )}
 
       {tab === 2 && (
-        <Box style={{ border: '1px solid #e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
-          {SimpleEditor ? (
-            <SimpleEditor
-              language="yaml"
-              value={jsYaml.dump(provider.jsonData)}
-              onChange={() => {}}
-            />
-          ) : (
-            <pre style={{ padding: 16, fontSize: 12, fontFamily: 'monospace', overflow: 'auto', margin: 0 }}>
-              {jsYaml.dump(provider.jsonData)}
-            </pre>
-          )}
+        <Box style={{ height: 600 }}>
+          <YamlEditor item={provider.jsonData} onSave={async () => {}} readOnly />
         </Box>
       )}
     </SectionBox>
