@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import * as jsYaml from 'js-yaml';
 import { getApiProxy, clusterPrefix, detectExternalManager } from '../helpers';
 import { xpColors } from '../common/colors';
 
-const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Accordion, AccordionSummary, AccordionDetails } =
+const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Tabs, Tab } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader, SimpleEditor } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function useCustomResource(
   group: string,
@@ -16,6 +16,7 @@ function useCustomResource(
 ) {
   const [item, setItem] = useState<any>(null);
   const [error, setError] = useState<any>(null);
+  const [version, setVersion] = useState<string>('');
 
   useEffect(() => {
     if (!group || !plural || !name) return;
@@ -28,7 +29,7 @@ function useCustomResource(
         try {
           const url = `/apis/${group}/${ver}/${nsPath}${plural}/${name}`;
           const res = await getApiProxy().request(url, { isJSON: true });
-          if (!cancelled) { setItem(res); return; }
+          if (!cancelled) { setItem(res); setVersion(ver); return; }
         } catch (e: any) {
           if (e?.status === 404) continue;
           if (!cancelled) { setError(e); return; }
@@ -40,7 +41,7 @@ function useCustomResource(
     return () => { cancelled = true; };
   }, [group, plural, name, namespace]);
 
-  return [item, error] as const;
+  return [item, error, version] as const;
 }
 
 function ConditionTable({ conditions }: { conditions: any[] }) {
@@ -104,6 +105,85 @@ const managerLabels: Record<string, string> = {
   kro: 'Kro',
 };
 
+// ── YAML editor tab ───────────────────────────────────────────────────────────
+
+function YamlTab({ item, group, plural, name, namespace, version }: {
+  item: any;
+  group: string;
+  plural: string;
+  name: string;
+  namespace?: string;
+  version: string;
+}) {
+  const [yamlValue, setYamlValue] = useState<string>(() => jsYaml.dump(item));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Reset when item changes (e.g. re-fetch)
+  useEffect(() => {
+    setYamlValue(jsYaml.dump(item));
+    setSaveError(null);
+    setSaveSuccess(false);
+  }, [item]);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      const parsed = jsYaml.load(yamlValue);
+      const nsPath = namespace ? `namespaces/${namespace}/` : '';
+      const url = `/apis/${group}/${version}/${nsPath}${plural}/${name}`;
+      await getApiProxy().put(url, parsed);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (e: any) {
+      setSaveError(String(e?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }, [yamlValue, group, plural, name, namespace, version]);
+
+  return (
+    <Box>
+      {saveError && (
+        <Alert severity="error" style={{ marginBottom: 12 }}>{saveError}</Alert>
+      )}
+      {saveSuccess && (
+        <Alert severity="success" style={{ marginBottom: 12 }}>Saved successfully.</Alert>
+      )}
+      <Box style={{ border: '1px solid #e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
+        {SimpleEditor ? (
+          <SimpleEditor
+            language="yaml"
+            value={yamlValue}
+            onChange={(val: string | undefined) => setYamlValue(val ?? '')}
+          />
+        ) : (
+          <textarea
+            value={yamlValue}
+            onChange={(e) => setYamlValue(e.target.value)}
+            style={{ width: '100%', minHeight: 500, fontFamily: 'monospace', fontSize: 12, padding: 12, border: 'none', outline: 'none', resize: 'vertical' }}
+          />
+        )}
+      </Box>
+      <Box mt={1.5} display="flex" justifyContent="flex-end">
+        <Button
+          variant="contained"
+          size="small"
+          disabled={saving}
+          onClick={handleSave}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
 export default function ManagedDetail() {
   const params = useParams<{
     providerName: string;
@@ -114,8 +194,9 @@ export default function ManagedDetail() {
   }>();
   const { providerName, group, plural, name, namespace } = params;
   const history = useHistory();
+  const [tab, setTab] = useState(0);
 
-  const [item, error] = useCustomResource(group, plural, name, namespace);
+  const [item, error, version] = useCustomResource(group, plural, name, namespace);
 
   if (!item && !error) {
     return (
@@ -143,10 +224,8 @@ export default function ManagedDetail() {
   const compositeRef: string = annotations['crossplane.io/composite'] ?? '';
   const claimName: string = annotations['crossplane.io/claim-name'] ?? '';
   const claimNamespace: string = annotations['crossplane.io/claim-namespace'] ?? '';
-  const atProvider = item?.status?.atProvider;
 
   const managerInfo = detectExternalManager(item);
-
   const hasRelationships = !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
 
   return (
@@ -155,162 +234,125 @@ export default function ManagedDetail() {
       subtitle={`${group} · ${namespace ? `Namespace: ${namespace}` : 'Cluster-scoped'}`}
       headerProps={{ headerStyle: 'main' }}
     >
-      {/* Error banners */}
-      {failingConditions.map((c: any) => (
-        <Alert key={c.type} severity="error" style={{ marginBottom: 8 }}>
-          <strong>{c.type}:</strong> {c.reason} — {c.message}
-        </Alert>
-      ))}
+      <Tabs value={tab} onChange={(_: any, v: number) => setTab(v)} style={{ marginBottom: 24 }}>
+        <Tab label="Overview" />
+        <Tab label="YAML" />
+      </Tabs>
 
-      {/* Info */}
-      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <SectionHeader title="Info" headerStyle="subsection" noPadding />
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <tbody>
-            {[
-              ['Name', name],
-              ['Namespace', namespace ?? '(cluster-scoped)'],
-              ['API Version', item?.apiVersion ?? ''],
-              ['Kind', item?.kind ?? ''],
-              [
-                'Created',
-                item?.metadata?.creationTimestamp
-                  ? new Date(item.metadata.creationTimestamp).toLocaleString()
-                  : '—',
-              ],
-            ].map(([label, value]) => (
-              <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
-                <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
-                  {value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Paper>
+      {tab === 0 && (
+        <>
+          {failingConditions.map((c: any) => (
+            <Alert key={c.type} severity="error" style={{ marginBottom: 8 }}>
+              <strong>{c.type}:</strong> {c.reason} — {c.message}
+            </Alert>
+          ))}
 
-      {/* Relationships */}
-      {hasRelationships && (
-        <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-            <SectionHeader title="Relationships" headerStyle="subsection" noPadding />
-          </Box>
-          <Box display="flex" flexDirection="column" gap={1}>
-            {providerConfigRef && (
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                  ProviderConfig:
-                </Typography>
-                <span
-                  style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
-                  onClick={() =>
-                    history.push(
-                      `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
-                    )
-                  }
-                >
-                  {providerConfigRef}
-                </span>
+          <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+            <SectionHeader title="Info" headerStyle="subsection" noPadding />
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>
+                {[
+                  ['Name', name],
+                  ['Namespace', namespace ?? '(cluster-scoped)'],
+                  ['API Version', item?.apiVersion ?? ''],
+                  ['Kind', item?.kind ?? ''],
+                  [
+                    'Created',
+                    item?.metadata?.creationTimestamp
+                      ? new Date(item.metadata.creationTimestamp).toLocaleString()
+                      : '—',
+                  ],
+                ].map(([label, value]) => (
+                  <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                    <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
+                      {value}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Paper>
+
+          {hasRelationships && (
+            <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+              <SectionHeader title="Relationships" headerStyle="subsection" noPadding />
+              <Box display="flex" flexDirection="column" gap={1} mt={1}>
+                {providerConfigRef && (
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                      ProviderConfig:
+                    </Typography>
+                    <span
+                      style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                      onClick={() =>
+                        history.push(
+                          `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
+                        )
+                      }
+                    >
+                      {providerConfigRef}
+                    </span>
+                  </Box>
+                )}
+                {compositeRef && (
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                      Composite Resource:
+                    </Typography>
+                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                      {compositeRef}
+                    </Typography>
+                  </Box>
+                )}
+                {claimName && (
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                      Claim:
+                    </Typography>
+                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                      {claimNamespace}/{claimName}
+                    </Typography>
+                  </Box>
+                )}
+                {managerInfo.manager && (
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
+                      Managed by:
+                    </Typography>
+                    <span
+                      style={{
+                        padding: '2px 10px', borderRadius: 10,
+                        background: managerColors[managerInfo.manager] ?? '#555',
+                        color: '#fff', fontSize: 12, fontWeight: 600,
+                      }}
+                    >
+                      {managerLabels[managerInfo.manager] ?? managerInfo.manager}
+                      {managerInfo.ref ? ` · ${managerInfo.ref}` : ''}
+                    </span>
+                  </Box>
+                )}
               </Box>
-            )}
-            {compositeRef && (
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                  Composite Resource:
-                </Typography>
-                <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                  {compositeRef}
-                </Typography>
-              </Box>
-            )}
-            {claimName && (
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                  Claim:
-                </Typography>
-                <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                  {claimNamespace}/{claimName}
-                </Typography>
-              </Box>
-            )}
-            {managerInfo.manager && (
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                  Managed by:
-                </Typography>
-                <span
-                  style={{
-                    padding: '2px 10px',
-                    borderRadius: 10,
-                    background: managerColors[managerInfo.manager] ?? '#555',
-                    color: '#fff',
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  {managerLabels[managerInfo.manager] ?? managerInfo.manager}
-                  {managerInfo.ref ? ` · ${managerInfo.ref}` : ''}
-                </span>
-              </Box>
-            )}
-          </Box>
-        </Paper>
+            </Paper>
+          )}
+
+          <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+            <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
+            <ConditionTable conditions={conditions} />
+          </Paper>
+        </>
       )}
 
-      {/* Conditions */}
-      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
-        <ConditionTable conditions={conditions} />
-      </Paper>
-
-      {/* Observed State (atProvider) */}
-      {atProvider && Object.keys(atProvider).length > 0 && (
-        <Accordion style={{ marginBottom: 24 }}>
-          <AccordionSummary expandIcon={<span>▾</span>}>
-            <SectionHeader title="Observed State (atProvider)" headerStyle="subsection" noPadding />
-          </AccordionSummary>
-          <AccordionDetails>
-            <pre
-              style={{
-                background: '#f5f5f5',
-                padding: 12,
-                borderRadius: 4,
-                overflow: 'auto',
-                fontSize: 12,
-                maxHeight: 400,
-                margin: 0,
-              }}
-            >
-              {JSON.stringify(atProvider, null, 2)}
-            </pre>
-          </AccordionDetails>
-        </Accordion>
+      {tab === 1 && item && (
+        <YamlTab
+          item={item}
+          group={group}
+          plural={plural}
+          name={name}
+          namespace={namespace}
+          version={version}
+        />
       )}
-
-      {/* Raw Spec (collapsed by default) */}
-      <Accordion style={{ marginBottom: 24 }}>
-        <AccordionSummary expandIcon={<span>▾</span>}>
-          <SectionHeader title="Spec (JSON)" headerStyle="subsection" noPadding />
-        </AccordionSummary>
-        <AccordionDetails>
-          <pre
-            style={{
-              background: '#f5f5f5',
-              padding: 12,
-              borderRadius: 4,
-              overflow: 'auto',
-              fontSize: 12,
-              maxHeight: 400,
-              margin: 0,
-            }}
-          >
-            {JSON.stringify(item?.spec ?? {}, null, 2)}
-          </pre>
-        </AccordionDetails>
-      </Accordion>
-
-      {/* Provider Pod Logs — hidden until 404 issue is resolved */}
     </SectionBox>
   );
 }
