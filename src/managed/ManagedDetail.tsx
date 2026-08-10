@@ -4,10 +4,12 @@ import { getApiProxy, detectExternalManager } from '../helpers';
 import { xpColors } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
 import { YamlEditor } from '../common/YamlEditor';
+import { openCRDDetailByGroupPlural } from '../crds/CRDList';
 import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetail';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Alert, Tabs, Tab } =
   (window as any).pluginLib?.MuiCore ?? {};
+
 const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── Shared props type ─────────────────────────────────────────────────────────
@@ -204,7 +206,14 @@ export function ManagedDetailView({ providerName, group, plural, name, namespace
                 ].map(([label, value]) => (
                   <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
                     <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
-                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{value}</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
+                      {label === 'Kind' ? (
+                        <span
+                          style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer' }}
+                          onClick={() => openCRDDetailByGroupPlural(group, plural, providerName)}
+                        >{value}</span>
+                      ) : value}
+                    </td>
                   </tr>
                 ))}
                 <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
