@@ -1,19 +1,47 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import * as jsYaml from 'js-yaml';
-import { getApiProxy, clusterPrefix, detectExternalManager } from '../helpers';
+import { getApiProxy, detectExternalManager } from '../helpers';
 import { xpColors } from '../common/colors';
+import { ScopeBadge } from '../common/ScopeBadge';
+import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetail';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Tabs, Tab } =
   (window as any).pluginLib?.MuiCore ?? {};
 const { SectionBox, SectionHeader, SimpleEditor } = (window as any).pluginLib?.CommonComponents ?? {};
 
-function useCustomResource(
-  group: string,
-  plural: string,
-  name: string,
-  namespace?: string
-) {
+// ── Shared props type ─────────────────────────────────────────────────────────
+
+export interface ManagedDetailProps {
+  providerName: string;
+  group: string;
+  plural: string;
+  name: string;
+  namespace?: string;
+}
+
+// ── Activity launcher ─────────────────────────────────────────────────────────
+
+export function openManagedDetail(props: ManagedDetailProps) {
+  const Activity = (window as any).pluginLib?.Activity;
+  if (!Activity?.launch) {
+    console.warn('Activity.launch not available in this version of Headlamp');
+    return;
+  }
+  const { name, group, plural, namespace } = props;
+  const id = `managed-detail:${group}/${plural}/${namespace ?? ''}/${name}`;
+  Activity.launch({
+    id,
+    location: 'split-right',
+    temporary: true,
+    title: name,
+    content: <ManagedDetailView {...props} />,
+  });
+}
+
+// ── Data hook ─────────────────────────────────────────────────────────────────
+
+function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
   const [item, setItem] = useState<any>(null);
   const [error, setError] = useState<any>(null);
   const [version, setVersion] = useState<string>('');
@@ -44,6 +72,8 @@ function useCustomResource(
   return [item, error, version] as const;
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────────
+
 function ConditionTable({ conditions }: { conditions: any[] }) {
   if (!conditions || conditions.length === 0) {
     return <Typography variant="body2" color="textSecondary">No conditions.</Typography>;
@@ -53,9 +83,7 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
       <thead>
         <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
           {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map((h) => (
-            <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
-              {h}
-            </th>
+            <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
           ))}
         </tr>
       </thead>
@@ -66,20 +94,13 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
             <tr key={c.type} style={{ borderBottom: '1px solid #f5f5f5' }}>
               <td style={{ padding: '6px 12px', fontWeight: 600 }}>{c.type}</td>
               <td style={{ padding: '6px 12px' }}>
-                <Chip
-                  label={c.status}
-                  size="small"
-                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
-                />
+                <Chip label={c.status} size="small"
+                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
               </td>
               <td style={{ padding: '6px 12px', fontSize: 12 }}>{c.reason ?? ''}</td>
-              <td style={{ padding: '6px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>
-                {c.message ?? ''}
-              </td>
+              <td style={{ padding: '6px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>{c.message ?? ''}</td>
               <td style={{ padding: '6px 12px', fontSize: 12, color: '#888' }}>
-                {c.lastTransitionTime
-                  ? new Date(c.lastTransitionTime).toLocaleString()
-                  : '—'}
+                {c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—'}
               </td>
             </tr>
           );
@@ -96,7 +117,6 @@ const managerColors: Record<string, string> = {
   argocd: '#e65100',
   kro: '#1565c0',
 };
-
 const managerLabels: Record<string, string> = {
   helm: 'Helm',
   'flux-kustomization': 'Flux Kustomization',
@@ -105,22 +125,14 @@ const managerLabels: Record<string, string> = {
   kro: 'Kro',
 };
 
-// ── YAML editor tab ───────────────────────────────────────────────────────────
-
 function YamlTab({ item, group, plural, name, namespace, version }: {
-  item: any;
-  group: string;
-  plural: string;
-  name: string;
-  namespace?: string;
-  version: string;
+  item: any; group: string; plural: string; name: string; namespace?: string; version: string;
 }) {
   const [yamlValue, setYamlValue] = useState<string>(() => jsYaml.dump(item));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Reset when item changes (e.g. re-fetch)
   useEffect(() => {
     setYamlValue(jsYaml.dump(item));
     setSaveError(null);
@@ -147,34 +159,19 @@ function YamlTab({ item, group, plural, name, namespace, version }: {
 
   return (
     <Box>
-      {saveError && (
-        <Alert severity="error" style={{ marginBottom: 12 }}>{saveError}</Alert>
-      )}
-      {saveSuccess && (
-        <Alert severity="success" style={{ marginBottom: 12 }}>Saved successfully.</Alert>
-      )}
+      {saveError && <Alert severity="error" style={{ marginBottom: 12 }}>{saveError}</Alert>}
+      {saveSuccess && <Alert severity="success" style={{ marginBottom: 12 }}>Saved successfully.</Alert>}
       <Box style={{ border: '1px solid #e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
         {SimpleEditor ? (
-          <SimpleEditor
-            language="yaml"
-            value={yamlValue}
-            onChange={(val: string | undefined) => setYamlValue(val ?? '')}
-          />
+          <SimpleEditor language="yaml" value={yamlValue}
+            onChange={(val: string | undefined) => setYamlValue(val ?? '')} />
         ) : (
-          <textarea
-            value={yamlValue}
-            onChange={(e) => setYamlValue(e.target.value)}
-            style={{ width: '100%', minHeight: 500, fontFamily: 'monospace', fontSize: 12, padding: 12, border: 'none', outline: 'none', resize: 'vertical' }}
-          />
+          <textarea value={yamlValue} onChange={(e) => setYamlValue(e.target.value)}
+            style={{ width: '100%', minHeight: 500, fontFamily: 'monospace', fontSize: 12, padding: 12, border: 'none', outline: 'none', resize: 'vertical' }} />
         )}
       </Box>
       <Box mt={1.5} display="flex" justifyContent="flex-end">
-        <Button
-          variant="contained"
-          size="small"
-          disabled={saving}
-          onClick={handleSave}
-        >
+        <Button variant="contained" size="small" disabled={saving} onClick={handleSave}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </Box>
@@ -182,37 +179,23 @@ function YamlTab({ item, group, plural, name, namespace, version }: {
   );
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Core view (props-driven, works in Activity panel OR routed page) ───────────
 
-export default function ManagedDetail() {
-  const params = useParams<{
-    providerName: string;
-    group: string;
-    plural: string;
-    name: string;
-    namespace?: string;
-  }>();
-  const { providerName, group, plural, name, namespace } = params;
-  const history = useHistory();
+export function ManagedDetailView({ providerName, group, plural, name, namespace }: ManagedDetailProps) {
   const [tab, setTab] = useState(0);
-
   const [item, error, version] = useCustomResource(group, plural, name, namespace);
 
   if (!item && !error) {
     return (
       <Box p={3} display="flex" alignItems="center" gap={2}>
-        <CircularProgress size={20} />
-        <Typography>Loading…</Typography>
+        <CircularProgress size={20} /><Typography>Loading…</Typography>
       </Box>
     );
   }
-
   if (error) {
     return (
       <Box p={3}>
-        <Typography color="error">
-          Failed to load resource: {String(error?.message ?? error)}
-        </Typography>
+        <Typography color="error">Failed to load resource: {String(error?.message ?? error)}</Typography>
       </Box>
     );
   }
@@ -224,7 +207,6 @@ export default function ManagedDetail() {
   const compositeRef: string = annotations['crossplane.io/composite'] ?? '';
   const claimName: string = annotations['crossplane.io/claim-name'] ?? '';
   const claimNamespace: string = annotations['crossplane.io/claim-namespace'] ?? '';
-
   const managerInfo = detectExternalManager(item);
   const hasRelationships = !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
 
@@ -253,23 +235,22 @@ export default function ManagedDetail() {
               <tbody>
                 {[
                   ['Name', name],
-                  ['Namespace', namespace ?? '(cluster-scoped)'],
                   ['API Version', item?.apiVersion ?? ''],
                   ['Kind', item?.kind ?? ''],
-                  [
-                    'Created',
-                    item?.metadata?.creationTimestamp
-                      ? new Date(item.metadata.creationTimestamp).toLocaleString()
-                      : '—',
-                  ],
+                  ['Created', item?.metadata?.creationTimestamp
+                    ? new Date(item.metadata.creationTimestamp).toLocaleString() : '—'],
                 ].map(([label, value]) => (
                   <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
                     <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
-                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
-                      {value}
-                    </td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{value}</td>
                   </tr>
                 ))}
+                <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>Scope</td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <ScopeBadge scope={namespace ? 'Namespaced' : 'Cluster'} namespace={namespace} />
+                  </td>
+                </tr>
               </tbody>
             </table>
           </Paper>
@@ -280,53 +261,29 @@ export default function ManagedDetail() {
               <Box display="flex" flexDirection="column" gap={1} mt={1}>
                 {providerConfigRef && (
                   <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                      ProviderConfig:
-                    </Typography>
-                    <span
-                      style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
-                      onClick={() =>
-                        history.push(
-                          `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
-                        )
-                      }
-                    >
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>ProviderConfig:</Typography>
+                    <span style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                      onClick={() => openProviderConfigDetail({ providerName, configName: providerConfigRef })}>
                       {providerConfigRef}
                     </span>
                   </Box>
                 )}
                 {compositeRef && (
                   <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                      Composite Resource:
-                    </Typography>
-                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                      {compositeRef}
-                    </Typography>
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>Composite Resource:</Typography>
+                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>{compositeRef}</Typography>
                   </Box>
                 )}
                 {claimName && (
                   <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                      Claim:
-                    </Typography>
-                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                      {claimNamespace}/{claimName}
-                    </Typography>
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>Claim:</Typography>
+                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>{claimNamespace}/{claimName}</Typography>
                   </Box>
                 )}
                 {managerInfo.manager && (
                   <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
-                      Managed by:
-                    </Typography>
-                    <span
-                      style={{
-                        padding: '2px 10px', borderRadius: 10,
-                        background: managerColors[managerInfo.manager] ?? '#555',
-                        color: '#fff', fontSize: 12, fontWeight: 600,
-                      }}
-                    >
+                    <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>Managed by:</Typography>
+                    <span style={{ padding: '2px 10px', borderRadius: 10, background: managerColors[managerInfo.manager] ?? '#555', color: '#fff', fontSize: 12, fontWeight: 600 }}>
                       {managerLabels[managerInfo.manager] ?? managerInfo.manager}
                       {managerInfo.ref ? ` · ${managerInfo.ref}` : ''}
                     </span>
@@ -344,15 +301,16 @@ export default function ManagedDetail() {
       )}
 
       {tab === 1 && item && (
-        <YamlTab
-          item={item}
-          group={group}
-          plural={plural}
-          name={name}
-          namespace={namespace}
-          version={version}
-        />
+        <YamlTab item={item} group={group} plural={plural} name={name} namespace={namespace} version={version} />
       )}
     </SectionBox>
   );
+}
+
+// ── Routed page (keeps direct URL navigation working) ─────────────────────────
+
+export default function ManagedDetail() {
+  const { providerName, group, plural, name, namespace } =
+    useParams<{ providerName: string; group: string; plural: string; name: string; namespace?: string }>();
+  return <ManagedDetailView providerName={providerName} group={group} plural={plural} name={name} namespace={namespace} />;
 }
