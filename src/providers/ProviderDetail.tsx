@@ -10,7 +10,7 @@ import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetai
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader, NameValueTable, SimpleTable } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── Shared props type ─────────────────────────────────────────────────────────
 
@@ -36,24 +36,6 @@ export function openProviderDetail(props: ProviderDetailProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
-function ConditionRow({ cond }: { cond: any }) {
-  const ok = cond.status === 'True';
-  return (
-    <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-      <td style={{ padding: '6px 12px', fontWeight: 600 }}>{cond.type}</td>
-      <td style={{ padding: '6px 12px' }}>
-        <Chip
-          label={cond.status}
-          size="small"
-          style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
-        />
-      </td>
-      <td style={{ padding: '6px 12px', fontSize: 12, color: '#666' }}>{cond.reason ?? ''}</td>
-      <td style={{ padding: '6px 12px', fontSize: 12, color: '#666' }}>{cond.message ?? ''}</td>
-    </tr>
-  );
-}
 
 function conditionChip(conditions: any[], type: string) {
   const cond = conditions?.find((c: any) => c.type === type);
@@ -110,39 +92,31 @@ function ProviderConfigsSection({
   }
 
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-          {['Name', 'Credentials', 'Actions'].map((h) => (
-            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {configs.map((cfg: any) => {
-          const cfgName: string = cfg.metadata?.name ?? '';
-          const secretRef = cfg.spec?.credentials?.secretRef;
-          const credLabel = secretRef
-            ? `${secretRef.namespace}/${secretRef.name}`
-            : cfg.spec?.credentials?.source ?? '—';
-          return (
-            <tr key={cfgName} style={{ borderBottom: '1px solid #f0f0f0' }}>
-              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{cfgName}</td>
-              <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'monospace' }}>{credLabel}</td>
-              <td style={{ padding: '8px 12px' }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => openProviderConfigDetail({ providerName, configName: cfgName })}
-                >
-                  View
-                </Button>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <SimpleTable
+      columns={[
+        { label: 'Name', getter: (cfg: any) => cfg.metadata?.name ?? '' },
+        {
+          label: 'Credentials', getter: (cfg: any) => {
+            const secretRef = cfg.spec?.credentials?.secretRef;
+            return secretRef
+              ? `${secretRef.namespace}/${secretRef.name}`
+              : cfg.spec?.credentials?.source ?? '—';
+          }
+        },
+        {
+          label: 'Actions', getter: (cfg: any) => {
+            const cfgName: string = cfg.metadata?.name ?? '';
+            return (
+              <Button size="small" variant="outlined"
+                onClick={() => openProviderConfigDetail({ providerName, configName: cfgName })}>
+                View
+              </Button>
+            );
+          }
+        },
+      ]}
+      data={configs}
+    />
   );
 }
 
@@ -232,49 +206,39 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
   }
 
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-          {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map((h) => (
-            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((item: any) => {
-          const itemName: string = item.metadata?.name ?? '';
-          const ns: string = item.metadata?.namespace ?? '';
-          const conditions: any[] = item.status?.conditions ?? [];
-          const created = item.metadata?.creationTimestamp
-            ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
-            : '—';
-          return (
-            <tr
-              key={`${item._group}/${item._plural}/${ns}/${itemName}`}
-              style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-              onClick={() => openManagedDetail({ providerName, group: item._group, plural: item._plural, name: itemName, namespace: ns || undefined })}
-            >
-              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
-              <td style={{ padding: '8px 12px' }}>
+    <SimpleTable
+      columns={[
+        { label: 'Kind', getter: (item: any) => item._kind },
+        {
+          label: 'Name', getter: (item: any) => {
+            const itemName: string = item.metadata?.name ?? '';
+            const ns: string = item.metadata?.namespace ?? '';
+            return (
+              <Box>
                 <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{itemName}</span>
-                {ns && (
-                  <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>
-                )}
-              </td>
-              <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Ready')}</td>
-              <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Synced')}</td>
-              <td style={{ padding: '8px 12px', fontSize: 12 }}>{created}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                {ns && <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>}
+              </Box>
+            );
+          }
+        },
+        { label: 'Ready', getter: (item: any) => conditionChip(item.status?.conditions ?? [], 'Ready') },
+        { label: 'Synced', getter: (item: any) => conditionChip(item.status?.conditions ?? [], 'Synced') },
+        {
+          label: 'Age', getter: (item: any) =>
+            item.metadata?.creationTimestamp
+              ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
+              : '—'
+        },
+      ]}
+      data={items}
+    />
   );
 }
 
 export function ProviderDetailView({ name }: ProviderDetailProps) {
   const [tab, setTab] = useState(0);
   const [providers, error] = Provider.useList();
+  const history = useHistory();
 
   if (!providers && !error) {
     return (
@@ -299,6 +263,8 @@ export function ProviderDetailView({ name }: ProviderDetailProps) {
   const packageRef: string = provider.jsonData?.spec?.package ?? '';
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const controllerRef = provider.jsonData?.status?.controller?.configRef?.name ?? '';
+  const labels: Record<string, string> = provider.jsonData?.metadata?.labels ?? provider.metadata?.labels ?? {};
+  const isManagedByPlatform = 'controlplane.core.orchestrate.cloud.sap/component' in labels;
 
   const hasError = conditions.some((c: any) => c.status === 'False');
 
@@ -325,28 +291,29 @@ export function ProviderDetailView({ name }: ProviderDetailProps) {
           {/* Basic Info */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
             <SectionHeader title="Provider Info" headerStyle="subsection" noPadding />
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {[
-                  ['Package', packageRef],
-                  ['Current Revision', currentRevision],
-                  ['Controller', controllerRef],
-                  [
-                    'Created',
-                    provider.metadata?.creationTimestamp
-                      ? new Date(provider.metadata.creationTimestamp).toLocaleString()
-                      : '—',
-                  ],
-                ].map(([label, value]) => (
-                  <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                    <td style={{ padding: '6px 12px', fontWeight: 600, width: 180 }}>{label}</td>
-                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
-                      {value}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <NameValueTable rows={[
+              { name: 'Package', value: packageRef },
+              { name: 'Current Revision', value: currentRevision },
+              { name: 'Controller', value: controllerRef },
+              {
+                name: 'Created',
+                value: provider.metadata?.creationTimestamp
+                  ? new Date(provider.metadata.creationTimestamp).toLocaleString()
+                  : '—',
+              },
+              {
+                name: 'Installation',
+                value: isManagedByPlatform ? (
+                  <span style={{ padding: '2px 10px', borderRadius: 10, background: '#1565c0', color: '#fff', fontSize: 11, fontWeight: 700 }}>
+                    Managed by Platform
+                  </span>
+                ) : (
+                  <span style={{ padding: '2px 10px', borderRadius: 10, background: '#546e7a', color: '#fff', fontSize: 11, fontWeight: 700 }}>
+                    Manually Installed
+                  </span>
+                ),
+              },
+            ]} />
           </Paper>
 
           {/* Conditions */}
@@ -355,22 +322,21 @@ export function ProviderDetailView({ name }: ProviderDetailProps) {
             {conditions.length === 0 ? (
               <Typography variant="body2" color="textSecondary">No conditions reported.</Typography>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-                    {['Type', 'Status', 'Reason', 'Message'].map((h) => (
-                      <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {conditions.map((c: any) => (
-                    <ConditionRow key={c.type} cond={c} />
-                  ))}
-                </tbody>
-              </table>
+              <SimpleTable
+                columns={[
+                  { label: 'Type', getter: (c: any) => c.type },
+                  {
+                    label: 'Status', getter: (c: any) => {
+                      const ok = c.status === 'True';
+                      return <Chip label={c.status} size="small"
+                        style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
+                    }
+                  },
+                  { label: 'Reason', getter: (c: any) => c.reason ?? '' },
+                  { label: 'Message', getter: (c: any) => c.message ?? '' },
+                ]}
+                data={conditions}
+              />
             )}
           </Paper>
 
@@ -380,10 +346,19 @@ export function ProviderDetailView({ name }: ProviderDetailProps) {
             <ProviderConfigsSection providerName={name} currentRevision={currentRevision} />
           </Paper>
 
-          {/* Managed Resource Types */}
+          {/* Quick links */}
           <Paper elevation={1} style={{ padding: 16 }}>
-            <SectionHeader title="Managed Resource Types" headerStyle="subsection" noPadding />
-            <ManagedResourceSection providerName={name} currentRevision={currentRevision} />
+            <SectionHeader title="Explore" headerStyle="subsection" noPadding />
+            <Box display="flex" gap={1} mt={1.5}>
+              <Button size="small" variant="outlined"
+                onClick={() => history.push(`${clusterPrefix()}/crossplane/crds?provider=${name}`)}>
+                Show CRDs
+              </Button>
+              <Button size="small" variant="outlined"
+                onClick={() => history.push(`${clusterPrefix()}/crossplane/resources?provider=${name}`)}>
+                Show Resources
+              </Button>
+            </Box>
           </Paper>
         </>
       )}

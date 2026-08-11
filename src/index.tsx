@@ -32,7 +32,7 @@ registerSidebarEntry({
 registerSidebarEntry({
   parent: 'crossplane',
   name: 'crossplane-overview',
-  label: 'Overview',
+  label: 'Health',
   url: '/crossplane/overview',
 });
 

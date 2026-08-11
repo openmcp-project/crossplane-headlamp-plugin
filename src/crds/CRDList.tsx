@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useHistory } from 'react-router-dom';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { Provider, ProviderRevision } from '../common/Resources';
 import { getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
@@ -11,7 +12,7 @@ import * as jsYaml from 'js-yaml';
 
 const { Typography, Box, Chip, CircularProgress, Paper, TextField, InputAdornment, MenuItem, Tabs, Tab } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader, NameValueTable, SimpleTable } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── CRD → Provider reverse map ────────────────────────────────────────────────
 
@@ -162,48 +163,47 @@ function InstancesList({ crd, providerName }: { crd: any; providerName: string }
   }
 
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-          {['Name', 'Ready', 'Synced', 'Age'].map((h) => (
-            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {instances.map((inst: any) => {
-          const instName: string = inst.metadata?.name ?? '';
-          const ns: string = inst.metadata?.namespace ?? '';
-          const conditions: any[] = inst.status?.conditions ?? [];
-          const ready = conditions.find((c: any) => c.type === 'Ready');
-          const synced = conditions.find((c: any) => c.type === 'Synced');
-          const created = inst.metadata?.creationTimestamp
-            ? new Date(inst.metadata.creationTimestamp).toLocaleDateString() : '—';
-          return (
-            <tr key={`${ns}/${instName}`} style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-              onClick={() => openManagedDetail({ providerName, group, plural, name: instName, namespace: ns || undefined })}>
-              <td style={{ padding: '8px 12px' }}>
+    <SimpleTable
+      columns={[
+        {
+          label: 'Name', getter: (inst: any) => {
+            const instName: string = inst.metadata?.name ?? '';
+            const ns: string = inst.metadata?.namespace ?? '';
+            return (
+              <Box style={{ cursor: 'pointer' }}
+                onClick={() => openManagedDetail({ providerName, group, plural, name: instName, namespace: ns || undefined })}>
                 <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{instName}</span>
-                {ns && <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>}
-              </td>
-              <td style={{ padding: '8px 12px' }}>
-                {ready ? (
-                  <Chip label={ready.status === 'True' ? 'Ready' : 'Not Ready'} size="small"
-                    style={{ background: ready.status === 'True' ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
-                ) : <Chip label="—" size="small" />}
-              </td>
-              <td style={{ padding: '8px 12px' }}>
-                {synced ? (
-                  <Chip label={synced.status === 'True' ? 'Synced' : 'Not Synced'} size="small"
-                    style={{ background: synced.status === 'True' ? xpColors.synced.bg : xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />
-                ) : <Chip label="—" size="small" />}
-              </td>
-              <td style={{ padding: '8px 12px', fontSize: 12 }}>{created}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                {ns && <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>}
+              </Box>
+            );
+          }
+        },
+        {
+          label: 'Ready', getter: (inst: any) => {
+            const ready = inst.status?.conditions?.find((c: any) => c.type === 'Ready');
+            return ready ? (
+              <Chip label={ready.status === 'True' ? 'Ready' : 'Not Ready'} size="small"
+                style={{ background: ready.status === 'True' ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
+            ) : <Chip label="—" size="small" />;
+          }
+        },
+        {
+          label: 'Synced', getter: (inst: any) => {
+            const synced = inst.status?.conditions?.find((c: any) => c.type === 'Synced');
+            return synced ? (
+              <Chip label={synced.status === 'True' ? 'Synced' : 'Not Synced'} size="small"
+                style={{ background: synced.status === 'True' ? xpColors.synced.bg : xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />
+            ) : <Chip label="—" size="small" />;
+          }
+        },
+        {
+          label: 'Age', getter: (inst: any) =>
+            inst.metadata?.creationTimestamp
+              ? new Date(inst.metadata.creationTimestamp).toLocaleDateString() : '—'
+        },
+      ]}
+      data={instances}
+    />
   );
 }
 
@@ -232,7 +232,7 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
       .catch(() => setInstanceCount(0));
   }, [crd.metadata.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const tabs = ['Overview', 'Schema'];
+  const tabs = ['Health', 'Schema'];
   if (isManagedResource) {
     tabs.push(instanceCount !== null ? `Resources (${instanceCount})` : 'Resources');
     tabs.push('Create');
@@ -253,30 +253,19 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
         {tabs.map((label) => <Tab key={label} label={label} />)}
       </Tabs>
 
-      {/* Overview tab */}
+      {/* Health tab */}
       {tab === 0 && (
         <>
           <Paper elevation={1} style={{ padding: 16, marginBottom: 16 }}>
             {description && (
-              <Typography variant="body2" style={{ color: '#555', lineHeight: 1.6, marginBottom: 16 }}>{description}</Typography>
+              <Typography variant="body2" color="textSecondary" style={{ lineHeight: 1.6, marginBottom: 16 }}>{description}</Typography>
             )}
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {[
-                  ['Group', group],
-                  ['Version', versions.map((v: any) => v.name).join(', ')],
-                  ['Scope', null],
-                  ['Provider', providerName],
-                ].map(([label, value]) => (
-                  <tr key={label as string} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                    <td style={{ padding: '6px 12px', fontWeight: 600, width: 160 }}>{label}</td>
-                    <td style={{ padding: '6px 12px', fontFamily: value !== null ? 'monospace' : undefined, fontSize: 13 }}>
-                      {label === 'Scope' ? <ScopeBadge scope={scope} /> : value}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <NameValueTable rows={[
+              { name: 'Group', value: group },
+              { name: 'Version', value: versions.map((v: any) => v.name).join(', ') },
+              { name: 'Scope', value: <ScopeBadge scope={scope} /> },
+              { name: 'Provider', value: providerName },
+            ]} />
           </Paper>
         </>
       )}
@@ -310,6 +299,7 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
         <Box style={{ height: 600 }}>
           <YamlEditor
             initialStage="edit"
+            schema={openAPISchema ?? undefined}
             item={jsYaml.load(scaffoldFromSchema(kind, group, topVersion, openAPISchema))}
             onSave={async (obj: any) => {
               const isNamespaced = scope === 'Namespaced';
@@ -371,8 +361,8 @@ function CRDRow({ crd, providerName }: {
       <td style={{ padding: '8px 12px' }}>
         <span style={{ color: xpColors.link, textDecoration: 'underline', fontWeight: 600 }}>{kind}</span>
       </td>
-      <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
-      <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
+      <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{group}</td>
+      <td style={{ padding: '8px 12px' }}>{topVersion}</td>
       <td style={{ padding: '8px 12px' }}><ScopeBadge scope={scope} /></td>
     </tr>
   );
@@ -401,7 +391,7 @@ function GroupSection({ label, crds, providerMap }: {
           <thead>
             <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
               {['Kind', 'Group', 'Version', 'Scope'].map((h) => (
-                <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+                <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -427,13 +417,33 @@ type GroupBy = 'provider' | 'group' | 'none';
 // ── Main CRDList ──────────────────────────────────────────────────────────────
 
 export default function CRDList() {
+  const location = useLocation();
+  const history = useHistory();
+  const qp = new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search);
+
   const [allCrds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const providerMap = useCRDProviderMap();
 
   const [search, setSearch] = useState('');
   const [scopeFilter, setScopeFilter] = useState<'all' | 'Cluster' | 'Namespaced'>('all');
-  const [providerFilter, setProviderFilter] = useState('all');
+  const [providerFilter, setProviderFilter] = useState(qp.get('provider') ?? 'all');
   const [groupBy, setGroupBy] = useState<GroupBy>('provider');
+
+  // Sync URL → state when navigating in
+  useEffect(() => {
+    const p = new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search);
+    setProviderFilter(p.get('provider') ?? 'all');
+  }, [location.search]);
+
+  // Sync state → URL
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (providerFilter !== 'all') params.set('provider', providerFilter);
+    const newSearch = params.toString() ? `?${params.toString()}` : '';
+    if (location.search !== newSearch) {
+      history.replace({ ...location, search: newSearch });
+    }
+  }, [providerFilter]);
 
   const providerCrds = (allCrds ?? []).filter((crd: any) => providerMap.has(crd.metadata.name));
   const providerNames = Array.from(new Set(Array.from(providerMap.values()))).sort();
@@ -514,7 +524,7 @@ export default function CRDList() {
               <MenuItem value="Cluster">Cluster</MenuItem>
               <MenuItem value="Namespaced">Namespaced</MenuItem>
             </TextField>
-            {providerNames.length > 1 && (
+            {providerNames.length > 0 && (
               <TextField select size="small" value={providerFilter}
                 onChange={(e: any) => setProviderFilter(e.target.value)} style={{ width: 180 }}>
                 <MenuItem value="all">All providers</MenuItem>
@@ -531,9 +541,29 @@ export default function CRDList() {
         ],
       }}
     >
-      <Typography variant="caption" color="textSecondary" style={{ display: 'block', marginBottom: 12 }}>
-        {filtered.length} CRD{filtered.length !== 1 ? 's' : ''} across {providerNames.length} provider{providerNames.length !== 1 ? 's' : ''}
-      </Typography>
+      {(providerFilter !== 'all' || scopeFilter !== 'all' || search) && (
+        <Box mb={1.5} display="flex" alignItems="center" gap={1} flexWrap="wrap">
+          <Typography variant="caption" color="textSecondary">Filtered:</Typography>
+          {providerFilter !== 'all' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: xpColors.link, color: '#fff', borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>
+              {providerFilter}
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }} onClick={() => setProviderFilter('all')}>×</span>
+            </span>
+          )}
+          {scopeFilter !== 'all' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#616161', color: '#fff', borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>
+              {scopeFilter}
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }} onClick={() => setScopeFilter('all')}>×</span>
+            </span>
+          )}
+          {search && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#616161', color: '#fff', borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>
+              "{search}"
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }} onClick={() => setSearch('')}>×</span>
+            </span>
+          )}
+        </Box>
+      )}
 
       {sorted.length === 0 ? (
         <Typography color="textSecondary">No CRDs match the current filter.</Typography>
@@ -543,7 +573,7 @@ export default function CRDList() {
             <thead>
               <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
                 {['Kind', 'Group', 'Version', 'Scope'].map((h) => (
-                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
             </thead>

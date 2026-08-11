@@ -132,7 +132,7 @@ export default function ProviderList() {
         userSelect: 'none' as const, textAlign: align as any, whiteSpace: 'nowrap' as const,
       }}>
       {label}
-      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 11, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
     </th>
   );
 
@@ -254,6 +254,7 @@ export default function ProviderList() {
               <SortHeader label="Name" sk="name" />
               <SortHeader label="Package" sk="name" />
               <SortHeader label="Version" sk="version" />
+              <th style={{ padding: '8px 12px', fontWeight: 600 }}>Installation</th>
               <SortHeader label="Installed" sk="installed" />
               <SortHeader label="Healthy" sk="healthy" />
               <SortHeader label="Ready" sk="ready" />
@@ -270,6 +271,8 @@ export default function ProviderList() {
               const isHealthy = conditions.find((c: any) => c.type === 'Healthy')?.status === 'True';
               const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
               const rowBad = !isHealthy || !isReady;
+              const labels: Record<string, string> = p.jsonData?.metadata?.labels ?? p.metadata?.labels ?? {};
+              const isManagedByPlatform = 'controlplane.core.orchestrate.cloud.sap/component' in labels;
               return (
                 <tr key={p.metadata.name}
                   style={{
@@ -281,10 +284,17 @@ export default function ProviderList() {
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{p.metadata.name}</span>
                   </td>
-                  <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                  <td style={{ padding: '8px 12px', fontFamily: 'monospace', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
                     {p.jsonData?.spec?.package ?? '—'}
                   </td>
                   <td style={{ padding: '8px 12px' }}>{version}</td>
+                  <td style={{ padding: '8px 12px' }}>
+                    {isManagedByPlatform ? (
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: '#1565c0', color: '#fff', fontSize: 11, fontWeight: 700 }}>Platform</span>
+                    ) : (
+                      <span style={{ padding: '2px 8px', borderRadius: 10, background: '#546e7a', color: '#fff', fontSize: 11, fontWeight: 700 }}>Manual</span>
+                    )}
+                  </td>
                   <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Installed')}</td>
                   <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Healthy')}</td>
                   <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Ready')}</td>

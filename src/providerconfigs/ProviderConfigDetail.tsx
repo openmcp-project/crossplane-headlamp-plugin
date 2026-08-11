@@ -8,7 +8,7 @@ import { openManagedDetail } from '../managed/ManagedDetail';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+const { SectionBox, SectionHeader, NameValueTable, SimpleTable } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,42 +44,6 @@ function conditionChip(conditions: any[], type: string) {
   return (
     <Chip label={ok ? type : `Not ${type}`} size="small"
       style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
-  );
-}
-
-function ConditionTable({ conditions }: { conditions: any[] }) {
-  if (!conditions || conditions.length === 0) {
-    return <Typography variant="body2" color="textSecondary">No conditions.</Typography>;
-  }
-  return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-          {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map((h) => (
-            <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {conditions.map((c: any) => {
-          const ok = c.status === 'True';
-          return (
-            <tr key={c.type} style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>{c.type}</td>
-              <td style={{ padding: '6px 12px' }}>
-                <Chip label={c.status} size="small"
-                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
-              </td>
-              <td style={{ padding: '6px 12px', fontSize: 12 }}>{c.reason ?? ''}</td>
-              <td style={{ padding: '6px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>{c.message ?? ''}</td>
-              <td style={{ padding: '6px 12px', fontSize: 12, color: '#888' }}>
-                {c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—'}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
   );
 }
 
@@ -152,44 +116,48 @@ export function ProviderConfigDetailView({ providerName, configName }: ProviderC
 
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
         <SectionHeader title="Info" headerStyle="subsection" noPadding />
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <tbody>
-            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>Name</td>
-              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{configName}</td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Provider</td>
-              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{providerName}</td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Scope</td>
-              <td style={{ padding: '6px 12px' }}><ScopeBadge scope="Cluster" /></td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Credentials Source</td>
-              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{credSource || '—'}</td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Credentials Secret</td>
-              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
-                {secretRef ? `${secretRef.namespace}/${secretRef.name}` : '—'}
-              </td>
-            </tr>
-            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Created</td>
-              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
-                {config?.metadata?.creationTimestamp
-                  ? new Date(config.metadata.creationTimestamp).toLocaleString() : '—'}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <NameValueTable rows={[
+          { name: 'Name', value: configName },
+          { name: 'Provider', value: providerName },
+          { name: 'Scope', value: <ScopeBadge scope="Cluster" /> },
+          { name: 'Credentials Source', value: credSource || '—' },
+          {
+            name: 'Credentials Secret',
+            value: secretRef ? `${secretRef.namespace}/${secretRef.name}` : '—',
+          },
+          {
+            name: 'Created',
+            value: config?.metadata?.creationTimestamp
+              ? new Date(config.metadata.creationTimestamp).toLocaleString() : '—',
+          },
+        ]} />
       </Paper>
 
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
         <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
-        <ConditionTable conditions={conditions} />
+        {conditions.length === 0 ? (
+          <Typography variant="body2" color="textSecondary">No conditions.</Typography>
+        ) : (
+          <SimpleTable
+            columns={[
+              { label: 'Type', getter: (c: any) => c.type },
+              {
+                label: 'Status', getter: (c: any) => {
+                  const ok = c.status === 'True';
+                  return <Chip label={c.status} size="small"
+                    style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
+                }
+              },
+              { label: 'Reason', getter: (c: any) => c.reason ?? '' },
+              { label: 'Message', getter: (c: any) => c.message ?? '', cellProps: { style: { maxWidth: 300 } } },
+              {
+                label: 'Last Transition', getter: (c: any) =>
+                  c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—'
+              },
+            ]}
+            data={conditions}
+          />
+        )}
       </Paper>
 
       <Paper elevation={1} style={{ padding: 16 }}>
@@ -214,40 +182,37 @@ export function ProviderConfigDetailView({ providerName, configName }: ProviderC
             No managed resources reference this ProviderConfig.
           </Typography>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-                {['Kind', 'Name', 'Scope', 'Ready', 'Synced', 'Age'].map((h) => (
-                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {usingInstances.map((item: any) => {
-                const itemName: string = item.metadata?.name ?? '';
-                const ns: string = item.metadata?.namespace ?? '';
-                const conditions2: any[] = item.status?.conditions ?? [];
-                const created = item.metadata?.creationTimestamp
-                  ? new Date(item.metadata.creationTimestamp).toLocaleDateString() : '—';
-                return (
-                  <tr key={`${item._group}/${item._plural}/${ns}/${itemName}`}
-                    style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-                    onClick={() => openManagedDetail({ providerName, group: item._group, plural: item._plural, name: itemName, namespace: ns || undefined })}>
-                    <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
-                    <td style={{ padding: '8px 12px' }}>
+          <SimpleTable
+            columns={[
+              { label: 'Kind', getter: (item: any) => item._kind },
+              {
+                label: 'Name', getter: (item: any) => {
+                  const itemName: string = item.metadata?.name ?? '';
+                  const ns: string = item.metadata?.namespace ?? '';
+                  return (
+                    <Box style={{ cursor: 'pointer' }}
+                      onClick={() => openManagedDetail({ providerName, group: item._group, plural: item._plural, name: itemName, namespace: ns || undefined })}>
                       <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{itemName}</span>
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <ScopeBadge scope={ns ? 'Namespaced' : 'Cluster'} namespace={ns || undefined} />
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Ready')}</td>
-                    <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Synced')}</td>
-                    <td style={{ padding: '8px 12px', fontSize: 12 }}>{created}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </Box>
+                  );
+                }
+              },
+              {
+                label: 'Scope', getter: (item: any) => {
+                  const ns: string = item.metadata?.namespace ?? '';
+                  return <ScopeBadge scope={ns ? 'Namespaced' : 'Cluster'} namespace={ns || undefined} />;
+                }
+              },
+              { label: 'Ready', getter: (item: any) => conditionChip(item.status?.conditions ?? [], 'Ready') },
+              { label: 'Synced', getter: (item: any) => conditionChip(item.status?.conditions ?? [], 'Synced') },
+              {
+                label: 'Age', getter: (item: any) =>
+                  item.metadata?.creationTimestamp
+                    ? new Date(item.metadata.creationTimestamp).toLocaleDateString() : '—'
+              },
+            ]}
+            data={usingInstances}
+          />
         )}
       </Paper>
     </SectionBox>
