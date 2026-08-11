@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { openManagedDetail } from '../managed/ManagedDetail';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
+import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS, useAllManagedResources } from '../helpers';
+
 import { xpColors, DOT } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
 
@@ -192,143 +193,14 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
 
 // ── ProviderConfig group-by view ──────────────────────────────────────────────
 
-function useAllInstancesForProviders(providers: any[] | null) {
-  const [instancesByConfig, setInstancesByConfig] = useState<Map<string, any[]> | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!providers || providers.length === 0) { setInstancesByConfig(new Map()); return; }
-    setLoading(true);
-    setInstancesByConfig(null);
-
-    const fetchAll = async () => {
-      const result = new Map<string, any[]>();
-
-      for (const provider of providers) {
-        const providerName: string = provider.metadata.name;
-        const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
-        // Fetch CRDs for this provider via ProviderRevision
-        try {
-          const revResp = await getApiProxy().request(
-            `/apis/pkg.crossplane.io/v1alpha1/providerrevisions/${currentRevision}`,
-            { isJSON: true }
-          );
-          const refs: any[] = revResp?.status?.objectRefs ?? [];
-          const crdNames = new Set(
-            refs.filter((r: any) => r.kind === 'CustomResourceDefinition').map((r: any) => r.name)
-          );
-          // Fetch all CRDs to find group/plural
-          const allCrdsResp = await getApiProxy().request(
-            '/apis/apiextensions.k8s.io/v1/customresourcedefinitions',
-            { isJSON: true }
-          );
-          const crds: any[] = (allCrdsResp?.items ?? []).filter(
-            (c: any) => crdNames.has(c.metadata?.name) && !NON_MANAGED_PLURALS.has(c.spec?.names?.plural ?? '')
-          );
-
-          for (const crd of crds) {
-            const group: string = crd.spec?.group ?? '';
-            const plural: string = crd.spec?.names?.plural ?? '';
-            const ver: string = crd.spec?.versions?.[0]?.name ?? 'v1alpha1';
-            if (!group || !plural) continue;
-            try {
-              const res = await getApiProxy().request(`/apis/${group}/${ver}/${plural}`, { isJSON: true });
-              const items: any[] = res?.items ?? [];
-              for (const item of items) {
-                const cfgName: string = item.spec?.providerConfigRef?.name ?? '(no config)';
-                if (!result.has(cfgName)) result.set(cfgName, []);
-                result.get(cfgName)!.push({ ...item, _providerName: providerName, _group: group, _plural: plural });
-              }
-            } catch { /* skip failed CRD */ }
-          }
-        } catch { /* skip failed provider */ }
-      }
-
-      setInstancesByConfig(new Map(result));
-      setLoading(false);
-    };
-
-    fetchAll();
-  }, [providers?.map((p: any) => p.metadata.name).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return { instancesByConfig, loading };
-}
-
-function ProviderConfigGroupSection({ configName, instances, statusFilter }: {
-  configName: string;
-  instances: any[];
+function ProviderConfigGroupView({ providerFilter, statusFilter }: {
+  providerFilter: string;
   statusFilter: StatusFilter[];
 }) {
-  const filtered = instances.filter((i) => matchesStatusFilter(i, statusFilter));
-  if (filtered.length === 0) return null;
-  const readyCount = filtered.filter((i: any) =>
-    i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
-  ).length;
-  const notReady = filtered.length - readyCount;
+  const filterName = providerFilter === 'all' ? undefined : providerFilter;
+  const { items, loading } = useAllManagedResources(filterName);
 
-  return (
-    <Paper elevation={1} style={{ marginBottom: 24 }}>
-      <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
-      <Typography variant="subtitle2" style={{ fontFamily: 'monospace' }}>{configName}</Typography>
-        {notReady > 0 && (
-          <Chip label={`${notReady} not ready`} size="small"
-            style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
-        )}
-        <Chip label={`${filtered.length} resources`} size="small" />
-      </Box>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-            {['Name', 'Kind', 'Provider', 'Health'].map((h) => (
-              <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((inst: any) => {
-            const name: string = inst.metadata?.name ?? '';
-            const ns: string = inst.metadata?.namespace ?? '';
-            const kind: string = inst.kind ?? inst._plural ?? '';
-            const conditions: any[] = inst.status?.conditions ?? [];
-            return (
-              <tr key={`${ns}/${name}`}
-                style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-                onClick={() => openManagedDetail({
-                  providerName: inst._providerName,
-                  group: inst._group,
-                  plural: inst._plural,
-                  name,
-                  namespace: ns || undefined,
-                })}
-              >
-                <td style={{ padding: '8px 12px' }}>
-                  <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{name}</span>
-                  {ns && <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>}
-                </td>
-                <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{kind}</td>
-                <td style={{ padding: '8px 12px' }}>{inst._providerName}</td>
-                <td style={{ padding: '8px 12px' }}>
-                  <span style={{ display: 'inline-flex', gap: 4 }}>
-                    {readyChip(conditions)}
-                    {syncedChip(conditions)}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </Paper>
-  );
-}
-
-function ProviderConfigGroupView({ providers, statusFilter }: {
-  providers: any[];
-  statusFilter: StatusFilter[];
-}) {
-  const { instancesByConfig, loading } = useAllInstancesForProviders(providers);
-
-  if (loading || instancesByConfig === null) {
+  if (loading) {
     return (
       <Box p={3} display="flex" alignItems="center" gap={2}>
         <CircularProgress size={18} />
@@ -337,21 +209,83 @@ function ProviderConfigGroupView({ providers, statusFilter }: {
     );
   }
 
-  const entries = Array.from(instancesByConfig.entries()).sort(([a], [b]) => a.localeCompare(b));
+  // Group by providerConfigRef.name, defaulting to 'default'
+  const byConfig = new Map<string, any[]>();
+  for (const item of items) {
+    const cfgName: string = item.spec?.providerConfigRef?.name ?? 'default';
+    if (!byConfig.has(cfgName)) byConfig.set(cfgName, []);
+    byConfig.get(cfgName)!.push(item);
+  }
+
+  const entries = Array.from(byConfig.entries()).sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) {
     return <Box p={2}><Typography variant="body2" color="textSecondary">No managed resource instances found.</Typography></Box>;
   }
 
   return (
     <>
-      {entries.map(([configName, instances]) => (
-        <ProviderConfigGroupSection
-          key={configName}
-          configName={configName}
-          instances={instances}
-          statusFilter={statusFilter}
-        />
-      ))}
+      {entries.map(([configName, instances]) => {
+        const filtered = instances.filter((i) => matchesStatusFilter(i, statusFilter));
+        if (filtered.length === 0) return null;
+        const readyCount = filtered.filter((i: any) =>
+          i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
+        ).length;
+        const notReady = filtered.length - readyCount;
+        return (
+          <Paper key={configName} elevation={1} style={{ marginBottom: 24 }}>
+            <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
+              <Typography variant="subtitle2" style={{ fontFamily: 'monospace' }}>{configName}</Typography>
+              {notReady > 0 && (
+                <Chip label={`${notReady} not ready`} size="small"
+                  style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
+              )}
+              <Chip label={`${filtered.length} resources`} size="small" />
+            </Box>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
+                  {['Name', 'Kind', 'Provider', 'Health'].map((h) => (
+                    <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((inst: any) => {
+                  const name: string = inst.metadata?.name ?? '';
+                  const ns: string = inst.metadata?.namespace ?? '';
+                  const kind: string = inst._kind ?? inst.kind ?? '';
+                  const conditions: any[] = inst.status?.conditions ?? [];
+                  return (
+                    <tr key={`${ns}/${name}`}
+                      style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+                      onClick={() => openManagedDetail({
+                        providerName: inst._providerName,
+                        group: inst._group,
+                        plural: inst._plural,
+                        name,
+                        namespace: ns || undefined,
+                      })}
+                    >
+                      <td style={{ padding: '8px 12px' }}>
+                        <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{name}</span>
+                        {ns && <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{kind}</td>
+                      <td style={{ padding: '8px 12px' }}>{inst._providerName}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <span style={{ display: 'inline-flex', gap: 4 }}>
+                          {readyChip(conditions)}
+                          {syncedChip(conditions)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Paper>
+        );
+      })}
     </>
   );
 }
@@ -748,7 +682,7 @@ export default function ResourceList() {
         ))
       ) : (
         <ProviderConfigGroupView
-          providers={visibleProviders}
+          providerFilter={providerFilter}
           statusFilter={statusFilter}
         />
       )}
