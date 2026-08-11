@@ -167,13 +167,13 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
                 <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
                 {/* col 2: name */}
                 <td style={{ padding: '6px 12px' }}>
-                  <span style={{ color: xpColors.link, textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
+                  <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{instName}</span>
                   {isNamespaced && ns && (
-                    <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
+                    <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>
                   )}
                 </td>
                 {/* col 3+4: group/version/scope spacers — empty, keeps alignment */}
-                <td style={{ padding: '6px 12px', fontSize: 12, color: '#aaa' }} colSpan={3}>{created}</td>
+                <td style={{ padding: '6px 12px', color: '#aaa' }} colSpan={3}>{created}</td>
                 {/* col 6: health — aligns with parent "Health" column */}
                 <td style={{ padding: '6px 12px 6px 20px', textAlign: 'right' as const, whiteSpace: 'nowrap' as const }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -187,6 +187,172 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
         </tbody>
       </table>
     </Box>
+  );
+}
+
+// ── ProviderConfig group-by view ──────────────────────────────────────────────
+
+function useAllInstancesForProviders(providers: any[] | null) {
+  const [instancesByConfig, setInstancesByConfig] = useState<Map<string, any[]> | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!providers || providers.length === 0) { setInstancesByConfig(new Map()); return; }
+    setLoading(true);
+    setInstancesByConfig(null);
+
+    const fetchAll = async () => {
+      const result = new Map<string, any[]>();
+
+      for (const provider of providers) {
+        const providerName: string = provider.metadata.name;
+        const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
+        // Fetch CRDs for this provider via ProviderRevision
+        try {
+          const revResp = await getApiProxy().request(
+            `/apis/pkg.crossplane.io/v1alpha1/providerrevisions/${currentRevision}`,
+            { isJSON: true }
+          );
+          const refs: any[] = revResp?.status?.objectRefs ?? [];
+          const crdNames = new Set(
+            refs.filter((r: any) => r.kind === 'CustomResourceDefinition').map((r: any) => r.name)
+          );
+          // Fetch all CRDs to find group/plural
+          const allCrdsResp = await getApiProxy().request(
+            '/apis/apiextensions.k8s.io/v1/customresourcedefinitions',
+            { isJSON: true }
+          );
+          const crds: any[] = (allCrdsResp?.items ?? []).filter(
+            (c: any) => crdNames.has(c.metadata?.name) && !NON_MANAGED_PLURALS.has(c.spec?.names?.plural ?? '')
+          );
+
+          for (const crd of crds) {
+            const group: string = crd.spec?.group ?? '';
+            const plural: string = crd.spec?.names?.plural ?? '';
+            const ver: string = crd.spec?.versions?.[0]?.name ?? 'v1alpha1';
+            if (!group || !plural) continue;
+            try {
+              const res = await getApiProxy().request(`/apis/${group}/${ver}/${plural}`, { isJSON: true });
+              const items: any[] = res?.items ?? [];
+              for (const item of items) {
+                const cfgName: string = item.spec?.providerConfigRef?.name ?? '(no config)';
+                if (!result.has(cfgName)) result.set(cfgName, []);
+                result.get(cfgName)!.push({ ...item, _providerName: providerName, _group: group, _plural: plural });
+              }
+            } catch { /* skip failed CRD */ }
+          }
+        } catch { /* skip failed provider */ }
+      }
+
+      setInstancesByConfig(new Map(result));
+      setLoading(false);
+    };
+
+    fetchAll();
+  }, [providers?.map((p: any) => p.metadata.name).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { instancesByConfig, loading };
+}
+
+function ProviderConfigGroupSection({ configName, instances, statusFilter }: {
+  configName: string;
+  instances: any[];
+  statusFilter: StatusFilter[];
+}) {
+  const filtered = instances.filter((i) => matchesStatusFilter(i, statusFilter));
+  if (filtered.length === 0) return null;
+  const readyCount = filtered.filter((i: any) =>
+    i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
+  ).length;
+  const notReady = filtered.length - readyCount;
+
+  return (
+    <Paper elevation={1} style={{ marginBottom: 24 }}>
+      <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
+      <Typography variant="subtitle2" style={{ fontFamily: 'monospace' }}>{configName}</Typography>
+        {notReady > 0 && (
+          <Chip label={`${notReady} not ready`} size="small"
+            style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
+        )}
+        <Chip label={`${filtered.length} resources`} size="small" />
+      </Box>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
+            {['Name', 'Kind', 'Provider', 'Health'].map((h) => (
+              <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map((inst: any) => {
+            const name: string = inst.metadata?.name ?? '';
+            const ns: string = inst.metadata?.namespace ?? '';
+            const kind: string = inst.kind ?? inst._plural ?? '';
+            const conditions: any[] = inst.status?.conditions ?? [];
+            return (
+              <tr key={`${ns}/${name}`}
+                style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+                onClick={() => openManagedDetail({
+                  providerName: inst._providerName,
+                  group: inst._group,
+                  plural: inst._plural,
+                  name,
+                  namespace: ns || undefined,
+                })}
+              >
+                <td style={{ padding: '8px 12px' }}>
+                  <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{name}</span>
+                  {ns && <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>}
+                </td>
+                <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{kind}</td>
+                <td style={{ padding: '8px 12px' }}>{inst._providerName}</td>
+                <td style={{ padding: '8px 12px' }}>
+                  <span style={{ display: 'inline-flex', gap: 4 }}>
+                    {readyChip(conditions)}
+                    {syncedChip(conditions)}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Paper>
+  );
+}
+
+function ProviderConfigGroupView({ providers, statusFilter }: {
+  providers: any[];
+  statusFilter: StatusFilter[];
+}) {
+  const { instancesByConfig, loading } = useAllInstancesForProviders(providers);
+
+  if (loading || instancesByConfig === null) {
+    return (
+      <Box p={3} display="flex" alignItems="center" gap={2}>
+        <CircularProgress size={18} />
+        <Typography variant="body2">Loading resources…</Typography>
+      </Box>
+    );
+  }
+
+  const entries = Array.from(instancesByConfig.entries()).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return <Box p={2}><Typography variant="body2" color="textSecondary">No managed resource instances found.</Typography></Box>;
+  }
+
+  return (
+    <>
+      {entries.map(([configName, instances]) => (
+        <ProviderConfigGroupSection
+          key={configName}
+          configName={configName}
+          instances={instances}
+          statusFilter={statusFilter}
+        />
+      ))}
+    </>
   );
 }
 
@@ -237,8 +403,8 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
         <td style={{ padding: '8px 12px' }}>
           <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{kind}</span>
         </td>
-        <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
-        <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
+        <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{group}</td>
+        <td style={{ padding: '8px 12px' }}>{topVersion}</td>
         <td style={{ padding: '8px 12px' }}>
           <ScopeBadge scope={scope} />
         </td>
@@ -318,9 +484,9 @@ function ProviderSection({ provider, search, sortKey, sortDir, onSort, statusFil
 
   const SortHeader = ({ label, sk }: { label: string; sk: SortKey }) => (
     <th onClick={() => onSort(sk)}
-      style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'nowrap' as const }}>
+      style={{ padding: '8px 12px', fontWeight: 600, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'nowrap' as const }}>
       {label}
-      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 11, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
     </th>
   );
 
@@ -328,7 +494,6 @@ function ProviderSection({ provider, search, sortKey, sortDir, onSort, statusFil
     <Paper elevation={1} style={{ marginBottom: 24 }}>
       <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
         <Typography variant="h6">{provider.metadata.name}</Typography>
-        {crds !== null && counts !== null && <Chip label={`${visibleCrds.length} types`} size="small" />}
       </Box>
       {loading || countsLoading ? (
         <Box px={2} py={2} display="flex" alignItems="center" gap={1}>
@@ -390,6 +555,12 @@ export default function ResourceList() {
     qp.get('status') ? (qp.get('status')!.split(',') as StatusFilter[]) : []
   );
   const [providerFilter, setProviderFilter] = useState<string>(qp.get('provider') ?? 'all');
+  const [groupBy, setGroupBy] = useState<'provider' | 'providerconfig'>('provider');
+
+  useEffect(() => {
+    const p = parseSearch(location.search);
+    setProviderFilter(p.get('provider') ?? 'all');
+  }, [location.search]);
 
   // Sync state → URL whenever filters change
   useEffect(() => {
@@ -517,6 +688,16 @@ export default function ResourceList() {
                 <MenuItem key={n} value={n}>{n}</MenuItem>
               ))}
             </TextField>
+            <TextField
+              select
+              size="small"
+              value={groupBy}
+              onChange={(e: any) => setGroupBy(e.target.value)}
+              style={{ width: 160 }}
+            >
+              <MenuItem value="provider">Group by Provider</MenuItem>
+              <MenuItem value="providerconfig">Group by ProviderConfig</MenuItem>
+            </TextField>
           </Box>,
         ],
       }}
@@ -553,17 +734,24 @@ export default function ResourceList() {
         </Box>
       )}
 
-      {visibleProviders.map((p: any) => (
-        <ProviderSection
-          key={p.metadata.name}
-          provider={p}
-          search={search}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={handleSort}
+      {groupBy === 'provider' ? (
+        visibleProviders.map((p: any) => (
+          <ProviderSection
+            key={p.metadata.name}
+            provider={p}
+            search={search}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={handleSort}
+            statusFilter={statusFilter}
+          />
+        ))
+      ) : (
+        <ProviderConfigGroupView
+          providers={visibleProviders}
           statusFilter={statusFilter}
         />
-      ))}
+      )}
     </SectionBox>
   );
 }

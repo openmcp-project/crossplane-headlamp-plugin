@@ -87,7 +87,7 @@ export default function AlertsView() {
             <thead>
               <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
                 {['Kind', 'Name', 'Provider', 'Ready', 'Synced', 'Failing Since', 'Reason', 'Message'].map((h) => (
-                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
+                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>
                     {h}
                   </th>
                 ))}
@@ -114,18 +114,18 @@ export default function AlertsView() {
                         </Typography>
                       )}
                     </td>
-                    <td style={{ padding: '8px 12px', fontSize: 13, color: '#555' }}>
+                    <td style={{ padding: '8px 12px', color: '#555' }}>
                       {item._providerName}
                     </td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Ready')}</td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Synced')}</td>
-                    <td style={{ padding: '8px 12px', fontSize: 12, color: '#888' }}>
+                    <td style={{ padding: '8px 12px', color: '#888' }}>
                       {failingSince(conditions)}
                     </td>
-                    <td style={{ padding: '8px 12px', fontSize: 12 }}>
+                    <td style={{ padding: '8px 12px' }}>
                       {firstFailReason(conditions)}
                     </td>
-                    <td style={{ padding: '8px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>
+                    <td style={{ padding: '8px 12px', color: '#555', maxWidth: 300 }}>
                       {firstFailMessage(conditions)}
                     </td>
                   </tr>
