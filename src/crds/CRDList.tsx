@@ -329,7 +329,7 @@ function openCRDDetail(crd: any, providerName: string) {
   const kind: string = crd.jsonData?.spec?.names?.kind ?? crd.metadata.name;
   Activity.launch({
     id: `crd-detail:${crd.metadata.name}`,
-    location: 'split-right',
+    location: 'split-left',
     temporary: true,
     title: `CRD · ${kind}`,
     content: <CRDDetailView crd={crd} providerName={providerName} />,
