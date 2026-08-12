@@ -502,7 +502,7 @@ export default function ResourceList() {
     qp.get('status') ? (qp.get('status')!.split(',') as StatusFilter[]) : []
   );
   const [providerFilter, setProviderFilter] = useState<string>(qp.get('provider') ?? 'all');
-  const [groupColorBy, setGroupColorBy] = useState<ColorBy | 'type'>('type');
+  const [groupColorBy, setGroupColorBy] = useState<ColorBy | 'type'>('kind');
   const [labelKey, setLabelKey] = useState<string | undefined>(undefined);
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Set<string> | null>(null);
 
@@ -689,19 +689,19 @@ export default function ResourceList() {
             <Box display="flex" alignItems="center" gap={1} pl={0.5}>
               <Typography variant="caption" color="textSecondary"
                 style={{ fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.55, whiteSpace: 'nowrap' as const }}>
-                View
+                Group
               </Typography>
               <TextField
                 select size="small" value={groupColorBy}
                 onChange={(e: any) => { setGroupColorBy(e.target.value); setLabelKey(undefined); }}
                 style={{ width: 190 }}
               >
-                <MenuItem value="type">Group: Kind (CRD view)</MenuItem>
-                <MenuItem value="kind">Group: Kind (flat)</MenuItem>
-                <MenuItem value="provider">Group: ProviderConfig</MenuItem>
-                <MenuItem value="source">Group: API Domain</MenuItem>
-                <MenuItem value="flux">Group: Flux</MenuItem>
-                <MenuItem value="label">Group: Label…</MenuItem>
+                <MenuItem value="type">Kind (CRD view)</MenuItem>
+                <MenuItem value="kind">Kind (flat)</MenuItem>
+                <MenuItem value="provider">ProviderConfig</MenuItem>
+                <MenuItem value="source">API Domain</MenuItem>
+                <MenuItem value="flux">Flux</MenuItem>
+                <MenuItem value="label">Label…</MenuItem>
               </TextField>
               {groupColorBy === 'label' && (
                 <TextField
