@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
-  Controls,
   Edge,
   Handle,
   Node,
+  Panel,
   Position,
   ReactFlowProvider,
   useEdgesState,
@@ -22,9 +22,7 @@ import {
   EdgePoint,
   GROUP_NODE_HEIGHT,
   LayoutDirection,
-  NODE_HEIGHT,
   NODE_WIDTH,
-  TIER_COLORS,
   colorKeyFor,
   generateColorMap,
   listCommonLabelKeys,
@@ -209,6 +207,89 @@ function FitOnChange({ nodes, direction }: { nodes: Node[]; direction: LayoutDir
   return null;
 }
 
+// ── Custom map controls panel ─────────────────────────────────────────────────
+
+function GraphControls({
+  viewMode,
+  onViewModeChange,
+}: {
+  viewMode: 'detail' | 'groups';
+  onViewModeChange: (m: 'detail' | 'groups') => void;
+}) {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  const btn = (active?: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 28, height: 28, border: 'none', cursor: 'pointer',
+    background: active ? '#1565c0' : '#fff',
+    color: active ? '#fff' : '#555',
+  });
+
+  const sep: React.CSSProperties = { height: 1, background: '#e0e0e0' };
+
+  return (
+    <Panel position="bottom-left" style={{ margin: '0 0 10px 10px' }}>
+      <div style={{
+        display: 'flex', flexDirection: 'column',
+        borderRadius: 7, overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
+        border: '1px solid #ddd', background: '#fff',
+      }}>
+        {/* Zoom in */}
+        <button style={btn()} onClick={() => zoomIn({ duration: 150 })} title="Zoom in">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/>
+          </svg>
+        </button>
+        <div style={sep} />
+        {/* Zoom out */}
+        <button style={btn()} onClick={() => zoomOut({ duration: 150 })} title="Zoom out">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="2" y1="6" x2="10" y2="6"/>
+          </svg>
+        </button>
+        <div style={sep} />
+        {/* Fit view */}
+        <button style={btn()} onClick={() => fitView({ duration: 200, padding: 0.15 })} title="Fit to view">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 4.5V1h3.5M7.5 1H11v3.5M1 7.5V11h3.5M7.5 11H11V7.5"/>
+          </svg>
+        </button>
+        {/* Separator before toggle */}
+        <div style={{ ...sep, background: '#c8c8c8', margin: '2px 0' }} />
+        {/* View mode toggle: graph | groups */}
+        <div style={{ display: 'flex' }}>
+          <button
+            style={{ ...btn(viewMode === 'detail'), borderRight: '1px solid #e0e0e0', borderRadius: 0 }}
+            onClick={() => onViewModeChange('detail')}
+            title="Dependency graph view"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="6.5" cy="2.5" r="1.5"/>
+              <circle cx="2.5" cy="10.5" r="1.5"/>
+              <circle cx="10.5" cy="10.5" r="1.5"/>
+              <line x1="6.5" y1="4" x2="2.5" y2="9"/>
+              <line x1="6.5" y1="4" x2="10.5" y2="9"/>
+            </svg>
+          </button>
+          <button
+            style={{ ...btn(viewMode === 'groups'), borderRadius: 0 }}
+            onClick={() => onViewModeChange('groups')}
+            title="Grouped summary view"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+              <rect x="1" y="1" width="4" height="4" rx="1"/>
+              <rect x="7" y="1" width="4" height="4" rx="1"/>
+              <rect x="1" y="7" width="4" height="4" rx="1"/>
+              <rect x="7" y="7" width="4" height="4" rx="1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 // ── ReactFlow type registries ─────────────────────────────────────────────────
 
 const nodeTypes = {
@@ -229,10 +310,11 @@ interface InnerProps {
   labelKey: string | undefined;
   direction: LayoutDirection;
   viewMode: 'detail' | 'groups';
+  onViewModeChange: (mode: 'detail' | 'groups') => void;
   colorMap: Record<string, string>;
 }
 
-function ResourceGraphInner({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey, direction, viewMode, colorMap }: InnerProps) {
+function ResourceGraphInner({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey, direction, viewMode, onViewModeChange, colorMap }: InnerProps) {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [layoutDone, setLayoutDone] = useState(false);
@@ -329,7 +411,7 @@ function ResourceGraphInner({ items, loading, onNodeClick, onGroupClick, colorBy
           }}
         >
           <Background />
-          <Controls showInteractive={false} />
+          <GraphControls viewMode={viewMode} onViewModeChange={onViewModeChange} />
           <FitOnChange nodes={rfNodes} direction={direction} />
         </ReactFlow>
       )}
@@ -351,14 +433,6 @@ export interface ResourceGraphProps {
 const DIRECTION_OPTIONS: { value: LayoutDirection; label: string }[] = [
   { value: 'TB', label: 'Top → Bottom' },
   { value: 'LR', label: 'Left → Right' },
-];
-
-const COLOR_BY_OPTIONS: { value: ColorBy; label: string }[] = [
-  { value: 'provider', label: 'ProviderConfig' },
-  { value: 'source',   label: 'Provider type'  },
-  { value: 'flux',     label: 'Flux release'   },
-  { value: 'label',    label: 'Label'          },
-  { value: 'kind',     label: 'Kind'           },
 ];
 
 export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey }: ResourceGraphProps) {
@@ -390,34 +464,17 @@ export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, color
 
   const colorMap = useMemo(() => generateColorMap(items, colorBy, resolvedLabelKey), [items, colorBy, resolvedLabelKey]);
 
-  // Status legend
-  const statusLegend = [
-    { color: xpColors.healthy.bg,  label: 'Ready & Synced' },
-    { color: xpColors.degraded.bg, label: 'Not Ready / Not Synced' },
-    { color: xpColors.warning.bg,  label: 'Unknown' },
-  ];
-
-  // Tier legend (detail mode only)
-  const tierLegend = [
-    { color: TIER_COLORS.claim,          label: 'Claim' },
-    { color: TIER_COLORS.xr,             label: 'Composite Resource' },
-    { color: TIER_COLORS.providerconfig, label: 'ProviderConfig' },
-  ];
-
-  const colorLegend = Object.entries(colorMap).map(([name, color]) => ({ name, color }));
-
   return (
     <Paper elevation={1} style={{ marginBottom: 16, overflow: 'hidden' }}>
-      {/* Header toolbar */}
+      {/* Header toolbar — title + layout selector (detail only) + fullscreen + expand */}
       <Box
         px={2} py={1}
         display="flex" alignItems="center" justifyContent="space-between"
         style={{ borderBottom: '1px solid #e0e0e0', background: '#fafafa', gap: 8, flexWrap: 'wrap' as const }}
       >
-        <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
+        <Box display="flex" alignItems="center" gap={1.5}>
           <Typography variant="subtitle2">Dependency Graph</Typography>
 
-          {/* Direction selector — detail mode only */}
           {viewMode === 'detail' && (
             <TextField select size="small" value={direction}
               onChange={(e: any) => setDirection(e.target.value)}
@@ -425,54 +482,9 @@ export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, color
               {DIRECTION_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
             </TextField>
           )}
-
-          {/* Status dots */}
-          <Box display="flex" alignItems="center" gap={1}>
-            {statusLegend.map(({ color, label }) => (
-              <Box key={label} display="flex" alignItems="center" gap={0.5}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
-                <Typography variant="caption" color="textSecondary">{label}</Typography>
-              </Box>
-            ))}
-          </Box>
-
-          {/* Tier squares — detail mode only */}
-          {viewMode === 'detail' && (
-            <Box display="flex" alignItems="center" gap={1} ml={0.5}>
-              <Typography variant="caption" color="textSecondary" style={{ opacity: 0.35 }}>|</Typography>
-              {tierLegend.map(({ color, label }) => (
-                <Box key={label} display="flex" alignItems="center" gap={0.5}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
-                  <Typography variant="caption" color="textSecondary">{label}</Typography>
-                </Box>
-              ))}
-            </Box>
-          )}
-
-          {/* Dynamic color legend */}
-          {colorLegend.length > 0 && (
-            <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-              <Typography variant="caption" color="textSecondary" style={{ opacity: 0.35 }}>|</Typography>
-              {colorLegend.map(({ name, color }) => (
-                <Box key={name} display="flex" alignItems="center" gap={0.5}>
-                  <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
-                  <Typography variant="caption" color="textSecondary">{name}</Typography>
-                </Box>
-              ))}
-            </Box>
-          )}
         </Box>
 
-        {/* Right controls */}
         <Box display="flex" alignItems="center" gap={1}>
-          {/* View mode toggle */}
-          <span
-            onClick={() => setViewMode(v => v === 'detail' ? 'groups' : 'detail')}
-            style={{ cursor: 'pointer', fontSize: 12, color: '#1565c0', whiteSpace: 'nowrap' as const, userSelect: 'none' as const }}
-            title={viewMode === 'detail' ? 'Switch to grouped summary view' : 'Switch to dependency graph view'}
-          >
-            {viewMode === 'detail' ? '⊟ Group View' : '⊞ Graph View'}
-          </span>
           <span
             onClick={toggleFullscreen}
             style={{ cursor: 'pointer', fontSize: 12, color: '#666', userSelect: 'none' as const }}
@@ -495,7 +507,7 @@ export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, color
           <ResourceGraphInner
             items={items} loading={loading} onNodeClick={onNodeClick} onGroupClick={onGroupClick}
             colorBy={colorBy} labelKey={resolvedLabelKey}
-            direction={direction} viewMode={viewMode}
+            direction={direction} viewMode={viewMode} onViewModeChange={setViewMode}
             colorMap={colorMap}
           />
         </ReactFlowProvider>
