@@ -129,6 +129,7 @@ function CgGroupNode({ data }: { data: CgGroupData }) {
       display: 'flex', flexDirection: 'column', justifyContent: 'center',
       height: '100%', padding: '10px 12px', boxSizing: 'border-box' as const,
       fontFamily: 'var(--sapFontFamily, inherit)',
+      cursor: 'pointer',
     }}>
       <Handle type="target" position={Position.Top}    style={{ visibility: 'hidden' }} />
       <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
@@ -223,6 +224,7 @@ interface InnerProps {
   items: FlatMR[];
   loading: boolean;
   onNodeClick: (item: FlatMR) => void;
+  onGroupClick?: (item: FlatMR) => void;
   colorBy: ColorBy;
   labelKey: string | undefined;
   direction: LayoutDirection;
@@ -230,7 +232,7 @@ interface InnerProps {
   colorMap: Record<string, string>;
 }
 
-function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, direction, viewMode, colorMap }: InnerProps) {
+function ResourceGraphInner({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey, direction, viewMode, colorMap }: InnerProps) {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [layoutDone, setLayoutDone] = useState(false);
@@ -319,6 +321,12 @@ function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, di
           proOptions={{ hideAttribution: true }}
           onNodeMouseEnter={(_: any, n: Node) => setHoveredId(n.id)}
           onNodeMouseLeave={() => setHoveredId(null)}
+          onNodeClick={(_: any, n: Node) => {
+            if (n.type === 'cgGroupNode' && onGroupClick) {
+              const item = (n.data as CgGroupData).firstItem;
+              if (item) onGroupClick(item);
+            }
+          }}
         >
           <Background />
           <Controls showInteractive={false} />
@@ -335,6 +343,7 @@ export interface ResourceGraphProps {
   items: FlatMR[];
   loading: boolean;
   onNodeClick: (item: FlatMR) => void;
+  onGroupClick?: (item: FlatMR) => void;
   colorBy: ColorBy;
   labelKey?: string;
 }
@@ -352,7 +361,7 @@ const COLOR_BY_OPTIONS: { value: ColorBy; label: string }[] = [
   { value: 'kind',     label: 'Kind'           },
 ];
 
-export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }: ResourceGraphProps) {
+export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey }: ResourceGraphProps) {
   const [expanded,   setExpanded]   = useState(false);
   const [direction,  setDirection]  = useState<LayoutDirection>('TB');
   const [viewMode,   setViewMode]   = useState<'detail' | 'groups'>('groups');
@@ -484,7 +493,7 @@ export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }
       <div ref={containerRef} style={{ height: isFullscreen ? '100vh' : expanded ? 560 : 300, position: 'relative' as const }}>
         <ReactFlowProvider>
           <ResourceGraphInner
-            items={items} loading={loading} onNodeClick={onNodeClick}
+            items={items} loading={loading} onNodeClick={onNodeClick} onGroupClick={onGroupClick}
             colorBy={colorBy} labelKey={resolvedLabelKey}
             direction={direction} viewMode={viewMode}
             colorMap={colorMap}
