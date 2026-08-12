@@ -696,8 +696,7 @@ export default function ResourceList() {
                 onChange={(e: any) => { setGroupColorBy(e.target.value); setLabelKey(undefined); }}
                 style={{ width: 190 }}
               >
-                <MenuItem value="type">Kind (CRD view)</MenuItem>
-                <MenuItem value="kind">Kind (flat)</MenuItem>
+                <MenuItem value="kind">Kind</MenuItem>
                 <MenuItem value="provider">ProviderConfig</MenuItem>
                 <MenuItem value="source">API Domain</MenuItem>
                 <MenuItem value="flux">Flux</MenuItem>
