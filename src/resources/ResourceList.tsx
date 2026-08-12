@@ -95,21 +95,27 @@ function useCRDInstanceCounts(crds: any[] | null): Map<string, { total: number; 
 }
 
 // ── Health chips ──────────────────────────────────────────────────────────────
+// Instance-level (sub-table): OK state → quiet text, error → badge for attention.
+// CRD-level count chips keep their own inline styling below.
 
 function readyChip(conditions: any[]) {
   const cond = conditions?.find((c: any) => c.type === 'Ready');
-  if (!cond) return <Chip label="—" size="small" />;
-  const ok = cond.status === 'True';
-  return <Chip label={ok ? 'Ready' : 'Not Ready'} size="small"
-    style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
+  if (!cond) return <span style={{ color: '#bbb', fontSize: 12 }}>—</span>;
+  if (cond.status === 'True') {
+    return <span style={{ color: xpColors.ready.bg, fontSize: 12, fontWeight: 500 }}>Ready</span>;
+  }
+  return <Chip label="Not Ready" size="small"
+    style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 function syncedChip(conditions: any[]) {
   const cond = conditions?.find((c: any) => c.type === 'Synced');
-  if (!cond) return <Chip label="—" size="small" />;
-  const ok = cond.status === 'True';
-  return <Chip label={ok ? 'Synced' : 'Not Synced'} size="small"
-    style={{ background: ok ? xpColors.synced.bg : xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />;
+  if (!cond) return <span style={{ color: '#bbb', fontSize: 12 }}>—</span>;
+  if (cond.status === 'True') {
+    return <span style={{ color: xpColors.synced.bg, fontSize: 12, fontWeight: 500 }}>Synced</span>;
+  }
+  return <Chip label="Not Synced" size="small"
+    style={{ background: xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 // ── Expanded instances sub-table ──────────────────────────────────────────────
