@@ -10,9 +10,11 @@ export function ScopeBadge({ scope, namespace }: ScopeBadgeProps) {
   const badge = (
     <span style={{
       display: 'inline-block',
-      padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-      background: isNamespaced ? xpColors.namespaced.bg : xpColors.cluster.bg,
-      color: '#fff', verticalAlign: 'middle',
+      padding: '1px 7px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+      background: 'transparent',
+      border: '1px solid #bdbdbd',
+      color: '#757575',
+      verticalAlign: 'middle',
     }}>
       {isNamespaced ? 'Namespaced' : 'Cluster'}
     </span>
