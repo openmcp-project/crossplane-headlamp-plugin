@@ -16,7 +16,7 @@ import { FlatMR } from '../helpers';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
-export type ColorBy = 'provider' | 'source' | 'flux' | 'label';
+export type ColorBy = 'provider' | 'source' | 'flux' | 'label' | 'kind';
 export type LayoutDirection = 'TB' | 'LR';
 export type EdgePoint = { x: number; y: number };
 
@@ -29,6 +29,16 @@ export interface CgNodeData extends Record<string, unknown> {
   conditions: Array<{ type: string; status: string; reason?: string; message?: string }>;
   item?: FlatMR;
   onNodeClick?: (item: FlatMR) => void;
+}
+
+export interface CgGroupData extends Record<string, unknown> {
+  id: string;
+  key: string;
+  borderColor: string;
+  count: number;
+  healthyCount: number;
+  brokenCount: number;
+  unknownCount: number;
 }
 
 export interface EdgeSpec {
@@ -47,8 +57,9 @@ export interface LayoutOptions {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-export const NODE_WIDTH = 240;
+export const NODE_WIDTH  = 240;
 export const NODE_HEIGHT = 62;
+export const GROUP_NODE_HEIGHT = 80;
 
 // Fixed border colors for synthetic tier nodes
 export const TIER_COLORS: Record<'xr' | 'claim' | 'providerconfig', string> = {
@@ -110,6 +121,8 @@ export function colorKeyFor(item: FlatMR, colorBy: ColorBy, labelKey?: string): 
     }
     case 'label':
       return (labelKey && (item.metadata?.labels as Record<string, string>)?.[labelKey]) || 'default';
+    case 'kind':
+      return item._kind ?? (item as any).kind ?? 'unknown';
     default:
       return item.spec?.providerConfigRef?.name ?? 'default';
   }
@@ -326,5 +339,125 @@ export class CrossplaneGraph {
       });
 
     return { nodes, edges: primaryEdges };
+  }
+
+  async layoutGrouped({ colorBy, labelKey, colorMap, direction }: LayoutOptions): Promise<{
+    nodes: Node<CgGroupData>[];
+    edges: Edge[];
+  }> {
+    if (!this.nodes.length) return { nodes: [], edges: [] };
+
+    // Only aggregate MR nodes; synthetic tiers (xr, claim, pc) are skipped
+    const mrNodes = this.nodes.filter(n => n.tier === 'mr' && n.item);
+
+    // Map each MR node id → its group key
+    const nodeToGroup = new Map<string, string>();
+    for (const n of mrNodes) {
+      nodeToGroup.set(n.id, colorKeyFor(n.item!, colorBy, labelKey));
+    }
+
+    // Collect items per group
+    const groups = new Map<string, FlatMR[]>();
+    for (const n of mrNodes) {
+      const key = nodeToGroup.get(n.id)!;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(n.item!);
+    }
+
+    // Inter-group edges: one per directed group pair (deduped)
+    const primary = this.edgeSpecs.filter(e => !e.aux);
+    const seenGroupEdges = new Set<string>();
+    const groupEdgeSpecs: { id: string; source: string; target: string }[] = [];
+    for (const e of primary) {
+      const srcGroup = nodeToGroup.get(e.source);
+      const tgtGroup = nodeToGroup.get(e.target);
+      if (!srcGroup || !tgtGroup || srcGroup === tgtGroup) continue;
+      const edgeKey = `${srcGroup}→${tgtGroup}`;
+      if (seenGroupEdges.has(edgeKey)) continue;
+      seenGroupEdges.add(edgeKey);
+      groupEdgeSpecs.push({ id: edgeKey, source: `group:${srcGroup}`, target: `group:${tgtGroup}` });
+    }
+
+    const dir =
+      direction === 'LR'
+        ? { elk: 'RIGHT', source: Position.Right, target: Position.Left }
+        : { elk: 'DOWN',  source: Position.Bottom, target: Position.Top };
+
+    const sortedKeys = [...groups.keys()].sort();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const laid: any = await elkSingleton.layout({
+      id: 'root',
+      layoutOptions: { ...ELK_OPTIONS, 'elk.direction': dir.elk },
+      children: sortedKeys.map(key => ({ id: `group:${key}`, width: NODE_WIDTH, height: GROUP_NODE_HEIGHT })),
+      edges: groupEdgeSpecs.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] })),
+    });
+
+    const posById = new Map<string, { x: number; y: number }>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (laid.children ?? []).forEach((c: any) => posById.set(c.id, { x: c.x ?? 0, y: c.y ?? 0 }));
+
+    const nodes: Node<CgGroupData>[] = sortedKeys.map(key => {
+      const groupItems = groups.get(key)!;
+      const pos = posById.get(`group:${key}`) ?? { x: 0, y: 0 };
+      const borderColor = colorMap[key] ?? '#888';
+
+      const healthyCount = groupItems.filter(i => {
+        const conds = (i.status?.conditions as Array<{ type: string; status: string }>) ?? [];
+        const ready  = conds.find(c => c.type === 'Ready');
+        const synced = conds.find(c => c.type === 'Synced');
+        return ready?.status === 'True' && synced?.status === 'True';
+      }).length;
+
+      const brokenCount = groupItems.filter(i => {
+        const conds = (i.status?.conditions as Array<{ type: string; status: string }>) ?? [];
+        return conds.some(c => (c.type === 'Ready' || c.type === 'Synced') && c.status === 'False');
+      }).length;
+
+      const unknownCount = groupItems.length - healthyCount - brokenCount;
+
+      return {
+        id: `group:${key}`,
+        type: 'cgGroupNode',
+        data: { id: `group:${key}`, key, borderColor, count: groupItems.length, healthyCount, brokenCount, unknownCount },
+        position: pos,
+        style: {
+          border: `2px solid ${borderColor}`,
+          borderRadius: 8,
+          backgroundColor: brokenCount > 0 ? '#fff5f5' : '#ffffff',
+          width: NODE_WIDTH,
+          height: GROUP_NODE_HEIGHT,
+        },
+        width: NODE_WIDTH,
+        height: GROUP_NODE_HEIGHT,
+        sourcePosition: dir.source as Position,
+        targetPosition: dir.target as Position,
+      };
+    });
+
+    const groupEdgeIds = new Set(groupEdgeSpecs.map(e => e.id));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const edges: Edge[] = (laid.edges ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((le: any) => groupEdgeIds.has(le.id))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((le: any) => {
+        const spec = groupEdgeSpecs.find(e => e.id === le.id);
+        const section = le.sections?.[0];
+        const points: EdgePoint[] = section
+          ? [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]
+          : [];
+        return {
+          id: le.id,
+          source: spec?.source ?? '',
+          target: spec?.target ?? '',
+          type: 'orth',
+          data: { points, aux: false },
+          style: { strokeWidth: 2, stroke: '#888' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#888', width: 12, height: 12 } as any,
+        } as Edge;
+      });
+
+    return { nodes, edges };
   }
 }
