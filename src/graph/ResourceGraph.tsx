@@ -32,7 +32,7 @@ import {
 export type { ColorBy };
 export { colorKeyFor, listCommonLabelKeys, generateColorMap };
 
-const { Typography, Box, CircularProgress, Paper, MenuItem, TextField } =
+const { Typography, Box, CircularProgress, Paper } =
   (window as any).pluginLib?.MuiCore ?? {};
 
 // ── Detail node renderer ──────────────────────────────────────────────────────
@@ -209,13 +209,23 @@ function FitOnChange({ nodes, direction }: { nodes: Node[]; direction: LayoutDir
 
 // ── Custom map controls panel ─────────────────────────────────────────────────
 
-function GraphControls({
-  viewMode,
-  onViewModeChange,
-}: {
+interface GraphControlsProps {
   viewMode: 'detail' | 'groups';
   onViewModeChange: (m: 'detail' | 'groups') => void;
-}) {
+  direction: LayoutDirection;
+  onDirectionChange: (d: LayoutDirection) => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
+}
+
+function GraphControls({
+  viewMode, onViewModeChange,
+  direction, onDirectionChange,
+  isExpanded, onToggleExpand,
+  isFullscreen, onToggleFullscreen,
+}: GraphControlsProps) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
   const btn = (active?: boolean): React.CSSProperties => ({
@@ -224,8 +234,9 @@ function GraphControls({
     background: active ? '#1565c0' : '#fff',
     color: active ? '#fff' : '#555',
   });
-
-  const sep: React.CSSProperties = { height: 1, background: '#e0e0e0' };
+  const sep:      React.CSSProperties = { height: 1, background: '#e0e0e0' };
+  const thickSep: React.CSSProperties = { height: 2, background: '#d0d0d0', margin: '1px 0' };
+  const rowSep:   React.CSSProperties = { width: 1, background: '#e0e0e0', alignSelf: 'stretch' };
 
   return (
     <Panel position="bottom-left" style={{ margin: '0 0 10px 10px' }}>
@@ -235,6 +246,7 @@ function GraphControls({
         boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
         border: '1px solid #ddd', background: '#fff',
       }}>
+
         {/* Zoom in */}
         <button style={btn()} onClick={() => zoomIn({ duration: 150 })} title="Zoom in">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -255,15 +267,12 @@ function GraphControls({
             <path d="M1 4.5V1h3.5M7.5 1H11v3.5M1 7.5V11h3.5M7.5 11H11V7.5"/>
           </svg>
         </button>
-        {/* Separator before toggle */}
-        <div style={{ ...sep, background: '#c8c8c8', margin: '2px 0' }} />
-        {/* View mode toggle: graph | groups */}
+
+        <div style={thickSep} />
+
+        {/* View mode: graph | groups */}
         <div style={{ display: 'flex' }}>
-          <button
-            style={{ ...btn(viewMode === 'detail'), borderRight: '1px solid #e0e0e0', borderRadius: 0 }}
-            onClick={() => onViewModeChange('detail')}
-            title="Dependency graph view"
-          >
+          <button style={{ ...btn(viewMode === 'detail'), flex: 1 }} onClick={() => onViewModeChange('detail')} title="Dependency graph">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="6.5" cy="2.5" r="1.5"/>
               <circle cx="2.5" cy="10.5" r="1.5"/>
@@ -272,11 +281,8 @@ function GraphControls({
               <line x1="6.5" y1="4" x2="10.5" y2="9"/>
             </svg>
           </button>
-          <button
-            style={{ ...btn(viewMode === 'groups'), borderRadius: 0 }}
-            onClick={() => onViewModeChange('groups')}
-            title="Grouped summary view"
-          >
+          <div style={rowSep} />
+          <button style={{ ...btn(viewMode === 'groups'), flex: 1 }} onClick={() => onViewModeChange('groups')} title="Grouped summary">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
               <rect x="1" y="1" width="4" height="4" rx="1"/>
               <rect x="7" y="1" width="4" height="4" rx="1"/>
@@ -285,6 +291,54 @@ function GraphControls({
             </svg>
           </button>
         </div>
+
+        {/* Layout direction */}
+        <>
+            <div style={sep} />
+            <div style={{ display: 'flex' }}>
+              <button style={{ ...btn(direction === 'TB'), flex: 1 }} onClick={() => onDirectionChange('TB')} title="Top → Bottom">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="6" y1="1" x2="6" y2="9"/><path d="M3 6.5l3 3 3-3"/>
+                </svg>
+              </button>
+              <div style={rowSep} />
+              <button style={{ ...btn(direction === 'LR'), flex: 1 }} onClick={() => onDirectionChange('LR')} title="Left → Right">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="1" y1="6" x2="9" y2="6"/><path d="M6.5 3l3 3-3 3"/>
+                </svg>
+              </button>
+            </div>
+        </>
+
+        <div style={thickSep} />
+
+        {/* Expand + Fullscreen */}
+        <div style={{ display: 'flex' }}>
+          <button style={{ ...btn(isFullscreen), flex: 1 }} onClick={onToggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+            {isFullscreen ? (
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 1v4H1M11 5H7V1M5 11V7H1M11 7H7v4"/>
+              </svg>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 5V1h4M7 1h4v4M1 7v4h4M7 11h4V7"/>
+              </svg>
+            )}
+          </button>
+          <div style={rowSep} />
+          <button style={{ ...btn(), flex: 1 }} onClick={onToggleExpand} title={isExpanded ? 'Collapse' : 'Expand'}>
+            {isExpanded ? (
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7.5l3-3 3 3"/>
+              </svg>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 4.5l3 3 3-3"/>
+              </svg>
+            )}
+          </button>
+        </div>
+
       </div>
     </Panel>
   );
@@ -309,12 +363,22 @@ interface InnerProps {
   colorBy: ColorBy;
   labelKey: string | undefined;
   direction: LayoutDirection;
+  onDirectionChange: (d: LayoutDirection) => void;
   viewMode: 'detail' | 'groups';
   onViewModeChange: (mode: 'detail' | 'groups') => void;
   colorMap: Record<string, string>;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
-function ResourceGraphInner({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey, direction, viewMode, onViewModeChange, colorMap }: InnerProps) {
+function ResourceGraphInner({
+  items, loading, onNodeClick, onGroupClick,
+  colorBy, labelKey, direction, onDirectionChange,
+  viewMode, onViewModeChange, colorMap,
+  isExpanded, onToggleExpand, isFullscreen, onToggleFullscreen,
+}: InnerProps) {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [layoutDone, setLayoutDone] = useState(false);
@@ -411,7 +475,12 @@ function ResourceGraphInner({ items, loading, onNodeClick, onGroupClick, colorBy
           }}
         >
           <Background />
-          <GraphControls viewMode={viewMode} onViewModeChange={onViewModeChange} />
+          <GraphControls
+            viewMode={viewMode} onViewModeChange={onViewModeChange}
+            direction={direction} onDirectionChange={onDirectionChange}
+            isExpanded={isExpanded} onToggleExpand={onToggleExpand}
+            isFullscreen={isFullscreen} onToggleFullscreen={onToggleFullscreen}
+          />
           <FitOnChange nodes={rfNodes} direction={direction} />
         </ReactFlow>
       )}
@@ -430,17 +499,13 @@ export interface ResourceGraphProps {
   labelKey?: string;
 }
 
-const DIRECTION_OPTIONS: { value: LayoutDirection; label: string }[] = [
-  { value: 'TB', label: 'Top → Bottom' },
-  { value: 'LR', label: 'Left → Right' },
-];
 
 export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, colorBy, labelKey }: ResourceGraphProps) {
-  const [expanded,   setExpanded]   = useState(false);
-  const [direction,  setDirection]  = useState<LayoutDirection>('TB');
-  const [viewMode,   setViewMode]   = useState<'detail' | 'groups'>('groups');
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [expanded,     setExpanded]     = useState(false);
+  const [direction,    setDirection]    = useState<LayoutDirection>('TB');
+  const [viewMode,     setViewMode]     = useState<'detail' | 'groups'>('groups');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -465,50 +530,20 @@ export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, color
   const colorMap = useMemo(() => generateColorMap(items, colorBy, resolvedLabelKey), [items, colorBy, resolvedLabelKey]);
 
   return (
-    <Paper elevation={1} style={{ marginBottom: 16, overflow: 'hidden' }}>
-      {/* Header toolbar — title + layout selector (detail only) + fullscreen + expand */}
-      <Box
-        px={2} py={1}
-        display="flex" alignItems="center" justifyContent="space-between"
-        style={{ borderBottom: '1px solid #e0e0e0', background: '#fafafa', gap: 8, flexWrap: 'wrap' as const }}
+    <Paper elevation={1} style={{ marginBottom: 16, overflow: 'hidden', borderRadius: 8 }}>
+      <div
+        ref={containerRef}
+        style={{ height: isFullscreen ? '100vh' : expanded ? 560 : 300, position: 'relative' as const }}
       >
-        <Box display="flex" alignItems="center" gap={1.5}>
-          <Typography variant="subtitle2">Dependency Graph</Typography>
-
-          {viewMode === 'detail' && (
-            <TextField select size="small" value={direction}
-              onChange={(e: any) => setDirection(e.target.value)}
-              label="Layout" style={{ minWidth: 130 }}>
-              {DIRECTION_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-            </TextField>
-          )}
-        </Box>
-
-        <Box display="flex" alignItems="center" gap={1}>
-          <span
-            onClick={toggleFullscreen}
-            style={{ cursor: 'pointer', fontSize: 12, color: '#666', userSelect: 'none' as const }}
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? '⊡' : '⊞'}
-          </span>
-          <span
-            onClick={() => setExpanded(v => !v)}
-            style={{ cursor: 'pointer', fontSize: 12, color: '#1565c0', whiteSpace: 'nowrap' as const, userSelect: 'none' as const }}
-          >
-            {expanded ? '▴ Collapse' : '▾ Expand'}
-          </span>
-        </Box>
-      </Box>
-
-      {/* Canvas */}
-      <div ref={containerRef} style={{ height: isFullscreen ? '100vh' : expanded ? 560 : 300, position: 'relative' as const }}>
         <ReactFlowProvider>
           <ResourceGraphInner
             items={items} loading={loading} onNodeClick={onNodeClick} onGroupClick={onGroupClick}
             colorBy={colorBy} labelKey={resolvedLabelKey}
-            direction={direction} viewMode={viewMode} onViewModeChange={setViewMode}
+            direction={direction} onDirectionChange={setDirection}
+            viewMode={viewMode} onViewModeChange={setViewMode}
             colorMap={colorMap}
+            isExpanded={expanded} onToggleExpand={() => setExpanded(v => !v)}
+            isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}
           />
         </ReactFlowProvider>
       </div>
