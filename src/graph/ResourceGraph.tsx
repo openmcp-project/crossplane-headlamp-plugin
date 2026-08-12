@@ -15,10 +15,12 @@ import 'reactflow/dist/style.css';
 import { xpColors } from '../common/colors';
 import { FlatMR } from '../helpers';
 import {
+  CgGroupData,
   CgNodeData,
   ColorBy,
   CrossplaneGraph,
   EdgePoint,
+  GROUP_NODE_HEIGHT,
   LayoutDirection,
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -30,12 +32,12 @@ import {
 
 // Re-export for ResourceList.tsx
 export type { ColorBy };
-export { colorKeyFor, listCommonLabelKeys };
+export { colorKeyFor, listCommonLabelKeys, generateColorMap };
 
 const { Typography, Box, CircularProgress, Paper, MenuItem, TextField } =
   (window as any).pluginLib?.MuiCore ?? {};
 
-// ── Node renderer ─────────────────────────────────────────────────────────────
+// ── Detail node renderer ──────────────────────────────────────────────────────
 
 const TIER_LABELS: Record<'xr' | 'claim' | 'providerconfig', string> = {
   xr:             'Composite Resource',
@@ -112,6 +114,69 @@ function CgNode({ data }: { data: CgNodeData }) {
   );
 }
 
+// ── Group node renderer ───────────────────────────────────────────────────────
+
+function CgGroupNode({ data }: { data: CgGroupData }) {
+  const { key, count, healthyCount, brokenCount, unknownCount } = data;
+  const hasErrors  = brokenCount > 0;
+  const allHealthy = brokenCount === 0 && unknownCount === 0 && count > 0;
+  const dotColor   = hasErrors ? xpColors.degraded.bg : allHealthy ? xpColors.healthy.bg : xpColors.warning.bg;
+  const healthyPct = count > 0 ? (healthyCount / count) * 100 : 0;
+  const brokenPct  = count > 0 ? (brokenCount  / count) * 100 : 0;
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', justifyContent: 'center',
+      height: '100%', padding: '10px 12px', boxSizing: 'border-box' as const,
+      fontFamily: 'var(--sapFontFamily, inherit)',
+    }}>
+      <Handle type="target" position={Position.Top}    style={{ visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
+
+      {/* Name + count */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+        <span style={{
+          width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
+          background: dotColor, boxShadow: `0 0 0 3px ${dotColor}33`,
+        }} />
+        <span style={{
+          fontWeight: 700, fontSize: 13, flex: 1,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+        }}>
+          {key}
+        </span>
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: '#555',
+          background: '#ebebeb', borderRadius: 10, padding: '1px 7px', flexShrink: 0,
+        }}>
+          {count}
+        </span>
+      </div>
+
+      {/* Ratio bar */}
+      <div style={{
+        height: 5, borderRadius: 3, background: '#e0e0e0',
+        overflow: 'hidden', display: 'flex', marginBottom: 5,
+      }}>
+        {healthyCount > 0 && (
+          <div style={{ width: `${healthyPct}%`, background: xpColors.healthy.bg }} />
+        )}
+        {brokenCount > 0 && (
+          <div style={{ width: `${brokenPct}%`, background: xpColors.degraded.bg }} />
+        )}
+      </div>
+
+      {/* Stats */}
+      <div style={{ fontSize: 10, display: 'flex', gap: 8 }}>
+        {healthyCount > 0 && <span style={{ color: xpColors.healthy.bg }}>{healthyCount} healthy</span>}
+        {brokenCount  > 0 && <span style={{ color: xpColors.degraded.bg }}>{brokenCount} broken</span>}
+        {unknownCount > 0 && <span style={{ color: '#888' }}>{unknownCount} pending</span>}
+        {count === 0       && <span style={{ color: '#bbb' }}>—</span>}
+      </div>
+    </div>
+  );
+}
+
 // ── Orthogonal edge (ELK bend-point renderer) ─────────────────────────────────
 
 function OrthogonalEdge(props: any) {
@@ -146,7 +211,8 @@ function FitOnChange({ nodes, direction }: { nodes: Node[]; direction: LayoutDir
 // ── ReactFlow type registries ─────────────────────────────────────────────────
 
 const nodeTypes = {
-  cgNode: ({ data }: { data: CgNodeData }) => <CgNode data={data} />,
+  cgNode:      ({ data }: { data: CgNodeData  }) => <CgNode      data={data} />,
+  cgGroupNode: ({ data }: { data: CgGroupData }) => <CgGroupNode data={data} />,
 };
 
 const edgeTypes = { orth: OrthogonalEdge };
@@ -160,24 +226,36 @@ interface InnerProps {
   colorBy: ColorBy;
   labelKey: string | undefined;
   direction: LayoutDirection;
+  viewMode: 'detail' | 'groups';
+  colorMap: Record<string, string>;
 }
 
-function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, direction }: InnerProps) {
+function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, direction, viewMode, colorMap }: InnerProps) {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [layoutDone, setLayoutDone] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  const graph     = useMemo(() => new CrossplaneGraph(items, onNodeClick), [items, onNodeClick]);
-  const colorMap  = useMemo(() => generateColorMap(items, colorBy, labelKey), [items, colorBy, labelKey]);
+  const graph = useMemo(() => new CrossplaneGraph(items, onNodeClick), [items, onNodeClick]);
 
   useEffect(() => {
-    if (loading || !graph.nodes.length) {
+    if (loading) {
       setRfNodes([]); setRfEdges([]); setLayoutDone(false); return;
     }
+
+    if (!graph.nodes.length) {
+      setRfNodes([]); setRfEdges([]); setLayoutDone(false); return;
+    }
+
     setLayoutDone(false);
     let cancelled = false;
-    graph.layout({ colorBy, labelKey, colorMap, direction }).then(({ nodes, edges }) => {
+
+    const layoutFn =
+      viewMode === 'groups'
+        ? graph.layoutGrouped({ colorBy, labelKey, colorMap, direction })
+        : graph.layout({ colorBy, labelKey, colorMap, direction });
+
+    layoutFn.then(({ nodes, edges }) => {
       if (cancelled) return;
       setRfNodes(nodes as any); setRfEdges(edges); setLayoutDone(true);
     }).catch(err => {
@@ -185,18 +263,18 @@ function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, di
     });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, colorBy, labelKey, colorMap, direction]);
+  }, [graph, colorBy, labelKey, colorMap, direction, viewMode]);
 
-  // Hover: connected nodes stay full opacity, others fade
+  // Hover: connected nodes stay full opacity, others fade (detail mode only)
   const connectedIds = useMemo(() => {
-    if (!hoveredId) return null;
+    if (!hoveredId || viewMode === 'groups') return null;
     const s = new Set<string>([hoveredId]);
     rfEdges.forEach(e => {
       if (e.source === hoveredId) s.add(e.target);
       if (e.target === hoveredId) s.add(e.source);
     });
     return s;
-  }, [hoveredId, rfEdges]);
+  }, [hoveredId, rfEdges, viewMode]);
 
   const displayNodes = useMemo(() =>
     !connectedIds ? rfNodes :
@@ -205,7 +283,7 @@ function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, di
   );
 
   const displayEdges = useMemo(() => {
-    if (!hoveredId) return rfEdges;
+    if (!hoveredId || viewMode === 'groups') return rfEdges;
     return rfEdges.map(e => {
       if (e.target === hoveredId)
         return { ...e, animated: true, style: { ...e.style, stroke: '#0070f2', strokeWidth: 2.5, opacity: 1 } };
@@ -213,7 +291,7 @@ function ResourceGraphInner({ items, loading, onNodeClick, colorBy, labelKey, di
         return { ...e, animated: true, style: { ...e.style, stroke: '#e76500', strokeWidth: 2.5, opacity: 1 } };
       return { ...e, style: { ...e.style, opacity: 0.1 } };
     });
-  }, [rfEdges, hoveredId]);
+  }, [rfEdges, hoveredId, viewMode]);
 
   const isEmpty = !loading && items.length === 0;
 
@@ -267,15 +345,17 @@ const DIRECTION_OPTIONS: { value: LayoutDirection; label: string }[] = [
 ];
 
 const COLOR_BY_OPTIONS: { value: ColorBy; label: string }[] = [
-  { value: 'provider',  label: 'ProviderConfig' },
-  { value: 'source',    label: 'Provider type'  },
-  { value: 'flux',      label: 'Flux release'   },
-  { value: 'label',     label: 'Label'          },
+  { value: 'provider', label: 'ProviderConfig' },
+  { value: 'source',   label: 'Provider type'  },
+  { value: 'flux',     label: 'Flux release'   },
+  { value: 'label',    label: 'Label'          },
+  { value: 'kind',     label: 'Kind'           },
 ];
 
 export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }: ResourceGraphProps) {
   const [expanded,   setExpanded]   = useState(false);
   const [direction,  setDirection]  = useState<LayoutDirection>('TB');
+  const [viewMode,   setViewMode]   = useState<'detail' | 'groups'>('groups');
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -299,17 +379,16 @@ export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }
     [colorBy, labelKey, availableLabelKeys],
   );
 
-  // Color legend: MR nodes only (tier nodes use fixed colors)
   const colorMap = useMemo(() => generateColorMap(items, colorBy, resolvedLabelKey), [items, colorBy, resolvedLabelKey]);
 
-  // Status legend (fixed)
+  // Status legend
   const statusLegend = [
     { color: xpColors.healthy.bg,  label: 'Ready & Synced' },
     { color: xpColors.degraded.bg, label: 'Not Ready / Not Synced' },
     { color: xpColors.warning.bg,  label: 'Unknown' },
   ];
 
-  // Tier legend (fixed)
+  // Tier legend (detail mode only)
   const tierLegend = [
     { color: TIER_COLORS.claim,          label: 'Claim' },
     { color: TIER_COLORS.xr,             label: 'Composite Resource' },
@@ -329,11 +408,14 @@ export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }
         <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
           <Typography variant="subtitle2">Dependency Graph</Typography>
 
-          <TextField select size="small" value={direction}
-            onChange={(e: any) => setDirection(e.target.value)}
-            label="Layout" style={{ minWidth: 130 }}>
-            {DIRECTION_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-          </TextField>
+          {/* Direction selector — detail mode only */}
+          {viewMode === 'detail' && (
+            <TextField select size="small" value={direction}
+              onChange={(e: any) => setDirection(e.target.value)}
+              label="Layout" style={{ minWidth: 130 }}>
+              {DIRECTION_OPTIONS.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+            </TextField>
+          )}
 
           {/* Status dots */}
           <Box display="flex" alignItems="center" gap={1}>
@@ -345,16 +427,18 @@ export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }
             ))}
           </Box>
 
-          {/* Tier squares */}
-          <Box display="flex" alignItems="center" gap={1} ml={0.5}>
-            <Typography variant="caption" color="textSecondary" style={{ opacity: 0.35 }}>|</Typography>
-            {tierLegend.map(({ color, label }) => (
-              <Box key={label} display="flex" alignItems="center" gap={0.5}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
-                <Typography variant="caption" color="textSecondary">{label}</Typography>
-              </Box>
-            ))}
-          </Box>
+          {/* Tier squares — detail mode only */}
+          {viewMode === 'detail' && (
+            <Box display="flex" alignItems="center" gap={1} ml={0.5}>
+              <Typography variant="caption" color="textSecondary" style={{ opacity: 0.35 }}>|</Typography>
+              {tierLegend.map(({ color, label }) => (
+                <Box key={label} display="flex" alignItems="center" gap={0.5}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
+                  <Typography variant="caption" color="textSecondary">{label}</Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
 
           {/* Dynamic color legend */}
           {colorLegend.length > 0 && (
@@ -372,6 +456,14 @@ export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }
 
         {/* Right controls */}
         <Box display="flex" alignItems="center" gap={1}>
+          {/* View mode toggle */}
+          <span
+            onClick={() => setViewMode(v => v === 'detail' ? 'groups' : 'detail')}
+            style={{ cursor: 'pointer', fontSize: 12, color: '#1565c0', whiteSpace: 'nowrap' as const, userSelect: 'none' as const }}
+            title={viewMode === 'detail' ? 'Switch to grouped summary view' : 'Switch to dependency graph view'}
+          >
+            {viewMode === 'detail' ? '⊟ Group View' : '⊞ Graph View'}
+          </span>
           <span
             onClick={toggleFullscreen}
             style={{ cursor: 'pointer', fontSize: 12, color: '#666', userSelect: 'none' as const }}
@@ -394,7 +486,8 @@ export function ResourceGraph({ items, loading, onNodeClick, colorBy, labelKey }
           <ResourceGraphInner
             items={items} loading={loading} onNodeClick={onNodeClick}
             colorBy={colorBy} labelKey={resolvedLabelKey}
-            direction={direction}
+            direction={direction} viewMode={viewMode}
+            colorMap={colorMap}
           />
         </ReactFlowProvider>
       </div>
