@@ -821,6 +821,9 @@ export default function ResourceList() {
           name: item.metadata?.name ?? '',
           namespace: item.metadata?.namespace || undefined,
         })}
+        onGroupClick={(item) => {
+          history.push(`${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${item._group}/${item._plural}`);
+        }}
       />
 
       {groupColorBy === 'type' ? (

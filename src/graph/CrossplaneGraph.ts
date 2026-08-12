@@ -39,6 +39,7 @@ export interface CgGroupData extends Record<string, unknown> {
   healthyCount: number;
   brokenCount: number;
   unknownCount: number;
+  firstItem?: FlatMR;
 }
 
 export interface EdgeSpec {
@@ -419,7 +420,7 @@ export class CrossplaneGraph {
       return {
         id: `group:${key}`,
         type: 'cgGroupNode',
-        data: { id: `group:${key}`, key, borderColor, count: groupItems.length, healthyCount, brokenCount, unknownCount },
+        data: { id: `group:${key}`, key, borderColor, count: groupItems.length, healthyCount, brokenCount, unknownCount, firstItem: groupItems[0] },
         position: pos,
         style: {
           border: `2px solid ${borderColor}`,
