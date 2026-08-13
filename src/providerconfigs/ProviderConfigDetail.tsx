@@ -1,23 +1,49 @@
 import { useEffect, useState } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
-import { useCRDsForProvider, useAllManagedResources, getApiProxy, clusterPrefix } from '../helpers';
+import { useParams } from 'react-router-dom';
+import { useCRDsForProvider, useAllManagedResources, getApiProxy } from '../helpers';
 import { xpColors } from '../common/colors';
+import { ScopeBadge } from '../common/ScopeBadge';
 import { Provider } from '../common/Resources';
+import { openManagedDetail } from '../managed/ManagedDetail';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
 const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface ProviderConfigDetailProps {
+  providerName: string;
+  configName: string;
+}
+
+// ── Activity launcher ─────────────────────────────────────────────────────────
+
+export function openProviderConfigDetail(props: ProviderConfigDetailProps) {
+  const Activity = (window as any).pluginLib?.Activity;
+  if (!Activity?.launch) {
+    console.warn('Activity.launch not available in this version of Headlamp');
+    return;
+  }
+  const { providerName, configName } = props;
+  Activity.launch({
+    id: `providerconfig-detail:${providerName}/${configName}`,
+    location: 'split-right',
+    temporary: true,
+    title: configName,
+    content: <ProviderConfigDetailView {...props} />,
+  });
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function conditionChip(conditions: any[], type: string) {
   const cond = conditions?.find((c: any) => c.type === type);
   if (!cond) return <Chip label="—" size="small" />;
   const ok = cond.status === 'True';
   return (
-    <Chip
-      label={ok ? type : `Not ${type}`}
-      size="small"
-      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
-    />
+    <Chip label={ok ? type : `Not ${type}`} size="small"
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
   );
 }
 
@@ -41,16 +67,11 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
             <tr key={c.type} style={{ borderBottom: '1px solid #f5f5f5' }}>
               <td style={{ padding: '6px 12px', fontWeight: 600 }}>{c.type}</td>
               <td style={{ padding: '6px 12px' }}>
-                <Chip
-                  label={c.status}
-                  size="small"
-                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
-                />
+                <Chip label={c.status} size="small"
+                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
               </td>
               <td style={{ padding: '6px 12px', fontSize: 12 }}>{c.reason ?? ''}</td>
-              <td style={{ padding: '6px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>
-                {c.message ?? ''}
-              </td>
+              <td style={{ padding: '6px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>{c.message ?? ''}</td>
               <td style={{ padding: '6px 12px', fontSize: 12, color: '#888' }}>
                 {c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—'}
               </td>
@@ -62,21 +83,15 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
   );
 }
 
-export default function ProviderConfigDetail() {
-  const { providerName, configName } = useParams<{
-    providerName: string;
-    configName: string;
-  }>();
-  const history = useHistory();
+// ── Core view ─────────────────────────────────────────────────────────────────
 
+export function ProviderConfigDetailView({ providerName, configName }: ProviderConfigDetailProps) {
   const [providers] = Provider.useList();
   const provider = providers?.find((p: any) => p.metadata?.name === providerName);
   const currentRevision: string = provider?.jsonData?.status?.currentRevision ?? '';
 
   const [crds] = useCRDsForProvider(providerName, currentRevision);
-  const configCrd = crds?.find(
-    (crd: any) => crd.jsonData?.spec?.names?.plural === 'providerconfigs'
-  );
+  const configCrd = crds?.find((crd: any) => crd.jsonData?.spec?.names?.plural === 'providerconfigs');
 
   const [config, setConfig] = useState<any>(null);
   const [configError, setConfigError] = useState<any>(null);
@@ -96,27 +111,21 @@ export default function ProviderConfigDetail() {
   if (!config && !configError && !crds) {
     return (
       <Box p={3} display="flex" alignItems="center" gap={2}>
-        <CircularProgress size={20} />
-        <Typography>Loading ProviderConfig…</Typography>
+        <CircularProgress size={20} /><Typography>Loading ProviderConfig…</Typography>
       </Box>
     );
   }
-
   if (configError) {
     return (
       <Box p={3}>
-        <Typography color="error">
-          Failed to load ProviderConfig: {String(configError?.message ?? configError)}
-        </Typography>
+        <Typography color="error">Failed to load ProviderConfig: {String(configError?.message ?? configError)}</Typography>
       </Box>
     );
   }
-
   if (!config) {
     return (
       <Box p={3} display="flex" alignItems="center" gap={2}>
-        <CircularProgress size={20} />
-        <Typography>Loading…</Typography>
+        <CircularProgress size={20} /><Typography>Loading…</Typography>
       </Box>
     );
   }
@@ -125,7 +134,6 @@ export default function ProviderConfigDetail() {
   const failingConditions = conditions.filter((c: any) => c.status === 'False');
   const secretRef = config?.spec?.credentials?.secretRef;
   const credSource = config?.spec?.credentials?.source ?? '';
-
   const usingInstances = allInstances.filter(
     (item: any) => item.spec?.providerConfigRef?.name === configName
   );
@@ -142,39 +150,48 @@ export default function ProviderConfigDetail() {
         </Alert>
       ))}
 
-      {/* Info */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
         <SectionHeader title="Info" headerStyle="subsection" noPadding />
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
-            {[
-              ['Name', configName],
-              ['Provider', providerName],
-              ['Credentials Source', credSource],
-              ['Credentials Secret', secretRef ? `${secretRef.namespace}/${secretRef.name}` : '—'],
-              [
-                'Created',
-                config?.metadata?.creationTimestamp
-                  ? new Date(config.metadata.creationTimestamp).toLocaleString()
-                  : '—',
-              ],
-            ].map(([label, value]) => (
-              <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
-                <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{value}</td>
-              </tr>
-            ))}
+            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+              <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>Name</td>
+              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{configName}</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Provider</td>
+              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{providerName}</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Scope</td>
+              <td style={{ padding: '6px 12px' }}><ScopeBadge scope="Cluster" /></td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Credentials Source</td>
+              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{credSource || '—'}</td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Credentials Secret</td>
+              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
+                {secretRef ? `${secretRef.namespace}/${secretRef.name}` : '—'}
+              </td>
+            </tr>
+            <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
+              <td style={{ padding: '6px 12px', fontWeight: 600 }}>Created</td>
+              <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
+                {config?.metadata?.creationTimestamp
+                  ? new Date(config.metadata.creationTimestamp).toLocaleString() : '—'}
+              </td>
+            </tr>
           </tbody>
         </table>
       </Paper>
 
-      {/* Conditions */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
         <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
         <ConditionTable conditions={conditions} />
       </Paper>
 
-      {/* Managed resources using this config */}
       <Paper elevation={1} style={{ padding: 16 }}>
         <SectionHeader
           title={
@@ -190,8 +207,7 @@ export default function ProviderConfigDetail() {
         />
         {instancesLoading ? (
           <Box display="flex" alignItems="center" gap={1}>
-            <CircularProgress size={16} />
-            <Typography variant="body2">Loading…</Typography>
+            <CircularProgress size={16} /><Typography variant="body2">Loading…</Typography>
           </Box>
         ) : usingInstances.length === 0 ? (
           <Typography variant="body2" color="textSecondary">
@@ -201,7 +217,7 @@ export default function ProviderConfigDetail() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-                {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map((h) => (
+                {['Kind', 'Name', 'Scope', 'Ready', 'Synced', 'Age'].map((h) => (
                   <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
                 ))}
               </tr>
@@ -212,21 +228,17 @@ export default function ProviderConfigDetail() {
                 const ns: string = item.metadata?.namespace ?? '';
                 const conditions2: any[] = item.status?.conditions ?? [];
                 const created = item.metadata?.creationTimestamp
-                  ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
-                  : '—';
-                const detailUrl = ns
-                  ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
-                  : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${itemName}`;
+                  ? new Date(item.metadata.creationTimestamp).toLocaleDateString() : '—';
                 return (
-                  <tr
-                    key={`${item._group}/${item._plural}/${ns}/${itemName}`}
+                  <tr key={`${item._group}/${item._plural}/${ns}/${itemName}`}
                     style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-                    onClick={() => history.push(detailUrl)}
-                  >
+                    onClick={() => openManagedDetail({ providerName, group: item._group, plural: item._plural, name: itemName, namespace: ns || undefined })}>
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
                     <td style={{ padding: '8px 12px' }}>
                       <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{itemName}</span>
-                      {ns && <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>}
+                    </td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <ScopeBadge scope={ns ? 'Namespaced' : 'Cluster'} namespace={ns || undefined} />
                     </td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Ready')}</td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Synced')}</td>
@@ -240,4 +252,11 @@ export default function ProviderConfigDetail() {
       </Paper>
     </SectionBox>
   );
+}
+
+// ── Routed page ───────────────────────────────────────────────────────────────
+
+export default function ProviderConfigDetail() {
+  const { providerName, configName } = useParams<{ providerName: string; configName: string }>();
+  return <ProviderConfigDetailView providerName={providerName} configName={configName} />;
 }

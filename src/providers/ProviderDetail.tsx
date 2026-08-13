@@ -3,6 +3,9 @@ import { useParams, useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
 import { xpColors } from '../common/colors';
+import { ScopeBadge } from '../common/ScopeBadge';
+import { YamlEditor } from '../common/YamlEditor';
+import { openManagedDetail } from '../managed/ManagedDetail';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -164,8 +167,9 @@ function ManagedResourceSection({
               <Typography variant="body1" fontWeight={600}>
                 {kind}
               </Typography>
-              <Typography variant="body2" color="textSecondary">
-                {crd.metadata.name} · {scope}
+              <Typography variant="body2" color="textSecondary" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{crd.metadata.name}</span>
+                <ScopeBadge scope={scope} />
               </Typography>
             </Box>
             <Button
@@ -187,7 +191,6 @@ function ManagedResourceSection({
 }
 
 function AllInstancesTab({ providerName }: { providerName: string }) {
-  const history = useHistory();
   const { items, loading } = useAllManagedResources(providerName);
 
   if (loading) {
@@ -224,14 +227,11 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
           const created = item.metadata?.creationTimestamp
             ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
             : '—';
-          const detailUrl = ns
-            ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
-            : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${itemName}`;
           return (
             <tr
               key={`${item._group}/${item._plural}/${ns}/${itemName}`}
               style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-              onClick={() => history.push(detailUrl)}
+              onClick={() => openManagedDetail({ providerName, group: item._group, plural: item._plural, name: itemName, namespace: ns || undefined })}
             >
               <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
               <td style={{ padding: '8px 12px' }}>
@@ -297,6 +297,7 @@ export default function ProviderDetail() {
       <Tabs value={tab} onChange={(_: any, v: number) => setTab(v)} style={{ marginBottom: 24 }}>
         <Tab label="Overview" />
         <Tab label="All Instances" />
+        <Tab label="YAML" />
       </Tabs>
 
       {tab === 0 && (
@@ -371,6 +372,12 @@ export default function ProviderDetail() {
         <Paper elevation={1} style={{ padding: 0 }}>
           <AllInstancesTab providerName={name} />
         </Paper>
+      )}
+
+      {tab === 2 && (
+        <Box style={{ height: 600 }}>
+          <YamlEditor item={provider.jsonData} onSave={async () => {}} readOnly />
+        </Box>
       )}
     </SectionBox>
   );

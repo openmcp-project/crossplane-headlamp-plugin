@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { openManagedDetail } from '../managed/ManagedDetail';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
 import { xpColors, DOT } from '../common/colors';
+import { ScopeBadge } from '../common/ScopeBadge';
 
 const {
   Typography, Box, Chip, CircularProgress, Paper,
@@ -116,7 +118,6 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
   providerName: string;
   statusFilter: StatusFilter[];
 }) {
-  const history = useHistory();
   const { instances, loading } = useInstancesForCRD(crd, true, statusFilter);
   const group: string = crd.jsonData?.spec?.group ?? '';
   const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
@@ -154,16 +155,13 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
               : '—';
             const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
             const isSynced = conditions.find((c: any) => c.type === 'Synced')?.status === 'True';
-            const detailUrl = isNamespaced
-              ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${ns}/${instName}`
-              : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${instName}`;
             return (
               <tr key={`${ns}/${instName}`}
                 style={{
                   borderBottom: '1px solid #ebebeb', cursor: 'pointer',
                   background: (!isReady || !isSynced) ? 'rgba(244,67,54,0.04)' : 'transparent',
                 }}
-                onClick={() => history.push(detailUrl)}
+                onClick={() => openManagedDetail({ providerName, group, plural, name: instName, namespace: ns || undefined })}
               >
                 {/* col 1: indent spacer */}
                 <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
@@ -242,8 +240,7 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
         <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
         <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
         <td style={{ padding: '8px 12px' }}>
-          <Chip label={scope} size="small"
-            style={{ background: scope === 'Cluster' ? xpColors.cluster.bg : xpColors.namespaced.bg, color: '#fff', fontWeight: 600 }} />
+          <ScopeBadge scope={scope} />
         </td>
         <td style={{ padding: '8px 12px', textAlign: 'right' as const, paddingRight: 20 }}>
           {hasInstances ? (
