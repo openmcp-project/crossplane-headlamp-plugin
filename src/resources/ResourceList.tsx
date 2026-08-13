@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { openManagedDetail } from '../managed/ManagedDetail';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
+import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS, useAllManagedResources } from '../helpers';
+
 import { xpColors, DOT } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
 
@@ -167,13 +168,13 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
                 <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
                 {/* col 2: name */}
                 <td style={{ padding: '6px 12px' }}>
-                  <span style={{ color: xpColors.link, textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
+                  <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{instName}</span>
                   {isNamespaced && ns && (
-                    <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
+                    <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>
                   )}
                 </td>
                 {/* col 3+4: group/version/scope spacers — empty, keeps alignment */}
-                <td style={{ padding: '6px 12px', fontSize: 12, color: '#aaa' }} colSpan={3}>{created}</td>
+                <td style={{ padding: '6px 12px', color: '#aaa' }} colSpan={3}>{created}</td>
                 {/* col 6: health — aligns with parent "Health" column */}
                 <td style={{ padding: '6px 12px 6px 20px', textAlign: 'right' as const, whiteSpace: 'nowrap' as const }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -187,6 +188,105 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
         </tbody>
       </table>
     </Box>
+  );
+}
+
+// ── ProviderConfig group-by view ──────────────────────────────────────────────
+
+function ProviderConfigGroupView({ providerFilter, statusFilter }: {
+  providerFilter: string;
+  statusFilter: StatusFilter[];
+}) {
+  const filterName = providerFilter === 'all' ? undefined : providerFilter;
+  const { items, loading } = useAllManagedResources(filterName);
+
+  if (loading) {
+    return (
+      <Box p={3} display="flex" alignItems="center" gap={2}>
+        <CircularProgress size={18} />
+        <Typography variant="body2">Loading resources…</Typography>
+      </Box>
+    );
+  }
+
+  // Group by providerConfigRef.name, defaulting to 'default'
+  const byConfig = new Map<string, any[]>();
+  for (const item of items) {
+    const cfgName: string = item.spec?.providerConfigRef?.name ?? 'default';
+    if (!byConfig.has(cfgName)) byConfig.set(cfgName, []);
+    byConfig.get(cfgName)!.push(item);
+  }
+
+  const entries = Array.from(byConfig.entries()).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return <Box p={2}><Typography variant="body2" color="textSecondary">No managed resource instances found.</Typography></Box>;
+  }
+
+  return (
+    <>
+      {entries.map(([configName, instances]) => {
+        const filtered = instances.filter((i) => matchesStatusFilter(i, statusFilter));
+        if (filtered.length === 0) return null;
+        const readyCount = filtered.filter((i: any) =>
+          i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
+        ).length;
+        const notReady = filtered.length - readyCount;
+        return (
+          <Paper key={configName} elevation={1} style={{ marginBottom: 24 }}>
+            <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
+              <Typography variant="subtitle2" style={{ fontFamily: 'monospace' }}>{configName}</Typography>
+              {notReady > 0 && (
+                <Chip label={`${notReady} not ready`} size="small"
+                  style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
+              )}
+              <Chip label={`${filtered.length} resources`} size="small" />
+            </Box>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
+                  {['Name', 'Kind', 'Provider', 'Health'].map((h) => (
+                    <th key={h} style={{ padding: '8px 12px', fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((inst: any) => {
+                  const name: string = inst.metadata?.name ?? '';
+                  const ns: string = inst.metadata?.namespace ?? '';
+                  const kind: string = inst._kind ?? inst.kind ?? '';
+                  const conditions: any[] = inst.status?.conditions ?? [];
+                  return (
+                    <tr key={`${ns}/${name}`}
+                      style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+                      onClick={() => openManagedDetail({
+                        providerName: inst._providerName,
+                        group: inst._group,
+                        plural: inst._plural,
+                        name,
+                        namespace: ns || undefined,
+                      })}
+                    >
+                      <td style={{ padding: '8px 12px' }}>
+                        <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{name}</span>
+                        {ns && <Typography variant="caption" color="textSecondary" style={{ marginLeft: 6 }}>{ns}</Typography>}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{kind}</td>
+                      <td style={{ padding: '8px 12px' }}>{inst._providerName}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <span style={{ display: 'inline-flex', gap: 4 }}>
+                          {readyChip(conditions)}
+                          {syncedChip(conditions)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Paper>
+        );
+      })}
+    </>
   );
 }
 
@@ -237,8 +337,8 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
         <td style={{ padding: '8px 12px' }}>
           <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{kind}</span>
         </td>
-        <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
-        <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
+        <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>{group}</td>
+        <td style={{ padding: '8px 12px' }}>{topVersion}</td>
         <td style={{ padding: '8px 12px' }}>
           <ScopeBadge scope={scope} />
         </td>
@@ -272,9 +372,8 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
 
 // ── Provider section ──────────────────────────────────────────────────────────
 
-function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSort, statusFilter }: {
+function ProviderSection({ provider, search, sortKey, sortDir, onSort, statusFilter }: {
   provider: any;
-  hideUnused: boolean;
   search: string;
   sortKey: SortKey;
   sortDir: SortDir;
@@ -288,13 +387,13 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
   );
 
   const loading = crds === null && !crdErr;
-  const countsLoading = hideUnused && crds !== null && counts === null;
+  const countsLoading = crds !== null && counts === null;
   const lc = search.toLowerCase();
 
   const visibleCrds = (() => {
     if (!crds) return [];
     let list = crds.filter((c: any) => !NON_MANAGED_PLURALS.has(c.jsonData?.spec?.names?.plural ?? ''));
-    if (hideUnused && counts !== null) {
+    if (counts !== null) {
       list = list.filter((c: any) => (counts.get(c.metadata.name)?.total ?? 0) > 0);
     }
     if (lc) {
@@ -319,9 +418,9 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
 
   const SortHeader = ({ label, sk }: { label: string; sk: SortKey }) => (
     <th onClick={() => onSort(sk)}
-      style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'nowrap' as const }}>
+      style={{ padding: '8px 12px', fontWeight: 600, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'nowrap' as const }}>
       {label}
-      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 11, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
     </th>
   );
 
@@ -329,7 +428,6 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
     <Paper elevation={1} style={{ marginBottom: 24 }}>
       <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
         <Typography variant="h6">{provider.metadata.name}</Typography>
-        {crds !== null && counts !== null && <Chip label={`${visibleCrds.length} types`} size="small" />}
       </Box>
       {loading || countsLoading ? (
         <Box px={2} py={2} display="flex" alignItems="center" gap={1}>
@@ -341,7 +439,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
       ) : visibleCrds.length === 0 ? (
         <Box px={2} py={1.5}>
           <Typography variant="body2" color="textSecondary">
-            {lc ? 'No types match your search.' : hideUnused ? 'No resource types with instances.' : 'No CRDs found.'}
+            {lc ? 'No types match your search.' : 'No resource types with instances.'}
           </Typography>
         </Box>
       ) : (
@@ -381,7 +479,6 @@ export default function ResourceList() {
   const history = useHistory();
   const location = useLocation();
   const [providers, providerErr] = Provider.useList();
-  const [hideUnused, setHideUnused] = useState(true);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('kind');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -392,6 +489,12 @@ export default function ResourceList() {
     qp.get('status') ? (qp.get('status')!.split(',') as StatusFilter[]) : []
   );
   const [providerFilter, setProviderFilter] = useState<string>(qp.get('provider') ?? 'all');
+  const [groupBy, setGroupBy] = useState<'provider' | 'providerconfig'>('provider');
+
+  useEffect(() => {
+    const p = parseSearch(location.search);
+    setProviderFilter(p.get('provider') ?? 'all');
+  }, [location.search]);
 
   // Sync state → URL whenever filters change
   useEffect(() => {
@@ -506,28 +609,29 @@ export default function ResourceList() {
                 </MenuItem>
               ))}
             </TextField>
-            {providerNames.length > 1 && (
-              <TextField
-                select
-                size="small"
-                value={providerFilter}
-                onChange={(e: any) => setProviderFilter(e.target.value)}
-                style={{ width: 160 }}
-              >
-                <MenuItem value="all">All providers</MenuItem>
-                {providerNames.map((n: string) => (
-                  <MenuItem key={n} value={n}>{n}</MenuItem>
-                ))}
-              </TextField>
-            )}
-            <Chip
-              label="Hide unused"
+            <TextField
+              select
               size="small"
-              onClick={() => setHideUnused((v: boolean) => !v)}
-              color={hideUnused ? 'primary' : 'default'}
-              variant={hideUnused ? 'filled' : 'outlined'}
-              style={{ cursor: 'pointer' }}
-            />
+              value={providerFilter}
+              onChange={(e: any) => setProviderFilter(e.target.value)}
+              style={{ width: 160 }}
+              disabled={providerNames.length <= 1}
+            >
+              <MenuItem value="all">All providers</MenuItem>
+              {providerNames.map((n: string) => (
+                <MenuItem key={n} value={n}>{n}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              value={groupBy}
+              onChange={(e: any) => setGroupBy(e.target.value)}
+              style={{ width: 160 }}
+            >
+              <MenuItem value="provider">Group by Provider</MenuItem>
+              <MenuItem value="providerconfig">Group by ProviderConfig</MenuItem>
+            </TextField>
           </Box>,
         ],
       }}
@@ -564,18 +668,24 @@ export default function ResourceList() {
         </Box>
       )}
 
-      {visibleProviders.map((p: any) => (
-        <ProviderSection
-          key={p.metadata.name}
-          provider={p}
-          hideUnused={hideUnused}
-          search={search}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={handleSort}
+      {groupBy === 'provider' ? (
+        visibleProviders.map((p: any) => (
+          <ProviderSection
+            key={p.metadata.name}
+            provider={p}
+            search={search}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={handleSort}
+            statusFilter={statusFilter}
+          />
+        ))
+      ) : (
+        <ProviderConfigGroupView
+          providerFilter={providerFilter}
           statusFilter={statusFilter}
         />
-      ))}
+      )}
     </SectionBox>
   );
 }

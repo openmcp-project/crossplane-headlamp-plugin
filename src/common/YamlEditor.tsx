@@ -1,27 +1,47 @@
 import { useEffect, useRef, useState } from 'react';
-import Editor, { DiffEditor, useMonaco } from '@monaco-editor/react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import { configureMonacoYaml } from 'monaco-yaml';
 import * as jsYaml from 'js-yaml';
 
 const { Box, Button, Alert, Typography, Chip } =
   (window as any).pluginLib?.MuiCore ?? {};
 
-// ── Kubernetes schema wiring ──────────────────────────────────────────────────
+// ── YAML language server (module-level singleton) ─────────────────────────────
 
-let schemaConfigured = false;
+// One configureMonacoYaml instance shared across all editors; use .update() to
+// swap schemas rather than calling configureMonacoYaml again (docs requirement).
+let monacoYamlInst: ReturnType<typeof configureMonacoYaml> | null = null;
 
-function useKubernetesSchema(monaco: any) {
-  useEffect(() => {
-    if (!monaco || schemaConfigured) return;
-    schemaConfigured = true;
-    configureMonacoYaml(monaco, {
-      enableSchemaRequest: true,
-      schemas: [{
-        fileMatch: ['resource.yaml'],
-        uri: 'https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.30.0-standalone-strict/all.json',
-      }],
-    });
-  }, [monaco]);
+// path → inline JSON Schema; kept in sync with monacoYamlInst via syncSchemas()
+const schemaRegistry = new Map<string, object>();
+
+// Increment to give each schema-bound editor a stable unique path
+let editorCounter = 0;
+
+function initMonacoYaml(monaco: any) {
+  if (monacoYamlInst) return;
+  // Don't patch MonacoEnvironment — Headlamp already runs monaco-yaml internally
+  // and has the yaml worker registered. Just configure the language features.
+  monacoYamlInst = configureMonacoYaml(monaco, {
+    validate: true,
+    hover: true,
+    completion: true,
+    format: true,
+    enableSchemaRequest: false,
+    schemas: [],
+  });
+}
+
+function syncSchemas() {
+  if (!monacoYamlInst) return;
+  monacoYamlInst.update({
+    schemas: Array.from(schemaRegistry.entries()).map(([path, schema]) => ({
+      // '**/*.yaml' matches any inmemory://model/*.yaml URI Monaco creates
+      fileMatch: ['**/*.yaml'],
+      uri: `https://crossplane-headlamp-plugin/schemas/${path}.json`,
+      schema,
+    })),
+  });
 }
 
 // ── Editor options ────────────────────────────────────────────────────────────
@@ -40,6 +60,7 @@ const EDITOR_OPTIONS = {
   bracketPairColorization: { enabled: true },
   autoIndent: 'full' as const,
   tabSize: 2,
+  quickSuggestions: { other: true, comments: false, strings: true },
 };
 
 const DIFF_OPTIONS = {
@@ -60,33 +81,56 @@ interface YamlEditorProps {
   item: any;
   onSave: (obj: any) => Promise<void>;
   readOnly?: boolean;
+  initialStage?: Stage;
+  /** Optional JSON Schema for inline validation, hover docs, and autocomplete. */
+  schema?: object;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) {
-  const monaco = useMonaco();
-  useKubernetesSchema(monaco);
-
+export function YamlEditor({ item, onSave, readOnly = false, initialStage, schema }: YamlEditorProps) {
   const originalYaml = jsYaml.dump(item);
-  const [stage, setStage] = useState<Stage>('view');
+  const [stage, setStage] = useState<Stage>(initialStage ?? 'view');
   const [value, setValue] = useState(originalYaml);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const editorRef = useRef<any>(null);
 
+  // Stable per-instance path; schema-bound editors get a unique path so their
+  // fileMatch doesn't collide with other open editors.
+  const editorPath = useRef(schema ? `crd-resource-${++editorCounter}.yaml` : 'resource.yaml');
+
+  // Register / update / clean up schema in the global registry
+  useEffect(() => {
+    if (!schema) return;
+    const path = editorPath.current;
+    schemaRegistry.set(path, schema);
+    syncSchemas();
+    return () => {
+      schemaRegistry.delete(path);
+      syncSchemas();
+    };
+  }, [schema]);
+
   // Reset when item changes externally
   useEffect(() => {
     setValue(jsYaml.dump(item));
-    setStage('view');
+    setStage(initialStage ?? 'view');
     setSaveError(null);
     setSaveSuccess(false);
-  }, [item]);
+  }, [item]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isDirty = value !== originalYaml;
   const isDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
   const theme = isDark ? 'vs-dark' : 'vs';
+
+  function handleBeforeMount(monaco: any) {
+    // Initialize the YAML language server (no-op after first call)
+    initMonacoYaml(monaco);
+    // If a schema was registered before this editor mounted, push it now
+    if (schema) syncSchemas();
+  }
 
   function handleDiscard() {
     setValue(originalYaml);
@@ -121,7 +165,6 @@ export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) 
     <Box display="flex" alignItems="center" justifyContent="space-between"
       style={{ padding: '8px 12px', borderBottom: '1px solid var(--border, #e0e0e0)', flexShrink: 0, minHeight: 44 }}>
 
-      {/* Left: stage indicator */}
       <Box display="flex" alignItems="center" gap={1}>
         {stage === 'view' && (
           <Typography variant="caption" color="textSecondary" style={{ fontSize: 11, letterSpacing: 0.5 }}>
@@ -146,7 +189,6 @@ export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) 
         )}
       </Box>
 
-      {/* Right: actions */}
       <Box display="flex" alignItems="center" gap={1}>
         {stage === 'view' && !readOnly && (
           <Button size="small" variant="outlined" onClick={() => setStage('edit')}
@@ -167,7 +209,7 @@ export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) 
             </Button>
             <Button size="small" variant="contained" disabled={!isDirty}
               onClick={() => setStage('review')}
-              style={{ fontSize: 12, padding: '3px 14px', background: isDirty ? '#1565c0' : undefined }}>
+              style={{ fontSize: 12, padding: '3px 14px' }}>
               Review Changes
             </Button>
           </>
@@ -216,6 +258,7 @@ export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) 
             modified={value}
             theme={theme}
             options={DIFF_OPTIONS}
+            beforeMount={handleBeforeMount}
           />
         ) : (
           <Editor
@@ -223,10 +266,11 @@ export function YamlEditor({ item, onSave, readOnly = false }: YamlEditorProps) 
             defaultLanguage="yaml"
             value={value}
             theme={theme}
-            path="resource.yaml"
+            path={editorPath.current}
             options={{ ...EDITOR_OPTIONS, readOnly: stage === 'view' }}
             onChange={(v) => setValue(v ?? '')}
             onMount={(editor) => { editorRef.current = editor; }}
+            beforeMount={handleBeforeMount}
           />
         )}
       </Box>

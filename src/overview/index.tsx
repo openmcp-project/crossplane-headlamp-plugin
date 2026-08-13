@@ -189,7 +189,16 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
             {provider.jsonData?.spec?.package ?? ''}
           </Typography>
         </Box>
-        <Box display="flex" gap={0.75} flexWrap="wrap" justifyContent="flex-end">
+        <Box display="flex" gap={0.75} flexWrap="wrap" justifyContent="flex-end" alignItems="center">
+          <span
+            style={{ fontSize: 12, color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap' as const, marginRight: 8 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              history.push(`${clusterPrefix()}/crossplane/crds?provider=${providerName}`);
+            }}
+          >
+            Show CRDs
+          </span>
           {[
             { label: 'Ready', cond: readyCond },
             { label: 'Healthy', cond: healthyCond },

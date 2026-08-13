@@ -4,11 +4,13 @@ import { getApiProxy, detectExternalManager } from '../helpers';
 import { xpColors } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
 import { YamlEditor } from '../common/YamlEditor';
+import { openCRDDetailByGroupPlural } from '../crds/CRDList';
 import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetail';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Alert, Tabs, Tab } =
   (window as any).pluginLib?.MuiCore ?? {};
-const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
+
+const { SectionBox, SectionHeader, NameValueTable, SimpleTable } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── Shared props type ─────────────────────────────────────────────────────────
 
@@ -79,34 +81,22 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
     return <Typography variant="body2" color="textSecondary">No conditions.</Typography>;
   }
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-          {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map((h) => (
-            <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {conditions.map((c: any) => {
-          const ok = c.status === 'True';
-          return (
-            <tr key={c.type} style={{ borderBottom: '1px solid #f5f5f5' }}>
-              <td style={{ padding: '6px 12px', fontWeight: 600 }}>{c.type}</td>
-              <td style={{ padding: '6px 12px' }}>
-                <Chip label={c.status} size="small"
-                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
-              </td>
-              <td style={{ padding: '6px 12px', fontSize: 12 }}>{c.reason ?? ''}</td>
-              <td style={{ padding: '6px 12px', fontSize: 12, color: '#555', maxWidth: 300 }}>{c.message ?? ''}</td>
-              <td style={{ padding: '6px 12px', fontSize: 12, color: '#888' }}>
-                {c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—'}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <SimpleTable
+      columns={[
+        { label: 'Type', getter: (c: any) => c.type },
+        {
+          label: 'Status', getter: (c: any) => {
+            const ok = c.status === 'True';
+            return <Chip label={c.status} size="small"
+              style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
+          }
+        },
+        { label: 'Reason', getter: (c: any) => c.reason ?? '' },
+        { label: 'Message', getter: (c: any) => c.message ?? '', cellProps: { style: { maxWidth: 300 } } },
+        { label: 'Last Transition', getter: (c: any) => c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—' },
+      ]}
+      data={conditions}
+    />
   );
 }
 
@@ -179,7 +169,7 @@ export function ManagedDetailView({ providerName, group, plural, name, namespace
       headerProps={{ headerStyle: 'main' }}
     >
       <Tabs value={tab} onChange={(_: any, v: number) => setTab(v)} style={{ marginBottom: 24 }}>
-        <Tab label="Overview" />
+        <Tab label="Health" />
         <Tab label="YAML" />
       </Tabs>
 
@@ -193,28 +183,28 @@ export function ManagedDetailView({ providerName, group, plural, name, namespace
 
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
             <SectionHeader title="Info" headerStyle="subsection" noPadding />
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {[
-                  ['Name', name],
-                  ['API Version', item?.apiVersion ?? ''],
-                  ['Kind', item?.kind ?? ''],
-                  ['Created', item?.metadata?.creationTimestamp
-                    ? new Date(item.metadata.creationTimestamp).toLocaleString() : '—'],
-                ].map(([label, value]) => (
-                  <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                    <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
-                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{value}</td>
-                  </tr>
-                ))}
-                <tr style={{ borderBottom: '1px solid #f5f5f5' }}>
-                  <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>Scope</td>
-                  <td style={{ padding: '6px 12px' }}>
-                    <ScopeBadge scope={namespace ? 'Namespaced' : 'Cluster'} namespace={namespace} />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <NameValueTable rows={[
+              { name: 'Name', value: name },
+              { name: 'API Version', value: item?.apiVersion ?? '' },
+              {
+                name: 'Kind',
+                value: (
+                  <span
+                    style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer' }}
+                    onClick={() => openCRDDetailByGroupPlural(group, plural, providerName)}
+                  >{item?.kind ?? ''}</span>
+                ),
+              },
+              {
+                name: 'Created',
+                value: item?.metadata?.creationTimestamp
+                  ? new Date(item.metadata.creationTimestamp).toLocaleString() : '—',
+              },
+              {
+                name: 'Scope',
+                value: <ScopeBadge scope={namespace ? 'Namespaced' : 'Cluster'} namespace={namespace} />,
+              },
+            ]} />
           </Paper>
 
           {hasRelationships && (
@@ -224,7 +214,7 @@ export function ManagedDetailView({ providerName, group, plural, name, namespace
                 {providerConfigRef && (
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>ProviderConfig:</Typography>
-                    <span style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                    <span style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer' }}
                       onClick={() => openProviderConfigDetail({ providerName, configName: providerConfigRef })}>
                       {providerConfigRef}
                     </span>
@@ -233,19 +223,19 @@ export function ManagedDetailView({ providerName, group, plural, name, namespace
                 {compositeRef && (
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>Composite Resource:</Typography>
-                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>{compositeRef}</Typography>
+                    <Typography variant="body2" style={{ fontFamily: 'monospace' }}>{compositeRef}</Typography>
                   </Box>
                 )}
                 {claimName && (
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>Claim:</Typography>
-                    <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>{claimNamespace}/{claimName}</Typography>
+                    <Typography variant="body2" style={{ fontFamily: 'monospace' }}>{claimNamespace}/{claimName}</Typography>
                   </Box>
                 )}
                 {managerInfo.manager && (
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>Managed by:</Typography>
-                    <span style={{ padding: '2px 10px', borderRadius: 10, background: managerColors[managerInfo.manager] ?? '#555', color: '#fff', fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ padding: '2px 10px', borderRadius: 10, background: managerColors[managerInfo.manager] ?? '#555', color: '#fff', fontSize: 11, fontWeight: 600 }}>
                       {managerLabels[managerInfo.manager] ?? managerInfo.manager}
                       {managerInfo.ref ? ` · ${managerInfo.ref}` : ''}
                     </span>

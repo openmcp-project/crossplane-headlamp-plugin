@@ -77,10 +77,10 @@ export default function CompositionList() {
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>
                       {comp.metadata.name}
                     </td>
-                    <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>
+                    <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>
                       {typeRef.apiVersion} / {typeRef.kind}
                     </td>
-                    <td style={{ padding: '8px 12px', fontSize: 12 }}>
+                    <td style={{ padding: '8px 12px' }}>
                       {comp.metadata?.creationTimestamp
                         ? new Date(comp.metadata.creationTimestamp).toLocaleDateString()
                         : '—'}
@@ -121,12 +121,12 @@ export default function CompositionList() {
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>
                       {xrd.metadata.name}
                     </td>
-                    <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>
+                    <td style={{ padding: '8px 12px', fontFamily: 'monospace' }}>
                       {group}
                     </td>
                     <td style={{ padding: '8px 12px' }}>{kind}</td>
                     <td style={{ padding: '8px 12px' }}>{readyChip(conditions)}</td>
-                    <td style={{ padding: '8px 12px', fontSize: 12 }}>
+                    <td style={{ padding: '8px 12px' }}>
                       {xrd.metadata?.creationTimestamp
                         ? new Date(xrd.metadata.creationTimestamp).toLocaleDateString()
                         : '—'}
