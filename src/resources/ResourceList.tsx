@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { openManagedDetail } from '../managed/ManagedDetail';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS, useAllManagedResources } from '../helpers';
-
 import { xpColors, DOT } from '../common/colors';
 import { ScopeBadge } from '../common/ScopeBadge';
+import { ResourceGraph, ColorBy, colorKeyFor, listCommonLabelKeys, generateColorMap } from '../graph/ResourceGraph';
 
 const {
   Typography, Box, Chip, CircularProgress, Paper,
@@ -95,21 +95,27 @@ function useCRDInstanceCounts(crds: any[] | null): Map<string, { total: number; 
 }
 
 // ── Health chips ──────────────────────────────────────────────────────────────
+// Instance-level (sub-table): OK state → quiet text, error → badge for attention.
+// CRD-level count chips keep their own inline styling below.
 
 function readyChip(conditions: any[]) {
   const cond = conditions?.find((c: any) => c.type === 'Ready');
-  if (!cond) return <Chip label="—" size="small" />;
-  const ok = cond.status === 'True';
-  return <Chip label={ok ? 'Ready' : 'Not Ready'} size="small"
-    style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
+  if (!cond) return <span style={{ color: '#bbb', fontSize: 12 }}>—</span>;
+  if (cond.status === 'True') {
+    return <span style={{ color: xpColors.ready.bg, fontSize: 12, fontWeight: 500 }}>Ready</span>;
+  }
+  return <Chip label="Not Ready" size="small"
+    style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 function syncedChip(conditions: any[]) {
   const cond = conditions?.find((c: any) => c.type === 'Synced');
-  if (!cond) return <Chip label="—" size="small" />;
-  const ok = cond.status === 'True';
-  return <Chip label={ok ? 'Synced' : 'Not Synced'} size="small"
-    style={{ background: ok ? xpColors.synced.bg : xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />;
+  if (!cond) return <span style={{ color: '#bbb', fontSize: 12 }}>—</span>;
+  if (cond.status === 'True') {
+    return <span style={{ color: xpColors.synced.bg, fontSize: 12, fontWeight: 500 }}>Synced</span>;
+  }
+  return <Chip label="Not Synced" size="small"
+    style={{ background: xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 // ── Expanded instances sub-table ──────────────────────────────────────────────
@@ -191,15 +197,23 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
   );
 }
 
-// ── ProviderConfig group-by view ──────────────────────────────────────────────
+// ── Flat group view (provider / source / flux / label) ────────────────────────
 
-function ProviderConfigGroupView({ providerFilter, statusFilter }: {
-  providerFilter: string;
-  statusFilter: StatusFilter[];
+const GROUP_LABEL: Record<ColorBy, string> = {
+  provider: 'ProviderConfig',
+  source: 'API Domain',
+  flux: 'Flux',
+  label: 'Label',
+  kind: 'Kind',
+};
+
+function FlatGroupView({ items, loading, groupColorBy, labelKey, graphSort }: {
+  items: any[];
+  loading: boolean;
+  groupColorBy: ColorBy;
+  labelKey?: string;
+  graphSort: 'alpha:asc' | 'alpha:desc' | 'count:desc' | 'count:asc';
 }) {
-  const filterName = providerFilter === 'all' ? undefined : providerFilter;
-  const { items, loading } = useAllManagedResources(filterName);
-
   if (loading) {
     return (
       <Box p={3} display="flex" alignItems="center" gap={2}>
@@ -209,37 +223,45 @@ function ProviderConfigGroupView({ providerFilter, statusFilter }: {
     );
   }
 
-  // Group by providerConfigRef.name, defaulting to 'default'
-  const byConfig = new Map<string, any[]>();
+  const byGroup = new Map<string, any[]>();
   for (const item of items) {
-    const cfgName: string = item.spec?.providerConfigRef?.name ?? 'default';
-    if (!byConfig.has(cfgName)) byConfig.set(cfgName, []);
-    byConfig.get(cfgName)!.push(item);
+    const key = colorKeyFor(item, groupColorBy, labelKey);
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key)!.push(item);
   }
 
-  const entries = Array.from(byConfig.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const entries = Array.from(byGroup.entries()).sort(([aKey, aItems], [bKey, bItems]) => {
+    const [sortType, sortDir] = graphSort.split(':');
+    if (sortType === 'count') {
+      const diff = aItems.length - bItems.length;
+      return sortDir === 'desc' ? -diff : diff;
+    }
+    const cmp = aKey.localeCompare(bKey);
+    return sortDir === 'desc' ? -cmp : cmp;
+  });
   if (entries.length === 0) {
     return <Box p={2}><Typography variant="body2" color="textSecondary">No managed resource instances found.</Typography></Box>;
   }
 
+  const groupLabel = GROUP_LABEL[groupColorBy];
+
   return (
     <>
-      {entries.map(([configName, instances]) => {
-        const filtered = instances.filter((i) => matchesStatusFilter(i, statusFilter));
-        if (filtered.length === 0) return null;
-        const readyCount = filtered.filter((i: any) =>
+      {entries.map(([groupName, instances]) => {
+        const readyCount = instances.filter((i: any) =>
           i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
         ).length;
-        const notReady = filtered.length - readyCount;
+        const notReady = instances.length - readyCount;
         return (
-          <Paper key={configName} elevation={1} style={{ marginBottom: 24 }}>
+          <Paper key={groupName} elevation={1} style={{ marginBottom: 24 }}>
             <Box px={2} py={1.5} borderBottom="1px solid #e0e0e0" display="flex" alignItems="center" gap={1}>
-              <Typography variant="subtitle2" style={{ fontFamily: 'monospace' }}>{configName}</Typography>
+              <Typography variant="caption" color="textSecondary" style={{ minWidth: 72 }}>{groupLabel}:</Typography>
+              <Typography variant="subtitle2" style={{ fontFamily: 'monospace' }}>{groupName}</Typography>
               {notReady > 0 && (
                 <Chip label={`${notReady} not ready`} size="small"
                   style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
               )}
-              <Chip label={`${filtered.length} resources`} size="small" />
+              <Chip label={`${instances.length} resources`} size="small" />
             </Box>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -250,7 +272,7 @@ function ProviderConfigGroupView({ providerFilter, statusFilter }: {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((inst: any) => {
+                {instances.map((inst: any) => {
                   const name: string = inst.metadata?.name ?? '';
                   const ns: string = inst.metadata?.namespace ?? '';
                   const kind: string = inst._kind ?? inst.kind ?? '';
@@ -489,7 +511,15 @@ export default function ResourceList() {
     qp.get('status') ? (qp.get('status')!.split(',') as StatusFilter[]) : []
   );
   const [providerFilter, setProviderFilter] = useState<string>(qp.get('provider') ?? 'all');
-  const [groupBy, setGroupBy] = useState<'provider' | 'providerconfig'>('provider');
+  const [groupColorBy, setGroupColorBy] = useState<ColorBy | 'type'>('kind');
+  const [labelKey, setLabelKey] = useState<string | undefined>(undefined);
+  const [selectedGroupKeys, setSelectedGroupKeys] = useState<Set<string> | null>(null);
+  const [graphSort, setGraphSort] = useState<'alpha:asc' | 'alpha:desc' | 'count:desc' | 'count:asc'>('alpha:asc');
+
+  // Reset group-key filter when grouping changes
+  useEffect(() => {
+    setSelectedGroupKeys(null);
+  }, [groupColorBy]);
 
   useEffect(() => {
     const p = parseSearch(location.search);
@@ -535,6 +565,47 @@ export default function ResourceList() {
     ? (providers ?? [])
     : (providers ?? []).filter((p: any) => p.metadata.name === providerFilter);
 
+  // Hoist all managed resources for graph + ProviderConfig group-by
+  const filterName = providerFilter === 'all' ? undefined : providerFilter;
+  const { items: allItems, loading: itemsLoading } = useAllManagedResources(filterName);
+
+  // Graph items: apply status filter + text search
+  const graphItems = allItems.filter((i) =>
+    matchesStatusFilter(i, statusFilter) &&
+    (!search || i._kind?.toLowerCase().includes(search.toLowerCase()) ||
+     i._group?.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  // Color map for the group-key filter chips (derived from ALL items, not just filtered)
+  const colorMapForChips = useMemo(() => {
+    if (groupColorBy === 'type') return {} as Record<string, string>;
+    return generateColorMap(allItems, groupColorBy as ColorBy, labelKey);
+  }, [allItems, groupColorBy, labelKey]);
+
+  const toggleGroupKey = (key: string) => {
+    const allKeys = Object.keys(colorMapForChips);
+    setSelectedGroupKeys(prev => {
+      if (prev === null) {
+        // All visible → deselect this one
+        const next = new Set(allKeys.filter(k => k !== key));
+        return next.size === 0 ? null : next;
+      }
+      const next = new Set(prev);
+      if (next.has(key)) { next.delete(key); } else { next.add(key); }
+      return next.size === allKeys.length ? null : next;
+    });
+  };
+
+  // Items visible in graph + table: further filtered by selected group keys
+  const filteredItems = useMemo(() => {
+    if (selectedGroupKeys === null || groupColorBy === 'type') return graphItems;
+    return graphItems.filter(item =>
+      selectedGroupKeys.has(colorKeyFor(item, groupColorBy as ColorBy, labelKey))
+    );
+  }, [graphItems, selectedGroupKeys, groupColorBy, labelKey]);
+
+  const availableLabelKeys = useMemo(() => listCommonLabelKeys(allItems), [allItems]);
+
   // Active filter banner
   const hasActiveFilter = statusFilter.length > 0 || providerFilter !== 'all';
 
@@ -544,94 +615,137 @@ export default function ResourceList() {
       headerProps={{
         headerStyle: 'main',
         actions: [
-          <Box display="flex" alignItems="center" gap={1}>
-            <TextField
-              size="small"
-              placeholder="Search kind or group…"
-              value={search}
-              onChange={(e: any) => setSearch(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
-                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                  </InputAdornment>
-                ),
-              }}
-              style={{ width: 200 }}
-            />
-            <TextField
-              select
-              size="small"
-              value={statusFilter}
-              onChange={(e: any) => {
-                const val: StatusFilter[] = typeof e.target.value === 'string'
-                  ? (e.target.value ? e.target.value.split(',') : [])
-                  : e.target.value;
-                setStatusFilter(val);
-              }}
-              style={{ minWidth: 140 }}
-              SelectProps={{
-                multiple: true,
-                displayEmpty: true,
-                renderValue: (selected: any) => {
-                  const sel = selected as StatusFilter[];
-                  if (sel.length === 0) return <span style={{ opacity: 0.5 }}>Status</span>;
-                  return (
-                    <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
-                      {sel.map((v) => {
-                        const opt = STATUS_OPTIONS.find((o) => o.value === v);
-                        return (
-                          <span key={v} style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            background: DOT[v], color: '#fff',
-                            borderRadius: 10, padding: '1px 8px', fontSize: 11, fontWeight: 600,
-                          }}>
-                            {opt?.label ?? v}
-                          </span>
-                        );
-                      })}
+          <Box display="flex" alignItems="center" gap={0} style={{ flexWrap: 'wrap' as const }}>
+
+            {/* ── Search (far left) ───────────────────────────────── */}
+            <Box pr={1.5}>
+              <TextField
+                size="small"
+                placeholder="Search kind or group…"
+                value={search}
+                onChange={(e: any) => setSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      </svg>
+                    </InputAdornment>
+                  ),
+                }}
+                style={{ width: 190 }}
+              />
+            </Box>
+
+            {/* ── Divider ─────────────────────────────────────────── */}
+            <span style={{ width: 1, height: 28, background: '#d0d0d0', margin: '0 8px', flexShrink: 0 }} />
+
+            {/* ── Filter group ────────────────────────────────────── */}
+            <Box display="flex" alignItems="center" gap={1} pr={1.5}>
+              <Typography variant="caption" color="textSecondary"
+                style={{ fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.55, whiteSpace: 'nowrap' as const }}>
+                Filter
+              </Typography>
+              <TextField
+                select size="small" value={statusFilter}
+                onChange={(e: any) => {
+                  const val: StatusFilter[] = typeof e.target.value === 'string'
+                    ? (e.target.value ? e.target.value.split(',') : [])
+                    : e.target.value;
+                  setStatusFilter(val);
+                }}
+                style={{ minWidth: 130 }}
+                SelectProps={{
+                  multiple: true, displayEmpty: true,
+                  renderValue: (selected: any) => {
+                    const sel = selected as StatusFilter[];
+                    if (sel.length === 0) return <span style={{ opacity: 0.5 }}>Status</span>;
+                    return (
+                      <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                        {sel.map((v) => {
+                          const opt = STATUS_OPTIONS.find((o) => o.value === v);
+                          return (
+                            <span key={v} style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              background: DOT[v], color: '#fff',
+                              borderRadius: 10, padding: '1px 8px', fontSize: 11, fontWeight: 600,
+                            }}>{opt?.label ?? v}</span>
+                          );
+                        })}
+                      </span>
+                    );
+                  },
+                }}
+              >
+                {STATUS_OPTIONS.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: DOT[o.value] ?? 'transparent' }} />
+                      {o.label}
                     </span>
-                  );
-                },
-              }}
-            >
-              {STATUS_OPTIONS.map((o) => (
-                <MenuItem key={o.value} value={o.value}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-                      background: DOT[o.value] ?? 'transparent',
-                    }} />
-                    {o.label}
-                  </span>
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select size="small" value={providerFilter}
+                onChange={(e: any) => setProviderFilter(e.target.value)}
+                style={{ width: 150 }}
+                disabled={providerNames.length <= 1}
+              >
+                <MenuItem value="all">All providers</MenuItem>
+                {providerNames.map((n: string) => (
+                  <MenuItem key={n} value={n}>{n}</MenuItem>
+                ))}
+              </TextField>
+            </Box>
+
+            {/* ── Divider ─────────────────────────────────────────── */}
+            <span style={{ width: 1, height: 28, background: '#d0d0d0', margin: '0 8px', flexShrink: 0 }} />
+
+            {/* ── View group ──────────────────────────────────────── */}
+            <Box display="flex" alignItems="center" gap={1} pl={0.5}>
+              <Typography variant="caption" color="textSecondary"
+                style={{ fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.55, whiteSpace: 'nowrap' as const }}>
+                Group
+              </Typography>
+              <TextField
+                select size="small" value={groupColorBy}
+                onChange={(e: any) => { setGroupColorBy(e.target.value); setLabelKey(undefined); }}
+                style={{ width: 190 }}
+              >
+                <MenuItem value="kind">Kind</MenuItem>
+                <MenuItem value="provider">ProviderConfig</MenuItem>
+                <MenuItem value="source">API Domain</MenuItem>
+                <MenuItem value="flux">Flux</MenuItem>
+                <MenuItem value="label">Label…</MenuItem>
+              </TextField>
+              {groupColorBy === 'label' && (
+                <TextField
+                  select size="small" value={labelKey ?? ''}
+                  onChange={(e: any) => setLabelKey(e.target.value || undefined)}
+                  label="Label key" style={{ minWidth: 160 }}
+                >
+                  {availableLabelKeys.map((k: string) => (
+                    <MenuItem key={k} value={k}>{k}</MenuItem>
+                  ))}
+                </TextField>
+              )}
+              <TextField
+                select size="small" value={graphSort}
+                onChange={(e: any) => setGraphSort(e.target.value)}
+                style={{ width: 160 }}
+              >
+                <MenuItem value="alpha:asc">A → Z</MenuItem>
+                <MenuItem value="alpha:desc">Z → A</MenuItem>
+                <MenuItem value="count:desc">
+                  {groupColorBy === 'provider' ? 'Most usage' : 'Most instances'}
                 </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              size="small"
-              value={providerFilter}
-              onChange={(e: any) => setProviderFilter(e.target.value)}
-              style={{ width: 160 }}
-              disabled={providerNames.length <= 1}
-            >
-              <MenuItem value="all">All providers</MenuItem>
-              {providerNames.map((n: string) => (
-                <MenuItem key={n} value={n}>{n}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              size="small"
-              value={groupBy}
-              onChange={(e: any) => setGroupBy(e.target.value)}
-              style={{ width: 160 }}
-            >
-              <MenuItem value="provider">Group by Provider</MenuItem>
-              <MenuItem value="providerconfig">Group by ProviderConfig</MenuItem>
-            </TextField>
+                <MenuItem value="count:asc">
+                  {groupColorBy === 'provider' ? 'Fewest usage' : 'Fewest instances'}
+                </MenuItem>
+              </TextField>
+            </Box>
+
           </Box>,
         ],
       }}
@@ -668,7 +782,74 @@ export default function ResourceList() {
         </Box>
       )}
 
-      {groupBy === 'provider' ? (
+      {/* Group-key filter chips — appear when any non-type grouping is active */}
+      {groupColorBy !== 'type' && Object.keys(colorMapForChips).length > 0 && (
+        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap" mb={1.5}>
+          <Typography variant="caption" color="textSecondary"
+            style={{ opacity: 0.55, fontWeight: 600, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
+            Show:
+          </Typography>
+          {Object.keys(colorMapForChips).sort((a, b) => {
+            const [sortType, sortDir] = graphSort.split(':');
+            if (sortType === 'count') {
+              const countA = filteredItems.filter(i => colorKeyFor(i, groupColorBy as ColorBy, labelKey) === a).length;
+              const countB = filteredItems.filter(i => colorKeyFor(i, groupColorBy as ColorBy, labelKey) === b).length;
+              const diff = countA - countB;
+              return sortDir === 'desc' ? -diff : diff;
+            }
+            const cmp = a.localeCompare(b);
+            return sortDir === 'desc' ? -cmp : cmp;
+          }).map(key => {
+            const color = colorMapForChips[key];
+            const isActive = selectedGroupKeys === null || selectedGroupKeys.has(key);
+            return (
+              <span
+                key={key}
+                onClick={() => toggleGroupKey(key)}
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 10px', borderRadius: 12,
+                  fontSize: 11, fontWeight: 600,
+                  cursor: 'pointer', userSelect: 'none' as const,
+                  border: `1.5px solid ${isActive ? color : '#ddd'}`,
+                  background: isActive ? `${color}1a` : 'transparent',
+                  color: isActive ? color : '#bbb',
+                  transition: 'color 0.1s, background 0.1s, border-color 0.1s',
+                }}
+              >
+                {key}
+              </span>
+            );
+          })}
+          {selectedGroupKeys !== null && (
+            <span
+              onClick={() => setSelectedGroupKeys(null)}
+              style={{ fontSize: 11, color: '#1565c0', cursor: 'pointer', userSelect: 'none' as const }}
+            >
+              Show all
+            </span>
+          )}
+        </Box>
+      )}
+
+      <ResourceGraph
+        items={filteredItems}
+        loading={itemsLoading}
+        colorBy={groupColorBy === 'type' ? 'provider' : groupColorBy}
+        labelKey={labelKey}
+        onNodeClick={(item) => openManagedDetail({
+          providerName: item._providerName,
+          group: item._group,
+          plural: item._plural,
+          name: item.metadata?.name ?? '',
+          namespace: item.metadata?.namespace || undefined,
+        })}
+        onGroupClick={(item) => {
+          history.push(`${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${item._group}/${item._plural}`);
+        }}
+      />
+
+      {groupColorBy === 'type' ? (
         visibleProviders.map((p: any) => (
           <ProviderSection
             key={p.metadata.name}
@@ -681,9 +862,12 @@ export default function ResourceList() {
           />
         ))
       ) : (
-        <ProviderConfigGroupView
-          providerFilter={providerFilter}
-          statusFilter={statusFilter}
+        <FlatGroupView
+          items={filteredItems}
+          loading={itemsLoading}
+          groupColorBy={groupColorBy as ColorBy}
+          labelKey={labelKey}
+          graphSort={graphSort}
         />
       )}
     </SectionBox>
