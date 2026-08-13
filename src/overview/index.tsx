@@ -76,7 +76,6 @@ function DonutCard({
             <Box position="absolute" top={0} left={0} right={0} bottom={0}
               display="flex" alignItems="center" justifyContent="center" flexDirection="column">
               <Typography style={{ fontWeight: 700, fontSize: size * 0.22, lineHeight: 1 }}>{total}</Typography>
-              <Typography variant="caption" color="textSecondary" style={{ fontSize: size * 0.11 }}>total</Typography>
             </Box>
           </Box>
           <Box display="flex" flexDirection="column" gap={0.75}>
