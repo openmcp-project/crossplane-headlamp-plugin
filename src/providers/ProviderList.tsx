@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { clusterPrefix } from '../helpers';
 import { xpColors, DOT } from '../common/colors';
+import { openProviderDetail } from './ProviderDetail';
 
 const {
   Typography, Box, Chip, CircularProgress, TextField, InputAdornment, MenuItem,
@@ -41,7 +41,6 @@ const STATUS_OPTIONS: { value: ProviderStatusFilter; label: string }[] = [
 ];
 
 export default function ProviderList() {
-  const history = useHistory();
   const location = useLocation();
   const [providers, error] = Provider.useList();
 
@@ -59,7 +58,7 @@ export default function ProviderList() {
     if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
     const newSearch = params.toString() ? `?${params.toString()}` : '';
     if (location.search !== newSearch) {
-      history.replace({ ...location, search: newSearch });
+      window.history.replaceState(null, '', `${location.pathname}${newSearch}`);
     }
   }, [statusFilter]);
 
@@ -277,7 +276,7 @@ export default function ProviderList() {
                     borderBottom: '1px solid #f0f0f0', cursor: 'pointer',
                     background: rowBad ? 'rgba(244,67,54,0.03)' : 'transparent',
                   }}
-                  onClick={() => history.push(`${clusterPrefix()}/crossplane/providers/${p.metadata.name}`)}
+                  onClick={() => openProviderDetail({ name: p.metadata.name })}
                 >
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{p.metadata.name}</span>
