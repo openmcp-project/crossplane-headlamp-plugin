@@ -4,3 +4,15 @@ kubeconfig*
 *.yaml
 e2e/screenshots/
 coverage/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
