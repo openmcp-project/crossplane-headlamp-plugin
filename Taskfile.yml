@@ -4,15 +4,54 @@ vars:
   CONTEXT: kind-headlamp-dev
   NAMESPACE: headlamp
   PLUGIN_DIR: headlamp_crossplane
+  HEADLAMP_PLUGINS_DIR: "{{.HOME}}/Library/Preferences/Headlamp/plugins/headlamp-crossplane"
 
 tasks:
+  # ── Local desktop development (no cluster needed) ────────────────────────────
+
+  mock:
+    desc: "Start mock k8s API server — load in Headlamp as 'crossplane-mock' cluster. Scenario: small (default), medium, large."
+    vars:
+      SCENARIO: '{{default "small" .SCENARIO}}'
+    cmds:
+      - |
+        # Kill any previous instance on the same port
+        lsof -ti:9647 | xargs kill -9 2>/dev/null || true
+      - |
+        # Add mock cluster to kubeconfig if not already present
+        if ! grep -q "crossplane-mock" ~/.kube/config 2>/dev/null; then
+          node mock-cluster/server.mjs --print-kubeconfig >> ~/.kube/config
+          echo "✓ Added 'crossplane-mock' to ~/.kube/config"
+        fi
+      - node mock-cluster/server.mjs --scenario {{.SCENARIO}}
+
+  mock:medium:
+    desc: "Start mock cluster with medium landscape (~30 resources)"
+    cmds:
+      - task: mock
+        vars: { SCENARIO: medium }
+
+  mock:large:
+    desc: "Start mock cluster with large landscape (~120 resources, 4 providers)"
+    cmds:
+      - task: mock
+        vars: { SCENARIO: large }
+
+  dev:desktop:
+    desc: "Build plugin and watch for changes — copies into Headlamp desktop app on each rebuild."
+    cmds:
+      - mkdir -p "{{.HEADLAMP_PLUGINS_DIR}}"
+      - node node_modules/@kinvolk/headlamp-plugin/bin/headlamp-plugin.js start
+
+  # ── In-cluster development (delegates to ui-frontend) ────────────────────────
+
   dev:
-    desc: "Build this plugin + bootstrap local Headlamp kind cluster (delegates to ui-frontend). Usage: task dev"
+    desc: "Bootstrap local kind cluster via ui-frontend. Usage: task dev"
     cmds:
       - task -d ../ui-frontend headlamp:setup
 
   update:
-    desc: "Build this plugin and hot-sync only crossplane into the running headlamp-dev pod. Usage: task update"
+    desc: "Build and hot-sync plugin into the running headlamp pod. Usage: task update"
     cmds:
       - npm run build
       - |
