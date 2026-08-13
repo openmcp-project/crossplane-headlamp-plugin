@@ -32,7 +32,7 @@ import {
 export type { ColorBy };
 export { colorKeyFor, listCommonLabelKeys, generateColorMap };
 
-const { Typography, Box, CircularProgress, Paper } =
+const { Typography, Box, CircularProgress, Paper, Tooltip } =
   (window as any).pluginLib?.MuiCore ?? {};
 
 // ── Detail node renderer ──────────────────────────────────────────────────────
@@ -197,148 +197,179 @@ function OrthogonalEdge(props: any) {
 
 // ── FitView helper ────────────────────────────────────────────────────────────
 
-function FitOnChange({ nodes, direction }: { nodes: Node[]; direction: LayoutDirection }) {
+function FitOnChange({ nodes, direction, isExpanded }: { nodes: Node[]; direction: LayoutDirection; isExpanded: boolean }) {
   const { fitView } = useReactFlow();
   useEffect(() => {
     if (!nodes.length) return;
     const id = requestAnimationFrame(() => fitView({ duration: 200, padding: 0.15 }));
     return () => cancelAnimationFrame(id);
   }, [nodes, direction, fitView]);
+  useEffect(() => {
+    if (!nodes.length) return;
+    const id = setTimeout(() => fitView({ duration: 250, padding: 0.15 }), 220);
+    return () => clearTimeout(id);
+  }, [isExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
 
-// ── Custom map controls panel ─────────────────────────────────────────────────
+// ── Map control panels ────────────────────────────────────────────────────────
 
-interface GraphControlsProps {
+function useCtrlStyles() {
+  React.useEffect(() => {
+    const id = 'xp-graph-ctrl-css';
+    if (document.getElementById(id)) return;
+    const s = document.createElement('style');
+    s.id = id;
+    s.textContent = '.xp-ctrl-btn { transition: background 0.1s, color 0.1s; } .xp-ctrl-btn:hover { background: rgba(0,0,0,0.06) !important; }';
+    document.head.appendChild(s);
+    return () => { document.getElementById(id)?.remove(); };
+  }, []);
+}
+
+const ctrlWrap: React.CSSProperties = {
+  display: 'flex', borderRadius: 8, overflow: 'hidden',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.07)',
+  background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(8px)',
+};
+const ctrlWrapCol: React.CSSProperties = { ...ctrlWrap, flexDirection: 'column', padding: '2px 0' };
+const cSep:  React.CSSProperties = { height: 1, background: 'rgba(0,0,0,0.08)' };
+const cRSep: React.CSSProperties = { width: 1, background: 'rgba(0,0,0,0.08)', alignSelf: 'stretch' };
+function cBtn(active?: boolean): React.CSSProperties {
+  return {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, border: 'none', cursor: 'pointer', flexShrink: 0,
+    background: active ? 'rgba(21,101,192,0.1)' : 'transparent',
+    color: active ? '#1565c0' : '#546e7a',
+  };
+}
+const tip = { enterDelay: 400, placement: 'right' as const, arrow: true };
+const tipB = { enterDelay: 400, placement: 'bottom' as const, arrow: true };
+
+// Panel 1 (bottom-left): zoom in / out / fit
+function ZoomControls() {
+  useCtrlStyles();
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  return (
+    <Panel position="bottom-left" style={{ margin: '0 0 12px 12px' }}>
+      <div style={ctrlWrapCol}>
+        <Tooltip title="Zoom in" {...tip}>
+          <button className="xp-ctrl-btn" style={cBtn()} onClick={() => zoomIn({ duration: 150 })}>
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/>
+            </svg>
+          </button>
+        </Tooltip>
+        <div style={cSep} />
+        <Tooltip title="Zoom out" {...tip}>
+          <button className="xp-ctrl-btn" style={cBtn()} onClick={() => zoomOut({ duration: 150 })}>
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="2" y1="6" x2="10" y2="6"/>
+            </svg>
+          </button>
+        </Tooltip>
+        <div style={cSep} />
+        <Tooltip title="Fit graph to view" {...tip}>
+          <button className="xp-ctrl-btn" style={cBtn()} onClick={() => fitView({ duration: 200, padding: 0.15 })}>
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 4.5V1h3.5M7.5 1H11v3.5M1 7.5V11h3.5M7.5 11H11V7.5"/>
+            </svg>
+          </button>
+        </Tooltip>
+      </div>
+    </Panel>
+  );
+}
+
+// Panel 2 (top-left, horizontal): grouped | detail toggle + direction flip
+interface ViewControlsProps {
   viewMode: 'detail' | 'groups';
   onViewModeChange: (m: 'detail' | 'groups') => void;
   direction: LayoutDirection;
   onDirectionChange: (d: LayoutDirection) => void;
+}
+function ViewControls({ viewMode, onViewModeChange, direction, onDirectionChange }: ViewControlsProps) {
+  useCtrlStyles();
+  return (
+    <Panel position="top-left" style={{ margin: '10px 0 0 10px' }}>
+      <div style={ctrlWrap}>
+        <Tooltip title="Grouped view — aggregate by kind" {...tipB}>
+          <button className="xp-ctrl-btn" style={cBtn(viewMode === 'groups')} onClick={() => onViewModeChange('groups')}>
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+              <rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/>
+              <rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1"/>
+            </svg>
+          </button>
+        </Tooltip>
+        <div style={cRSep} />
+        <Tooltip title="Dependency view — individual resources" {...tipB}>
+          <button className="xp-ctrl-btn" style={cBtn(viewMode === 'detail')} onClick={() => onViewModeChange('detail')}>
+            <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="6.5" cy="2.5" r="1.5"/><circle cx="2.5" cy="10.5" r="1.5"/><circle cx="10.5" cy="10.5" r="1.5"/>
+              <line x1="6.5" y1="4" x2="2.5" y2="9"/><line x1="6.5" y1="4" x2="10.5" y2="9"/>
+            </svg>
+          </button>
+        </Tooltip>
+        <div style={cRSep} />
+        <Tooltip title={direction === 'TB' ? 'Layout: top → bottom (click to switch)' : 'Layout: left → right (click to switch)'} {...tipB}>
+          <button className="xp-ctrl-btn" style={cBtn()} onClick={() => onDirectionChange(direction === 'TB' ? 'LR' : 'TB')}>
+            {direction === 'TB' ? (
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="6" y1="1" x2="6" y2="9"/><path d="M3 6.5l3 3 3-3"/>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="1" y1="6" x2="9" y2="6"/><path d="M6.5 3l3 3-3 3"/>
+              </svg>
+            )}
+          </button>
+        </Tooltip>
+      </div>
+    </Panel>
+  );
+}
+
+// Panel 3 (top-right): fullscreen + expand height — fades in on canvas hover
+interface WindowControlsProps {
+  visible: boolean;
   isExpanded: boolean;
   onToggleExpand: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
 }
-
-function GraphControls({
-  viewMode, onViewModeChange,
-  direction, onDirectionChange,
-  isExpanded, onToggleExpand,
-  isFullscreen, onToggleFullscreen,
-}: GraphControlsProps) {
-  const { zoomIn, zoomOut, fitView } = useReactFlow();
-
-  const btn = (active?: boolean): React.CSSProperties => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    width: 28, height: 28, border: 'none', cursor: 'pointer',
-    background: active ? '#1565c0' : '#fff',
-    color: active ? '#fff' : '#555',
-  });
-  const sep:      React.CSSProperties = { height: 1, background: '#e0e0e0' };
-  const thickSep: React.CSSProperties = { height: 2, background: '#d0d0d0', margin: '1px 0' };
-  const rowSep:   React.CSSProperties = { width: 1, background: '#e0e0e0', alignSelf: 'stretch' };
-
+function WindowControls({ visible, isExpanded, onToggleExpand, isFullscreen, onToggleFullscreen }: WindowControlsProps) {
+  useCtrlStyles();
   return (
-    <Panel position="bottom-left" style={{ margin: '0 0 10px 10px' }}>
-      <div style={{
-        display: 'flex', flexDirection: 'column',
-        borderRadius: 7, overflow: 'hidden',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.14)',
-        border: '1px solid #ddd', background: '#fff',
-      }}>
-
-        {/* Zoom in */}
-        <button style={btn()} onClick={() => zoomIn({ duration: 150 })} title="Zoom in">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/>
-          </svg>
-        </button>
-        <div style={sep} />
-        {/* Zoom out */}
-        <button style={btn()} onClick={() => zoomOut({ duration: 150 })} title="Zoom out">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <line x1="2" y1="6" x2="10" y2="6"/>
-          </svg>
-        </button>
-        <div style={sep} />
-        {/* Fit view */}
-        <button style={btn()} onClick={() => fitView({ duration: 200, padding: 0.15 })} title="Fit to view">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 4.5V1h3.5M7.5 1H11v3.5M1 7.5V11h3.5M7.5 11H11V7.5"/>
-          </svg>
-        </button>
-
-        <div style={thickSep} />
-
-        {/* View mode: graph | groups */}
-        <div style={{ display: 'flex' }}>
-          <button style={{ ...btn(viewMode === 'detail'), flex: 1 }} onClick={() => onViewModeChange('detail')} title="Dependency graph">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="6.5" cy="2.5" r="1.5"/>
-              <circle cx="2.5" cy="10.5" r="1.5"/>
-              <circle cx="10.5" cy="10.5" r="1.5"/>
-              <line x1="6.5" y1="4" x2="2.5" y2="9"/>
-              <line x1="6.5" y1="4" x2="10.5" y2="9"/>
-            </svg>
-          </button>
-          <div style={rowSep} />
-          <button style={{ ...btn(viewMode === 'groups'), flex: 1 }} onClick={() => onViewModeChange('groups')} title="Grouped summary">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
-              <rect x="1" y="1" width="4" height="4" rx="1"/>
-              <rect x="7" y="1" width="4" height="4" rx="1"/>
-              <rect x="1" y="7" width="4" height="4" rx="1"/>
-              <rect x="7" y="7" width="4" height="4" rx="1"/>
-            </svg>
-          </button>
-        </div>
-
-        {/* Layout direction */}
-        <>
-            <div style={sep} />
-            <div style={{ display: 'flex' }}>
-              <button style={{ ...btn(direction === 'TB'), flex: 1 }} onClick={() => onDirectionChange('TB')} title="Top → Bottom">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="6" y1="1" x2="6" y2="9"/><path d="M3 6.5l3 3 3-3"/>
-                </svg>
-              </button>
-              <div style={rowSep} />
-              <button style={{ ...btn(direction === 'LR'), flex: 1 }} onClick={() => onDirectionChange('LR')} title="Left → Right">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="1" y1="6" x2="9" y2="6"/><path d="M6.5 3l3 3-3 3"/>
-                </svg>
-              </button>
-            </div>
-        </>
-
-        <div style={thickSep} />
-
-        {/* Expand + Fullscreen */}
-        <div style={{ display: 'flex' }}>
-          <button style={{ ...btn(isFullscreen), flex: 1 }} onClick={onToggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+    <Panel position="top-right" style={{ margin: '10px 10px 0 0', opacity: visible ? 1 : 0, transition: 'opacity 0.2s', pointerEvents: visible ? 'auto' : 'none' }}>
+      <div style={ctrlWrap}>
+        <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} {...tipB}>
+          <button className="xp-ctrl-btn" style={cBtn(isFullscreen)} onClick={onToggleFullscreen}>
             {isFullscreen ? (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 1v4H1M11 5H7V1M5 11V7H1M11 7H7v4"/>
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                {/* Diagonal arrows pointing inward — exit fullscreen */}
+                <path d="M4.5 1.5L1.5 4.5M1.5 1.5l3 3M7.5 10.5l3-3M10.5 10.5l-3-3"/>
               </svg>
             ) : (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 5V1h4M7 1h4v4M1 7v4h4M7 11h4V7"/>
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                {/* Diagonal arrows pointing outward — enter fullscreen */}
+                <path d="M1.5 4.5V1.5h3M10.5 7.5v3h-3"/>
               </svg>
             )}
           </button>
-          <div style={rowSep} />
-          <button style={{ ...btn(), flex: 1 }} onClick={onToggleExpand} title={isExpanded ? 'Collapse' : 'Expand'}>
+        </Tooltip>
+        <div style={cRSep} />
+        <Tooltip title={isExpanded ? 'Collapse panel' : 'Expand panel'} {...tipB}>
+          <button className="xp-ctrl-btn" style={cBtn()} onClick={onToggleExpand}>
             {isExpanded ? (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 7.5l3-3 3 3"/>
               </svg>
             ) : (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 4.5l3 3 3-3"/>
               </svg>
             )}
           </button>
-        </div>
-
+        </Tooltip>
       </div>
     </Panel>
   );
@@ -383,6 +414,7 @@ function ResourceGraphInner({
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [layoutDone, setLayoutDone] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [canvasHovered, setCanvasHovered] = useState(false);
 
   const graph = useMemo(() => new CrossplaneGraph(items, onNodeClick), [items, onNodeClick]);
 
@@ -465,6 +497,8 @@ function ResourceGraphInner({
           fitView minZoom={0.05} maxZoom={4}
           nodesDraggable={false} nodesConnectable={false} elementsSelectable={false}
           proOptions={{ hideAttribution: true }}
+          onMouseEnter={() => setCanvasHovered(true)}
+          onMouseLeave={() => setCanvasHovered(false)}
           onNodeMouseEnter={(_: any, n: Node) => setHoveredId(n.id)}
           onNodeMouseLeave={() => setHoveredId(null)}
           onNodeClick={(_: any, n: Node) => {
@@ -475,13 +509,17 @@ function ResourceGraphInner({
           }}
         >
           <Background />
-          <GraphControls
+          <ZoomControls />
+          <ViewControls
             viewMode={viewMode} onViewModeChange={onViewModeChange}
             direction={direction} onDirectionChange={onDirectionChange}
+          />
+          <WindowControls
+            visible={canvasHovered}
             isExpanded={isExpanded} onToggleExpand={onToggleExpand}
             isFullscreen={isFullscreen} onToggleFullscreen={onToggleFullscreen}
           />
-          <FitOnChange nodes={rfNodes} direction={direction} />
+          <FitOnChange nodes={rfNodes} direction={direction} isExpanded={isExpanded} />
         </ReactFlow>
       )}
     </>
@@ -533,7 +571,7 @@ export function ResourceGraph({ items, loading, onNodeClick, onGroupClick, color
     <Paper elevation={1} style={{ marginBottom: 16, overflow: 'hidden', borderRadius: 8 }}>
       <div
         ref={containerRef}
-        style={{ height: isFullscreen ? '100vh' : expanded ? 560 : 300, position: 'relative' as const }}
+        style={{ height: isFullscreen ? '100vh' : expanded ? 560 : 300, position: 'relative' as const, transition: 'height 0.2s ease' }}
       >
         <ReactFlowProvider>
           <ResourceGraphInner
