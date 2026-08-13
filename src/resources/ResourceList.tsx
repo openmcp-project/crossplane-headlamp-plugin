@@ -207,11 +207,12 @@ const GROUP_LABEL: Record<ColorBy, string> = {
   kind: 'Kind',
 };
 
-function FlatGroupView({ items, loading, groupColorBy, labelKey }: {
+function FlatGroupView({ items, loading, groupColorBy, labelKey, graphSort }: {
   items: any[];
   loading: boolean;
   groupColorBy: ColorBy;
   labelKey?: string;
+  graphSort: 'alpha:asc' | 'alpha:desc' | 'count:desc' | 'count:asc';
 }) {
   if (loading) {
     return (
@@ -229,7 +230,15 @@ function FlatGroupView({ items, loading, groupColorBy, labelKey }: {
     byGroup.get(key)!.push(item);
   }
 
-  const entries = Array.from(byGroup.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const entries = Array.from(byGroup.entries()).sort(([aKey, aItems], [bKey, bItems]) => {
+    const [sortType, sortDir] = graphSort.split(':');
+    if (sortType === 'count') {
+      const diff = aItems.length - bItems.length;
+      return sortDir === 'desc' ? -diff : diff;
+    }
+    const cmp = aKey.localeCompare(bKey);
+    return sortDir === 'desc' ? -cmp : cmp;
+  });
   if (entries.length === 0) {
     return <Box p={2}><Typography variant="body2" color="textSecondary">No managed resource instances found.</Typography></Box>;
   }
@@ -505,6 +514,7 @@ export default function ResourceList() {
   const [groupColorBy, setGroupColorBy] = useState<ColorBy | 'type'>('kind');
   const [labelKey, setLabelKey] = useState<string | undefined>(undefined);
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Set<string> | null>(null);
+  const [graphSort, setGraphSort] = useState<'alpha:asc' | 'alpha:desc' | 'count:desc' | 'count:asc'>('alpha:asc');
 
   // Reset group-key filter when grouping changes
   useEffect(() => {
@@ -607,12 +617,8 @@ export default function ResourceList() {
         actions: [
           <Box display="flex" alignItems="center" gap={0} style={{ flexWrap: 'wrap' as const }}>
 
-            {/* ── Filter group ────────────────────────────────────── */}
-            <Box display="flex" alignItems="center" gap={1} pr={1.5}>
-              <Typography variant="caption" color="textSecondary"
-                style={{ fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.55, whiteSpace: 'nowrap' as const }}>
-                Filter
-              </Typography>
+            {/* ── Search (far left) ───────────────────────────────── */}
+            <Box pr={1.5}>
               <TextField
                 size="small"
                 placeholder="Search kind or group…"
@@ -629,6 +635,17 @@ export default function ResourceList() {
                 }}
                 style={{ width: 190 }}
               />
+            </Box>
+
+            {/* ── Divider ─────────────────────────────────────────── */}
+            <span style={{ width: 1, height: 28, background: '#d0d0d0', margin: '0 8px', flexShrink: 0 }} />
+
+            {/* ── Filter group ────────────────────────────────────── */}
+            <Box display="flex" alignItems="center" gap={1} pr={1.5}>
+              <Typography variant="caption" color="textSecondary"
+                style={{ fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.55, whiteSpace: 'nowrap' as const }}>
+                Filter
+              </Typography>
               <TextField
                 select size="small" value={statusFilter}
                 onChange={(e: any) => {
@@ -714,21 +731,18 @@ export default function ResourceList() {
                 </TextField>
               )}
               <TextField
-                select size="small" value={`${sortKey}:${sortDir}`}
-                onChange={(e: any) => {
-                  const [k, d] = e.target.value.split(':');
-                  setSortKey(k as SortKey);
-                  setSortDir(d as SortDir);
-                }}
+                select size="small" value={graphSort}
+                onChange={(e: any) => setGraphSort(e.target.value)}
                 style={{ width: 160 }}
               >
-                <MenuItem value="kind:asc">Kind A→Z</MenuItem>
-                <MenuItem value="kind:desc">Kind Z→A</MenuItem>
-                <MenuItem value="group:asc">Group A→Z</MenuItem>
-                <MenuItem value="group:desc">Group Z→A</MenuItem>
-                <MenuItem value="instances:desc">Most instances</MenuItem>
-                <MenuItem value="instances:asc">Fewest instances</MenuItem>
-                <MenuItem value="scope:asc">Scope</MenuItem>
+                <MenuItem value="alpha:asc">A → Z</MenuItem>
+                <MenuItem value="alpha:desc">Z → A</MenuItem>
+                <MenuItem value="count:desc">
+                  {groupColorBy === 'provider' ? 'Most usage' : 'Most instances'}
+                </MenuItem>
+                <MenuItem value="count:asc">
+                  {groupColorBy === 'provider' ? 'Fewest usage' : 'Fewest instances'}
+                </MenuItem>
               </TextField>
             </Box>
 
@@ -775,7 +789,17 @@ export default function ResourceList() {
             style={{ opacity: 0.55, fontWeight: 600, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const }}>
             Show:
           </Typography>
-          {Object.keys(colorMapForChips).sort().map(key => {
+          {Object.keys(colorMapForChips).sort((a, b) => {
+            const [sortType, sortDir] = graphSort.split(':');
+            if (sortType === 'count') {
+              const countA = filteredItems.filter(i => colorKeyFor(i, groupColorBy as ColorBy, labelKey) === a).length;
+              const countB = filteredItems.filter(i => colorKeyFor(i, groupColorBy as ColorBy, labelKey) === b).length;
+              const diff = countA - countB;
+              return sortDir === 'desc' ? -diff : diff;
+            }
+            const cmp = a.localeCompare(b);
+            return sortDir === 'desc' ? -cmp : cmp;
+          }).map(key => {
             const color = colorMapForChips[key];
             const isActive = selectedGroupKeys === null || selectedGroupKeys.has(key);
             return (
@@ -843,6 +867,7 @@ export default function ResourceList() {
           loading={itemsLoading}
           groupColorBy={groupColorBy as ColorBy}
           labelKey={labelKey}
+          graphSort={graphSort}
         />
       )}
     </SectionBox>
