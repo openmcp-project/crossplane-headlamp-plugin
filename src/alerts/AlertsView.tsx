@@ -1,5 +1,6 @@
 import { useHistory } from 'react-router-dom';
 import { useAllManagedResources, clusterPrefix } from '../helpers';
+import { xpColors } from '../common/colors';
 
 const { Typography, Box, Chip, CircularProgress, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -12,7 +13,7 @@ function conditionChip(conditions: any[], type: string) {
     <Chip
       label={ok ? type : `Not ${type}`}
       size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
     />
   );
 }
@@ -80,7 +81,7 @@ export default function AlertsView() {
           <Box mb={2}>
             <Chip
               label={`${broken.length} unhealthy`}
-              style={{ background: '#f44336', color: '#fff', fontWeight: 600 }}
+              style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
             />
           </Box>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -110,7 +111,7 @@ export default function AlertsView() {
                   >
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
                     <td style={{ padding: '8px 12px' }}>
-                      <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
+                      <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{itemName}</span>
                       {ns && (
                         <Typography variant="caption" display="block" color="textSecondary">
                           {ns}
