@@ -36,6 +36,20 @@ Then hard-refresh the browser (`Cmd+Shift+R`) to pick up the new build.
 
 > **Important:** The build entry point is `src/index.tsx`. Do **not** edit the root `index.tsx` — it is not used by the build tool and will be ignored.
 
+### Offline development (no cluster required)
+
+A standalone mock server under `mock-cluster/` mimics the Kubernetes/Crossplane API so you can develop and test the plugin UI without a live cluster.
+
+**Start the mock server:**
+
+```bash
+task mock              # small landscape (~10 resources, default)
+task mock:medium       # ~30 resources
+task mock:large        # ~120 resources, 4 providers
+```
+
+On first run the server adds a `crossplane-mock` entry to `~/.kube/config`. Open Headlamp, select the `crossplane-mock` cluster, and the plugin loads against the mock data.
+
 ### Build for production
 
 ```bash
