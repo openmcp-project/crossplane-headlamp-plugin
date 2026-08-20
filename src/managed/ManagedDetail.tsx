@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { getApiProxy, clusterPrefix, detectExternalManager } from '../helpers';
+import { xpColors } from '../common/colors';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Accordion, AccordionSummary, AccordionDetails } =
   (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function useCustomResource(
   group: string,
@@ -66,7 +68,7 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
                 <Chip
                   label={c.status}
                   size="small"
-                  style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
                 />
               </td>
               <td style={{ padding: '6px 12px', fontSize: 12 }}>{c.reason ?? ''}</td>
@@ -148,14 +150,11 @@ export default function ManagedDetail() {
   const hasRelationships = !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
 
   return (
-    <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        {item?.kind ?? plural}: {name}
-      </Typography>
-      <Typography variant="body2" color="textSecondary" gutterBottom>
-        {group} · {namespace ? `Namespace: ${namespace}` : 'Cluster-scoped'}
-      </Typography>
-
+    <SectionBox
+      title={`${item?.kind ?? plural}: ${name}`}
+      subtitle={`${group} · ${namespace ? `Namespace: ${namespace}` : 'Cluster-scoped'}`}
+      headerProps={{ headerStyle: 'main' }}
+    >
       {/* Error banners */}
       {failingConditions.map((c: any) => (
         <Alert key={c.type} severity="error" style={{ marginBottom: 8 }}>
@@ -165,7 +164,7 @@ export default function ManagedDetail() {
 
       {/* Info */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Info</Typography>
+        <SectionHeader title="Info" headerStyle="subsection" noPadding />
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
             {[
@@ -195,7 +194,7 @@ export default function ManagedDetail() {
       {hasRelationships && (
         <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
           <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-            <Typography variant="h6">Relationships</Typography>
+            <SectionHeader title="Relationships" headerStyle="subsection" noPadding />
           </Box>
           <Box display="flex" flexDirection="column" gap={1}>
             {providerConfigRef && (
@@ -204,7 +203,7 @@ export default function ManagedDetail() {
                   ProviderConfig:
                 </Typography>
                 <span
-                  style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                  style={{ color: xpColors.link, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
                   onClick={() =>
                     history.push(
                       `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
@@ -261,7 +260,7 @@ export default function ManagedDetail() {
 
       {/* Conditions */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Conditions</Typography>
+        <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
         <ConditionTable conditions={conditions} />
       </Paper>
 
@@ -269,7 +268,7 @@ export default function ManagedDetail() {
       {atProvider && Object.keys(atProvider).length > 0 && (
         <Accordion style={{ marginBottom: 24 }}>
           <AccordionSummary expandIcon={<span>▾</span>}>
-            <Typography variant="h6">Observed State (atProvider)</Typography>
+            <SectionHeader title="Observed State (atProvider)" headerStyle="subsection" noPadding />
           </AccordionSummary>
           <AccordionDetails>
             <pre
@@ -292,7 +291,7 @@ export default function ManagedDetail() {
       {/* Raw Spec (collapsed by default) */}
       <Accordion style={{ marginBottom: 24 }}>
         <AccordionSummary expandIcon={<span>▾</span>}>
-          <Typography variant="h6">Spec (JSON)</Typography>
+          <SectionHeader title="Spec (JSON)" headerStyle="subsection" noPadding />
         </AccordionSummary>
         <AccordionDetails>
           <pre
@@ -312,6 +311,6 @@ export default function ManagedDetail() {
       </Accordion>
 
       {/* Provider Pod Logs — hidden until 404 issue is resolved */}
-    </Box>
+    </SectionBox>
   );
 }

@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { clusterPrefix, useAllManagedResources, useCRDsForProvider, getApiProxy } from '../helpers';
+import { xpColors, providerHealthColor } from '../common/colors';
 
 const { Typography, Box, Paper, CircularProgress, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── Donut chart (pure SVG) ────────────────────────────────────────────────────
 
@@ -130,7 +132,7 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
 
   const allOk = readyCond?.status === 'True' && healthyCond?.status === 'True' && installedCond?.status === 'True';
   const anyError = readyCond?.status === 'False' || healthyCond?.status === 'False' || installedCond?.status === 'False';
-  const borderColor = allOk ? '#4caf50' : anyError ? '#f44336' : '#ff9800';
+  const borderColor = providerHealthColor(conditions);
 
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const providerName: string = provider.metadata.name;
@@ -152,13 +154,7 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
 
   const mrSlices: DonutSlice[] = [
     {
-      value: mrReady, color: '#4caf50', label: 'Ready',
-      onClick: mrReady > 0
-        ? () => history.push(`${resourcesBase}?provider=${providerName}&status=ready`)
-        : undefined,
-    },
-    {
-      value: mrNotReady, color: '#f44336', label: 'Not Ready',
+      value: mrReady, color: xpColors.ready.bg, label: 'Ready',
       onClick: mrNotReady > 0
         ? () => history.push(`${resourcesBase}?provider=${providerName}&status=not-ready`)
         : undefined,
@@ -166,13 +162,13 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
   ];
   const syncSlices: DonutSlice[] = [
     {
-      value: mrSynced, color: '#1976d2', label: 'Synced',
+      value: mrSynced, color: xpColors.synced.bg, label: 'Synced',
       onClick: mrSynced > 0
         ? () => history.push(`${resourcesBase}?provider=${providerName}&status=synced`)
         : undefined,
     },
     {
-      value: mrNotSynced, color: '#ff9800', label: 'Not Synced',
+      value: mrNotSynced, color: xpColors.notSynced.bg, label: 'Not Synced',
       onClick: mrNotSynced > 0
         ? () => history.push(`${resourcesBase}?provider=${providerName}&status=not-synced`)
         : undefined,
@@ -203,7 +199,7 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
             return (
               <span key={label} style={{
                 padding: '2px 8px', borderRadius: 10,
-                background: ok ? '#4caf50' : bad ? '#f44336' : '#9e9e9e',
+                background: ok ? xpColors.ready.bg : bad ? xpColors.notReady.bg : xpColors.unknown.bg,
                 color: '#fff', fontSize: 11, fontWeight: 600,
               }}>
                 {label}
@@ -250,7 +246,7 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
               <Box key={cfgName} display="flex" alignItems="center" justifyContent="space-between" gap={1} mb={0.5} style={{ width: '100%' }}>
                 <Typography
                   variant="caption"
-                  style={{ fontFamily: 'monospace', fontSize: 11, color: '#1976d2', cursor: 'pointer', textDecoration: 'underline', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  style={{ fontFamily: 'monospace', fontSize: 11, color: xpColors.link, cursor: 'pointer', textDecoration: 'underline', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                   onClick={() => history.push(`${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${cfgName}`)}
                 >
                   {cfgName}
@@ -258,8 +254,8 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
                 <Box display="flex" gap={0.5} style={{ flexShrink: 0 }}>
                   {cfgConds.length > 0 && (
                     <>
-                      <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, color: '#fff', background: readyOk ? '#4caf50' : readyBad ? '#f44336' : '#9e9e9e' }}>Ready</span>
-                      <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, color: '#fff', background: syncedOk ? '#1976d2' : syncedBad ? '#f44336' : '#9e9e9e' }}>Synced</span>
+                      <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, color: '#fff', background: readyOk ? xpColors.ready.bg : readyBad ? xpColors.notReady.bg : xpColors.unknown.bg }}>Ready</span>
+                      <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600, color: '#fff', background: syncedOk ? xpColors.synced.bg : syncedBad ? xpColors.notReady.bg : xpColors.unknown.bg }}>Synced</span>
                     </>
                   )}
                 </Box>
@@ -324,29 +320,27 @@ export default function CrossplaneOverview() {
 
   const mrReadySlices: DonutSlice[] = [
     {
-      value: mrReady, color: '#4caf50', label: 'Ready',
+      value: mrReady, color: xpColors.ready.bg, label: 'Ready',
       onClick: mrReady > 0 ? () => history.push(`${resourcesBase}?status=ready`) : undefined,
     },
     {
-      value: mrNotReady, color: '#f44336', label: 'Not Ready',
+      value: mrNotReady, color: xpColors.notReady.bg, label: 'Not Ready',
       onClick: mrNotReady > 0 ? () => history.push(`${resourcesBase}?status=not-ready`) : undefined,
     },
   ];
   const mrSyncSlices: DonutSlice[] = [
     {
-      value: mrSynced, color: '#1976d2', label: 'Synced',
+      value: mrSynced, color: xpColors.synced.bg, label: 'Synced',
       onClick: mrSynced > 0 ? () => history.push(`${resourcesBase}?status=synced`) : undefined,
     },
     {
-      value: mrNotSynced, color: '#ff9800', label: 'Not Synced',
+      value: mrNotSynced, color: xpColors.notSynced.bg, label: 'Not Synced',
       onClick: mrNotSynced > 0 ? () => history.push(`${resourcesBase}?status=not-synced`) : undefined,
     },
   ];
 
   return (
-    <Box p={3}>
-      <Typography variant="h4" gutterBottom>Crossplane Overview</Typography>
-
+    <SectionBox title="Overview" headerProps={{ headerStyle: 'main' }}>
       {/* Section 1: Managed Resources */}
       <Typography variant="overline" color="textSecondary" style={{ letterSpacing: 1.5 }}>
         Managed Resources
@@ -371,6 +365,6 @@ export default function CrossplaneOverview() {
           />
         ))}
       </Box>
-    </Box>
+    </SectionBox>
   );
 }
