@@ -3,6 +3,7 @@ import { useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { clusterPrefix, useAllManagedResources, useCRDsForProvider, getApiProxy } from '../helpers';
 import { xpColors, providerHealthColor } from '../common/colors';
+import { openProviderConfigDetail } from '../providerconfigs/ProviderConfigDetail';
 
 const { Typography, Box, Paper, CircularProgress, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -247,7 +248,7 @@ function ProviderCard({ provider, mrItems, mrLoading }: {
                 <Typography
                   variant="caption"
                   style={{ fontFamily: 'monospace', fontSize: 11, color: xpColors.link, cursor: 'pointer', textDecoration: 'underline', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  onClick={() => history.push(`${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${cfgName}`)}
+                  onClick={() => openProviderConfigDetail({ providerName, configName: cfgName })}
                 >
                   {cfgName}
                 </Typography>

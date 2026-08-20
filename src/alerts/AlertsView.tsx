@@ -1,6 +1,6 @@
-import { useHistory } from 'react-router-dom';
-import { useAllManagedResources, clusterPrefix } from '../helpers';
+import { useAllManagedResources } from '../helpers';
 import { xpColors } from '../common/colors';
+import { openManagedDetail } from '../managed/ManagedDetail';
 
 const { Typography, Box, Chip, CircularProgress, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -40,7 +40,6 @@ function firstFailMessage(conditions: any[]): string {
 }
 
 export default function AlertsView() {
-  const history = useHistory();
   const { items, loading } = useAllManagedResources();
 
   if (loading) {
@@ -99,15 +98,12 @@ export default function AlertsView() {
                 const itemName: string = item.metadata?.name ?? '';
                 const ns: string = item.metadata?.namespace ?? '';
                 const conditions: any[] = item.status?.conditions ?? [];
-                const detailUrl = ns
-                  ? `${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
-                  : `${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${item._group}/${item._plural}/${itemName}`;
 
                 return (
                   <tr
                     key={`${item._providerName}/${item._group}/${item._plural}/${ns}/${itemName}`}
                     style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
-                    onClick={() => history.push(detailUrl)}
+                    onClick={() => openManagedDetail({ providerName: item._providerName, group: item._group, plural: item._plural, name: itemName, namespace: ns || undefined })}
                   >
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
                     <td style={{ padding: '8px 12px' }}>
