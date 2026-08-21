@@ -28,6 +28,6 @@
     "@vitest/coverage-v8": "^1.6.0",
     "jsdom": "^24.1.0",
     "reactflow": "11.11.4",
-    "vitest": "^1.6.0"
+    "vitest": "^3.2.6"
   }
 }
