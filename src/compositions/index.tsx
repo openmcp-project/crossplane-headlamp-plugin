@@ -1,6 +1,7 @@
 import React from 'react';
 import { useHistory } from 'react-router-dom';
 import { Composition, CompositeResourceDefinition } from '../common/Resources';
+import { xpColors } from '../common/colors';
 
 const { Typography, Box, Chip, CircularProgress, Paper } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -13,7 +14,7 @@ function readyChip(conditions: any[]) {
     <Chip
       label={ok ? 'Ready' : 'Not Ready'}
       size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
     />
   );
 }

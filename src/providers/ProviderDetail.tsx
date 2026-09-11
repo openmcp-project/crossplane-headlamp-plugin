@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
+import { xpColors } from '../common/colors';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function ConditionRow({ cond }: { cond: any }) {
   const ok = cond.status === 'True';
@@ -15,7 +17,7 @@ function ConditionRow({ cond }: { cond: any }) {
         <Chip
           label={cond.status}
           size="small"
-          style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+          style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
         />
       </td>
       <td style={{ padding: '6px 12px', fontSize: 12, color: '#666' }}>{cond.reason ?? ''}</td>
@@ -32,7 +34,7 @@ function conditionChip(conditions: any[], type: string) {
     <Chip
       label={ok ? type : `Not ${type}`}
       size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
     />
   );
 }
@@ -233,7 +235,7 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
             >
               <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
               <td style={{ padding: '8px 12px' }}>
-                <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
+                <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{itemName}</span>
                 {ns && (
                   <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>
                 )}
@@ -281,11 +283,7 @@ export default function ProviderDetail() {
   const hasError = conditions.some((c: any) => c.status === 'False');
 
   return (
-    <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        Provider: {name}
-      </Typography>
-
+    <SectionBox title={`Provider: ${name}`} headerProps={{ headerStyle: 'main' }}>
       {hasError && (
         <Alert severity="error" style={{ marginBottom: 16 }}>
           {conditions.filter((c: any) => c.status === 'False').map((c: any) => (
@@ -305,7 +303,7 @@ export default function ProviderDetail() {
         <>
           {/* Basic Info */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-            <Typography variant="h6" gutterBottom>Provider Info</Typography>
+            <SectionHeader title="Provider Info" headerStyle="subsection" noPadding />
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>
                 {[
@@ -332,7 +330,7 @@ export default function ProviderDetail() {
 
           {/* Conditions */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-            <Typography variant="h6" gutterBottom>Conditions</Typography>
+            <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
             {conditions.length === 0 ? (
               <Typography variant="body2" color="textSecondary">No conditions reported.</Typography>
             ) : (
@@ -357,13 +355,13 @@ export default function ProviderDetail() {
 
           {/* Provider Configs */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-            <Typography variant="h6" gutterBottom>Provider Configs</Typography>
+            <SectionHeader title="Provider Configs" headerStyle="subsection" noPadding />
             <ProviderConfigsSection providerName={name} currentRevision={currentRevision} />
           </Paper>
 
           {/* Managed Resource Types */}
           <Paper elevation={1} style={{ padding: 16 }}>
-            <Typography variant="h6" gutterBottom>Managed Resource Types</Typography>
+            <SectionHeader title="Managed Resource Types" headerStyle="subsection" noPadding />
             <ManagedResourceSection providerName={name} currentRevision={currentRevision} />
           </Paper>
         </>
@@ -374,6 +372,6 @@ export default function ProviderDetail() {
           <AllInstancesTab providerName={name} />
         </Paper>
       )}
-    </Box>
+    </SectionBox>
   );
 }

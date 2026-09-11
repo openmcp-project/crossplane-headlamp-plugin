@@ -11,6 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { getApiProxy, clusterPrefix } from '../helpers';
+import { resourceHealthColor, xpColors } from '../common/colors';
 
 const { Typography, Box, CircularProgress, Paper, Button } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -54,9 +55,9 @@ function healthColor(item: any): string {
   const conditions: any[] = item?.status?.conditions ?? [];
   const ready = conditions.find((c: any) => c.type === 'Ready');
   const synced = conditions.find((c: any) => c.type === 'Synced');
-  if (ready?.status === 'False' || synced?.status === 'False') return '#f44336';
-  if (ready?.status === 'True' && synced?.status === 'True') return '#4caf50';
-  return '#ff9800';
+  if (ready?.status === 'False' || synced?.status === 'False') return xpColors.degraded.bg;
+  if (ready?.status === 'True' && synced?.status === 'True') return xpColors.healthy.bg;
+  return xpColors.warning.bg;
 }
 
 function nodeStyle(color: string, isClickable = false): React.CSSProperties {
@@ -113,7 +114,7 @@ export default function DependencyGraph() {
         position: { x: centerX, y: topY },
         data: {
           label: (
-            <div style={nodeStyle('#7b1fa2')}>
+            <div style={nodeStyle(xpColors.namespaced.bg)}>
               <div style={{ fontSize: 10, opacity: 0.85, marginBottom: 2 }}>Claim</div>
               <div>{claimNamespace}/{claimName}</div>
             </div>
@@ -259,11 +260,11 @@ export default function DependencyGraph() {
       </Paper>
       <Box mt={2} display="flex" gap={2} flexWrap="wrap">
         {[
-          { color: '#4caf50', label: 'Ready & Synced' },
-          { color: '#f44336', label: 'Not Ready / Not Synced' },
-          { color: '#ff9800', label: 'Unknown' },
+          { color: xpColors.healthy.bg, label: 'Ready & Synced' },
+          { color: xpColors.degraded.bg, label: 'Not Ready / Not Synced' },
+          { color: xpColors.warning.bg, label: 'Unknown' },
           { color: '#1565c0', label: 'Composite Resource' },
-          { color: '#7b1fa2', label: 'Claim' },
+          { color: xpColors.namespaced.bg, label: 'Claim' },
           { color: '#546e7a', label: 'ProviderConfig' },
         ].map(({ color, label }) => (
           <Box key={label} display="flex" alignItems="center" gap={0.5}>
