@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { clusterPrefix, getApiProxy } from '../helpers';
+import { xpColors } from '../common/colors';
 
 const { Typography, Box, Chip, CircularProgress } =
   (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function conditionChip(conditions: any[], type: string) {
   const cond = conditions?.find((c: any) => c.type === type);
@@ -14,7 +16,7 @@ function conditionChip(conditions: any[], type: string) {
     <Chip
       label={ok ? type : `Not ${type}`}
       size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
     />
   );
 }
@@ -78,14 +80,11 @@ export default function ManagedList() {
   }
 
   return (
-    <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        {kind}
-      </Typography>
-      <Typography variant="body2" color="textSecondary" gutterBottom>
-        {group} · {scope}
-      </Typography>
-
+    <SectionBox
+      title={kind}
+      subtitle={`${group} · ${scope}`}
+      headerProps={{ headerStyle: 'main' }}
+    >
       {!items || items.length === 0 ? (
         <Typography>No {plural} found.</Typography>
       ) : (
@@ -119,7 +118,7 @@ export default function ManagedList() {
                   onClick={() => history.push(detailUrl)}
                 >
                   <td style={{ padding: '8px 12px' }}>
-                    <span style={{ color: '#1976d2', textDecoration: 'underline' }}>
+                    <span style={{ color: xpColors.link, textDecoration: 'underline' }}>
                       {itemName}
                     </span>
                   </td>
@@ -137,6 +136,6 @@ export default function ManagedList() {
           </tbody>
         </table>
       )}
-    </Box>
+    </SectionBox>
   );
 }

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
 import { useCRDsForProvider, useAllManagedResources, getApiProxy, clusterPrefix } from '../helpers';
+import { xpColors } from '../common/colors';
 import { Provider } from '../common/Resources';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox, SectionHeader } = (window as any).pluginLib?.CommonComponents ?? {};
 
 function conditionChip(conditions: any[], type: string) {
   const cond = conditions?.find((c: any) => c.type === type);
@@ -14,7 +16,7 @@ function conditionChip(conditions: any[], type: string) {
     <Chip
       label={ok ? type : `Not ${type}`}
       size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
     />
   );
 }
@@ -42,7 +44,7 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
                 <Chip
                   label={c.status}
                   size="small"
-                  style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+                  style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }}
                 />
               </td>
               <td style={{ padding: '6px 12px', fontSize: 12 }}>{c.reason ?? ''}</td>
@@ -129,14 +131,11 @@ export default function ProviderConfigDetail() {
   );
 
   return (
-    <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        ProviderConfig: {configName}
-      </Typography>
-      <Typography variant="body2" color="textSecondary" gutterBottom>
-        Provider: {providerName}
-      </Typography>
-
+    <SectionBox
+      title={`ProviderConfig: ${configName}`}
+      subtitle={`Provider: ${providerName}`}
+      headerProps={{ headerStyle: 'main' }}
+    >
       {failingConditions.map((c: any) => (
         <Alert key={c.type} severity="error" style={{ marginBottom: 8 }}>
           <strong>{c.type}:</strong> {c.reason} — {c.message}
@@ -145,7 +144,7 @@ export default function ProviderConfigDetail() {
 
       {/* Info */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Info</Typography>
+        <SectionHeader title="Info" headerStyle="subsection" noPadding />
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
             {[
@@ -171,22 +170,24 @@ export default function ProviderConfigDetail() {
 
       {/* Conditions */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Conditions</Typography>
+        <SectionHeader title="Conditions" headerStyle="subsection" noPadding />
         <ConditionTable conditions={conditions} />
       </Paper>
 
       {/* Managed resources using this config */}
       <Paper elevation={1} style={{ padding: 16 }}>
-        <Typography variant="h6" gutterBottom>
-          Managed Resources using this config
-          {!instancesLoading && (
-            <Chip
-              label={usingInstances.length}
-              size="small"
-              style={{ marginLeft: 8 }}
-            />
-          )}
-        </Typography>
+        <SectionHeader
+          title={
+            <>
+              Managed Resources using this config
+              {!instancesLoading && (
+                <Chip label={usingInstances.length} size="small" style={{ marginLeft: 8 }} />
+              )}
+            </>
+          }
+          headerStyle="subsection"
+          noPadding
+        />
         {instancesLoading ? (
           <Box display="flex" alignItems="center" gap={1}>
             <CircularProgress size={16} />
@@ -224,7 +225,7 @@ export default function ProviderConfigDetail() {
                   >
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
                     <td style={{ padding: '8px 12px' }}>
-                      <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
+                      <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{itemName}</span>
                       {ns && <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>}
                     </td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Ready')}</td>
@@ -237,6 +238,6 @@ export default function ProviderConfigDetail() {
           </table>
         )}
       </Paper>
-    </Box>
+    </SectionBox>
   );
 }
