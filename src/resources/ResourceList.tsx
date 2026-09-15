@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
+import { xpColors, DOT } from '../common/colors';
 
 const {
   Typography, Box, Chip, CircularProgress, Paper,
-  FormControlLabel, Checkbox, TextField, InputAdornment, MenuItem, Select, FormControl, InputLabel,
+  TextField, InputAdornment, MenuItem,
 } = (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── URL query helpers ─────────────────────────────────────────────────────────
 
@@ -16,23 +18,25 @@ function parseSearch(search: string): URLSearchParams {
 
 // ── Status filter types ───────────────────────────────────────────────────────
 
-type StatusFilter = 'all' | 'ready' | 'not-ready' | 'synced' | 'not-synced';
+type StatusFilter = 'ready' | 'not-ready' | 'synced' | 'not-synced';
 
-function matchesStatusFilter(item: any, filter: StatusFilter): boolean {
-  if (filter === 'all') return true;
+function matchesStatusFilter(item: any, filters: StatusFilter[]): boolean {
+  if (filters.length === 0) return true;
   const conditions: any[] = item.status?.conditions ?? [];
   const readyStatus = conditions.find((c: any) => c.type === 'Ready')?.status;
   const syncedStatus = conditions.find((c: any) => c.type === 'Synced')?.status;
-  if (filter === 'ready') return readyStatus === 'True';
-  if (filter === 'not-ready') return readyStatus !== 'True';
-  if (filter === 'synced') return syncedStatus === 'True';
-  if (filter === 'not-synced') return syncedStatus !== 'True';
-  return true;
+  return filters.some((filter) => {
+    if (filter === 'ready') return readyStatus === 'True';
+    if (filter === 'not-ready') return readyStatus !== 'True';
+    if (filter === 'synced') return syncedStatus === 'True';
+    if (filter === 'not-synced') return syncedStatus !== 'True';
+    return true;
+  });
 }
 
 // ── Instance fetching ─────────────────────────────────────────────────────────
 
-function useInstancesForCRD(crd: any, expanded: boolean, statusFilter: StatusFilter) {
+function useInstancesForCRD(crd: any, expanded: boolean, statusFilter: StatusFilter[]) {
   const [instances, setInstances] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -94,7 +98,7 @@ function readyChip(conditions: any[]) {
   if (!cond) return <Chip label="—" size="small" />;
   const ok = cond.status === 'True';
   return <Chip label={ok ? 'Ready' : 'Not Ready'} size="small"
-    style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }} />;
+    style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 function syncedChip(conditions: any[]) {
@@ -102,7 +106,7 @@ function syncedChip(conditions: any[]) {
   if (!cond) return <Chip label="—" size="small" />;
   const ok = cond.status === 'True';
   return <Chip label={ok ? 'Synced' : 'Not Synced'} size="small"
-    style={{ background: ok ? '#1976d2' : '#ff9800', color: '#fff', fontWeight: 600 }} />;
+    style={{ background: ok ? xpColors.synced.bg : xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 // ── Expanded instances sub-table ──────────────────────────────────────────────
@@ -110,7 +114,7 @@ function syncedChip(conditions: any[]) {
 function InstancesSubTable({ crd, providerName, statusFilter }: {
   crd: any;
   providerName: string;
-  statusFilter: StatusFilter;
+  statusFilter: StatusFilter[];
 }) {
   const history = useHistory();
   const { instances, loading } = useInstancesForCRD(crd, true, statusFilter);
@@ -131,7 +135,7 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
     return (
       <Box px={3} py={2}>
         <Typography variant="body2" color="textSecondary">
-          {statusFilter !== 'all' ? 'No instances match the current filter.' : 'No instances found.'}
+          {statusFilter.length > 0 ? 'No instances match the current filter.' : 'No instances found.'}
         </Typography>
       </Box>
     );
@@ -165,7 +169,7 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
                 <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
                 {/* col 2: name */}
                 <td style={{ padding: '6px 12px' }}>
-                  <span style={{ color: '#1976d2', textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
+                  <span style={{ color: xpColors.link, textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
                   {isNamespaced && ns && (
                     <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
                   )}
@@ -199,7 +203,7 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
   crd: any;
   providerName: string;
   count: { total: number; ready: number; notReady: number };
-  statusFilter: StatusFilter;
+  statusFilter: StatusFilter[];
 }) {
   const history = useHistory();
   const [expanded, setExpanded] = useState(false);
@@ -213,7 +217,7 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
 
   // Auto-expand if a status filter is active and there are instances
   useEffect(() => {
-    if (statusFilter !== 'all' && hasInstances) setExpanded(true);
+    if (statusFilter.length > 0 && hasInstances) setExpanded(true);
   }, [statusFilter, hasInstances]);
 
   return (
@@ -233,24 +237,24 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
           ) : <span style={{ display: 'inline-block', width: 12 }} />}
         </td>
         <td style={{ padding: '8px 12px' }}>
-          <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{kind}</span>
+          <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{kind}</span>
         </td>
         <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
         <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
         <td style={{ padding: '8px 12px' }}>
           <Chip label={scope} size="small"
-            style={{ background: scope === 'Cluster' ? '#1976d2' : '#7b1fa2', color: '#fff', fontWeight: 600 }} />
+            style={{ background: scope === 'Cluster' ? xpColors.cluster.bg : xpColors.namespaced.bg, color: '#fff', fontWeight: 600 }} />
         </td>
         <td style={{ padding: '8px 12px', textAlign: 'right' as const, paddingRight: 20 }}>
           {hasInstances ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {count.notReady > 0 && (
                 <Chip label={`${count.notReady} not ready`} size="small"
-                  style={{ background: '#f44336', color: '#fff', fontWeight: 600 }} />
+                  style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
               )}
               {count.ready > 0 && (
                 <Chip label={`${count.ready} ready`} size="small"
-                  style={{ background: '#4caf50', color: '#fff', fontWeight: 600 }} />
+                  style={{ background: xpColors.ready.bg, color: '#fff', fontWeight: 600 }} />
               )}
             </span>
           ) : (
@@ -278,7 +282,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
-  statusFilter: StatusFilter;
+  statusFilter: StatusFilter[];
 }) {
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const [crds, crdErr] = useCRDsForProvider(provider.metadata.name, currentRevision);
@@ -370,7 +374,6 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
 // ── Main ResourceList ─────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
   { value: 'ready', label: 'Ready' },
   { value: 'not-ready', label: 'Not Ready' },
   { value: 'synced', label: 'Synced' },
@@ -388,15 +391,15 @@ export default function ResourceList() {
 
   // Read initial filter state from URL
   const qp = parseSearch(location.search);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
-    (qp.get('status') as StatusFilter) ?? 'all'
+  const [statusFilter, setStatusFilter] = useState<StatusFilter[]>(
+    qp.get('status') ? (qp.get('status')!.split(',') as StatusFilter[]) : []
   );
   const [providerFilter, setProviderFilter] = useState<string>(qp.get('provider') ?? 'all');
 
   // Sync state → URL whenever filters change
   useEffect(() => {
     const params = new URLSearchParams();
-    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
     if (providerFilter !== 'all') params.set('provider', providerFilter);
     const newSearch = params.toString() ? `?${params.toString()}` : '';
     if (location.search !== newSearch) {
@@ -433,87 +436,136 @@ export default function ResourceList() {
     : (providers ?? []).filter((p: any) => p.metadata.name === providerFilter);
 
   // Active filter banner
-  const hasActiveFilter = statusFilter !== 'all' || providerFilter !== 'all';
+  const hasActiveFilter = statusFilter.length > 0 || providerFilter !== 'all';
 
   return (
-    <Box p={3}>
-      {/* Active filter banner */}
-      {hasActiveFilter && (
-        <Box mb={2} p={1.5} style={{ background: '#fff3e0', borderRadius: 6, border: '1px solid #ffb74d' }}
-          display="flex" alignItems="center" justifyContent="space-between">
-          <Typography variant="body2">
-            <strong>Filtered view:</strong>
-            {providerFilter !== 'all' && ` Provider = ${providerFilter}`}
-            {statusFilter !== 'all' && ` · Status = ${STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}`}
-            {statusFilter !== 'all' && ' — rows auto-expanded'}
-          </Typography>
-          <span
-            style={{ cursor: 'pointer', color: '#1976d2', fontSize: 13, fontWeight: 600 }}
-            onClick={() => { setStatusFilter('all'); setProviderFilter('all'); }}
-          >
-            Clear filter ×
-          </span>
-        </Box>
-      )}
-
-      {/* Toolbar */}
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={1}>
-        <Box>
-          <Typography variant="h4">Managed Resources</Typography>
-          <Typography variant="body2" color="textSecondary">
-            Expand a row to see instances. Sort or filter to find what you need.
-          </Typography>
-        </Box>
-        <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
-          <TextField
-            size="small"
-            placeholder="Search kind or group…"
-            value={search}
-            onChange={(e: any) => setSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <span style={{ fontSize: 13, opacity: 0.5 }}>🔍</span>
-                </InputAdornment>
-              ),
-            }}
-            style={{ minWidth: 200 }}
-          />
-          <FormControl size="small" style={{ minWidth: 160 }}>
-            <InputLabel>Status</InputLabel>
-            <Select
+    <SectionBox
+      title="Resources"
+      headerProps={{
+        headerStyle: 'main',
+        actions: [
+          <Box display="flex" alignItems="center" gap={1}>
+            <TextField
+              size="small"
+              placeholder="Search kind or group…"
+              value={search}
+              onChange={(e: any) => setSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </InputAdornment>
+                ),
+              }}
+              style={{ width: 200 }}
+            />
+            <TextField
+              select
+              size="small"
               value={statusFilter}
-              label="Status"
-              onChange={(e: any) => setStatusFilter(e.target.value as StatusFilter)}
+              onChange={(e: any) => {
+                const val: StatusFilter[] = typeof e.target.value === 'string'
+                  ? (e.target.value ? e.target.value.split(',') : [])
+                  : e.target.value;
+                setStatusFilter(val);
+              }}
+              style={{ minWidth: 140 }}
+              SelectProps={{
+                multiple: true,
+                displayEmpty: true,
+                renderValue: (selected: any) => {
+                  const sel = selected as StatusFilter[];
+                  if (sel.length === 0) return <span style={{ opacity: 0.5 }}>Status</span>;
+                  return (
+                    <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                      {sel.map((v) => {
+                        const opt = STATUS_OPTIONS.find((o) => o.value === v);
+                        return (
+                          <span key={v} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: DOT[v], color: '#fff',
+                            borderRadius: 10, padding: '1px 8px', fontSize: 11, fontWeight: 600,
+                          }}>
+                            {opt?.label ?? v}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  );
+                },
+              }}
             >
               {STATUS_OPTIONS.map((o) => (
-                <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                <MenuItem key={o.value} value={o.value}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                      background: DOT[o.value] ?? 'transparent',
+                    }} />
+                    {o.label}
+                  </span>
+                </MenuItem>
               ))}
-            </Select>
-          </FormControl>
-          {providerNames.length > 1 && (
-            <FormControl size="small" style={{ minWidth: 160 }}>
-              <InputLabel>Provider</InputLabel>
-              <Select
+            </TextField>
+            {providerNames.length > 1 && (
+              <TextField
+                select
+                size="small"
                 value={providerFilter}
-                label="Provider"
                 onChange={(e: any) => setProviderFilter(e.target.value)}
+                style={{ width: 160 }}
               >
                 <MenuItem value="all">All providers</MenuItem>
                 {providerNames.map((n: string) => (
                   <MenuItem key={n} value={n}>{n}</MenuItem>
                 ))}
-              </Select>
-            </FormControl>
+              </TextField>
+            )}
+            <Chip
+              label="Hide unused"
+              size="small"
+              onClick={() => setHideUnused((v: boolean) => !v)}
+              color={hideUnused ? 'primary' : 'default'}
+              variant={hideUnused ? 'filled' : 'outlined'}
+              style={{ cursor: 'pointer' }}
+            />
+          </Box>,
+        ],
+      }}
+    >
+      {/* Active filter indicator */}
+      {hasActiveFilter && (
+        <Box mb={1.5} display="flex" alignItems="center" gap={1} flexWrap="wrap">
+          <Typography variant="caption" color="textSecondary">Filtered:</Typography>
+          {statusFilter.map((v) => {
+            const opt = STATUS_OPTIONS.find((o) => o.value === v);
+            return (
+              <span key={v} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: DOT[v], color: '#fff',
+                borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+              }}>
+                {opt?.label}
+                <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                  onClick={() => setStatusFilter(statusFilter.filter((f) => f !== v))}>×</span>
+              </span>
+            );
+          })}
+          {providerFilter !== 'all' && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: '#616161', color: '#fff',
+              borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+            }}>
+              {providerFilter}
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                onClick={() => setProviderFilter('all')}>×</span>
+            </span>
           )}
-          <FormControlLabel
-            control={
-              <Checkbox checked={hideUnused} onChange={(e: any) => setHideUnused(e.target.checked)} size="small" />
-            }
-            label="Hide unused"
-          />
         </Box>
-      </Box>
+      )}
 
       {visibleProviders.map((p: any) => (
         <ProviderSection
@@ -527,6 +579,6 @@ export default function ResourceList() {
           statusFilter={statusFilter}
         />
       ))}
-    </Box>
+    </SectionBox>
   );
 }

@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { clusterPrefix } from '../helpers';
+import { xpColors, DOT } from '../common/colors';
 
 const {
-  Typography, Box, Chip, CircularProgress, TextField, InputAdornment,
-  FormControl, InputLabel, Select, MenuItem,
+  Typography, Box, Chip, CircularProgress, TextField, InputAdornment, MenuItem,
 } = (window as any).pluginLib?.MuiCore ?? {};
+const { SectionBox } = (window as any).pluginLib?.CommonComponents ?? {};
 
 // ── URL helper ────────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ function parseSearch(search: string): URLSearchParams {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ProviderStatusFilter = 'all' | 'healthy' | 'unhealthy';
+type ProviderStatusFilter = 'healthy' | 'unhealthy';
 type SortKey = 'name' | 'version' | 'installed' | 'healthy' | 'ready' | 'age';
 type SortDir = 'asc' | 'desc';
 
@@ -28,14 +29,13 @@ function conditionChip(conditions: any[], type: string) {
   const ok = cond.status === 'True';
   return (
     <Chip label={ok ? type : `Not ${type}`} size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }} />
+      style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
   );
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS: { value: ProviderStatusFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
   { value: 'healthy', label: 'Healthy' },
   { value: 'unhealthy', label: 'Unhealthy' },
 ];
@@ -47,8 +47,8 @@ export default function ProviderList() {
 
   const qp = parseSearch(location.search);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ProviderStatusFilter>(
-    (qp.get('status') as ProviderStatusFilter) ?? 'all'
+  const [statusFilter, setStatusFilter] = useState<ProviderStatusFilter[]>(
+    qp.get('status') ? (qp.get('status')!.split(',') as ProviderStatusFilter[]) : []
   );
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -56,7 +56,7 @@ export default function ProviderList() {
   // Sync state → URL
   useEffect(() => {
     const params = new URLSearchParams();
-    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (statusFilter.length > 0) params.set('status', statusFilter.join(','));
     const newSearch = params.toString() ? `?${params.toString()}` : '';
     if (location.search !== newSearch) {
       history.replace({ ...location, search: newSearch });
@@ -89,8 +89,12 @@ export default function ProviderList() {
   const filtered = (providers ?? []).filter((p: any) => {
     const conditions: any[] = p.jsonData?.status?.conditions ?? [];
     const isHealthy = conditions.find((c: any) => c.type === 'Healthy')?.status === 'True';
-    if (statusFilter === 'healthy' && !isHealthy) return false;
-    if (statusFilter === 'unhealthy' && isHealthy) return false;
+    if (statusFilter.length > 0) {
+      const matchesAny = statusFilter.some((f) =>
+        f === 'healthy' ? isHealthy : !isHealthy
+      );
+      if (!matchesAny) return false;
+    }
     if (lc) {
       const name: string = p.metadata?.name ?? '';
       const pkg: string = p.jsonData?.spec?.package ?? '';
@@ -120,7 +124,7 @@ export default function ProviderList() {
     return 0;
   });
 
-  const hasActiveFilter = statusFilter !== 'all' || !!lc;
+  const hasActiveFilter = statusFilter.length > 0 || !!lc;
 
   const SortHeader = ({ label, sk, align = 'left' }: { label: string; sk: SortKey; align?: string }) => (
     <th onClick={() => handleSort(sk)}
@@ -134,54 +138,111 @@ export default function ProviderList() {
   );
 
   return (
-    <Box p={3}>
-      {/* Active filter banner */}
+    <SectionBox
+      title="Providers"
+      headerProps={{
+        headerStyle: 'main',
+        actions: [
+          <Box display="flex" alignItems="center" gap={1}>
+            <TextField
+              size="small"
+              placeholder="Search name or package…"
+              value={search}
+              onChange={(e: any) => setSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </InputAdornment>
+                ),
+              }}
+              style={{ width: 220 }}
+            />
+            <TextField
+              select
+              size="small"
+              value={statusFilter}
+              onChange={(e: any) => {
+                const val: ProviderStatusFilter[] = typeof e.target.value === 'string'
+                  ? (e.target.value ? e.target.value.split(',') : [])
+                  : e.target.value;
+                setStatusFilter(val);
+              }}
+              style={{ minWidth: 140 }}
+              SelectProps={{
+                multiple: true,
+                displayEmpty: true,
+                renderValue: (selected: any) => {
+                  const sel = selected as ProviderStatusFilter[];
+                  if (sel.length === 0) return <span style={{ opacity: 0.5 }}>Status</span>;
+                  return (
+                    <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                      {sel.map((v) => {
+                        const opt = STATUS_OPTIONS.find((o) => o.value === v);
+                        return (
+                          <span key={v} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: DOT[v], color: '#fff',
+                            borderRadius: 10, padding: '1px 8px', fontSize: 11, fontWeight: 600,
+                          }}>
+                            {opt?.label ?? v}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  );
+                },
+              }}
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <MenuItem key={o.value} value={o.value}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                      background: DOT[o.value] ?? 'transparent',
+                    }} />
+                    {o.label}
+                  </span>
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>,
+        ],
+      }}
+    >
+      {/* Active filter indicator */}
       {hasActiveFilter && (
-        <Box mb={2} p={1.5} style={{ background: '#fff3e0', borderRadius: 6, border: '1px solid #ffb74d' }}
-          display="flex" alignItems="center" justifyContent="space-between">
-          <Typography variant="body2">
-            <strong>Filtered view:</strong>
-            {statusFilter !== 'all' && ` Status = ${STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}`}
-            {lc && ` · Search = "${search}"`}
-          </Typography>
-          <span
-            style={{ cursor: 'pointer', color: '#1976d2', fontSize: 13, fontWeight: 600 }}
-            onClick={() => { setStatusFilter('all'); setSearch(''); }}
-          >
-            Clear filter ×
-          </span>
+        <Box mb={1.5} display="flex" alignItems="center" gap={1} flexWrap="wrap">
+          <Typography variant="caption" color="textSecondary">Filtered:</Typography>
+          {statusFilter.map((v) => {
+            const opt = STATUS_OPTIONS.find((o) => o.value === v);
+            return (
+              <span key={v} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: DOT[v], color: '#fff',
+                borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+              }}>
+                {opt?.label}
+                <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                  onClick={() => setStatusFilter(statusFilter.filter((f) => f !== v))}>×</span>
+              </span>
+            );
+          })}
+          {lc && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: '#616161', color: '#fff',
+              borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+            }}>
+              "{search}"
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                onClick={() => setSearch('')}>×</span>
+            </span>
+          )}
         </Box>
       )}
-
-      {/* Toolbar */}
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={1}>
-        <Typography variant="h4">Crossplane Providers</Typography>
-        <Box display="flex" alignItems="center" gap={2}>
-          <TextField
-            size="small"
-            placeholder="Search name or package…"
-            value={search}
-            onChange={(e: any) => setSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <span style={{ fontSize: 13, opacity: 0.5 }}>🔍</span>
-                </InputAdornment>
-              ),
-            }}
-            style={{ minWidth: 220 }}
-          />
-          <FormControl size="small" style={{ minWidth: 150 }}>
-            <InputLabel>Health</InputLabel>
-            <Select value={statusFilter} label="Health"
-              onChange={(e: any) => setStatusFilter(e.target.value as ProviderStatusFilter)}>
-              {STATUS_OPTIONS.map((o) => (
-                <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
-      </Box>
 
       {sorted.length === 0 ? (
         <Typography color="textSecondary">
@@ -219,7 +280,7 @@ export default function ProviderList() {
                   onClick={() => history.push(`${clusterPrefix()}/crossplane/providers/${p.metadata.name}`)}
                 >
                   <td style={{ padding: '8px 12px' }}>
-                    <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{p.metadata.name}</span>
+                    <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{p.metadata.name}</span>
                   </td>
                   <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
                     {p.jsonData?.spec?.package ?? '—'}
@@ -235,6 +296,6 @@ export default function ProviderList() {
           </tbody>
         </table>
       )}
-    </Box>
+    </SectionBox>
   );
 }
