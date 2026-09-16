@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Provider } from '../common/Resources';
 import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
+import { xpColors, DOT } from '../common/colors';
 
 const {
   Typography, Box, Chip, CircularProgress, Paper,
@@ -16,7 +17,7 @@ function parseSearch(search: string): URLSearchParams {
 
 // ── Status filter types ───────────────────────────────────────────────────────
 
-type StatusFilter = 'all' | 'ready' | 'not-ready' | 'synced' | 'not-synced';
+type StatusFilter = 'all' | 'ready' | 'not-ready' | 'synced' | 'not-synced' | 'needs-attention';
 
 function matchesStatusFilter(item: any, filter: StatusFilter): boolean {
   if (filter === 'all') return true;
@@ -27,10 +28,29 @@ function matchesStatusFilter(item: any, filter: StatusFilter): boolean {
   if (filter === 'not-ready') return readyStatus !== 'True';
   if (filter === 'synced') return syncedStatus === 'True';
   if (filter === 'not-synced') return syncedStatus !== 'True';
+  if (filter === 'needs-attention') return readyStatus !== 'True' || syncedStatus !== 'True';
   return true;
 }
 
-// ── Instance fetching ─────────────────────────────────────────────────────────
+// ── Label filter helpers ──────────────────────────────────────────────────────
+
+function parseLabelFilter(raw: string): { key: string; value: string | null } | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const colonIdx = trimmed.indexOf(':');
+  if (colonIdx === -1) return { key: trimmed.toLowerCase(), value: null };
+  return {
+    key: trimmed.slice(0, colonIdx).trim().toLowerCase(),
+    value: trimmed.slice(colonIdx + 1).trim().toLowerCase(),
+  };
+}
+
+function matchesLabelFilter(labels: Record<string, string>, filter: { key: string; value: string | null }): boolean {
+  const entry = Object.entries(labels).find(([k]) => k.toLowerCase().includes(filter.key));
+  if (!entry) return false;
+  if (filter.value === null) return true;
+  return entry[1].toLowerCase().includes(filter.value);
+}
 
 function useInstancesForCRD(crd: any, expanded: boolean, statusFilter: StatusFilter) {
   const [instances, setInstances] = useState<any[] | null>(null);
@@ -55,19 +75,19 @@ function useInstancesForCRD(crd: any, expanded: boolean, statusFilter: StatusFil
   return { instances: filtered, loading };
 }
 
-function useCRDInstanceCounts(crds: any[] | null): Map<string, { total: number; ready: number; notReady: number }> | null {
-  const [counts, setCounts] = useState<Map<string, { total: number; ready: number; notReady: number }> | null>(null);
+function useCRDInstanceCounts(crds: any[] | null): Map<string, { total: number; ready: number; notReady: number; synced: number; notSynced: number }> | null {
+  const [counts, setCounts] = useState<Map<string, { total: number; ready: number; notReady: number; synced: number; notSynced: number }> | null>(null);
 
   useEffect(() => {
     if (!crds) { setCounts(null); return; }
     if (crds.length === 0) { setCounts(new Map()); return; }
     let cancelled = false;
-    const result = new Map<string, { total: number; ready: number; notReady: number }>();
+    const result = new Map<string, { total: number; ready: number; notReady: number; synced: number; notSynced: number }>();
     const fetches = crds.map((crd: any) => {
       const group: string = crd.jsonData?.spec?.group ?? '';
       const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
       const ver: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-      if (!group || !plural) { result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0 }); return Promise.resolve(); }
+      if (!group || !plural) { result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0, synced: 0, notSynced: 0 }); return Promise.resolve(); }
       return getApiProxy()
         .request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
         .then((res: any) => {
@@ -75,9 +95,12 @@ function useCRDInstanceCounts(crds: any[] | null): Map<string, { total: number; 
           const ready = items.filter((i: any) =>
             i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
           ).length;
-          result.set(crd.metadata.name, { total: items.length, ready, notReady: items.length - ready });
+          const synced = items.filter((i: any) =>
+            i.status?.conditions?.find((c: any) => c.type === 'Synced')?.status === 'True'
+          ).length;
+          result.set(crd.metadata.name, { total: items.length, ready, notReady: items.length - ready, synced, notSynced: items.length - synced });
         })
-        .catch(() => { result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0 }); });
+        .catch(() => { result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0, synced: 0, notSynced: 0 }); });
     });
     Promise.all(fetches).then(() => { if (!cancelled) setCounts(new Map(result)); });
     return () => { cancelled = true; };
@@ -94,7 +117,7 @@ function readyChip(conditions: any[]) {
   if (!cond) return <Chip label="—" size="small" />;
   const ok = cond.status === 'True';
   return <Chip label={ok ? 'Ready' : 'Not Ready'} size="small"
-    style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }} />;
+    style={{ background: ok ? xpColors.ready.bg : xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 function syncedChip(conditions: any[]) {
@@ -102,15 +125,16 @@ function syncedChip(conditions: any[]) {
   if (!cond) return <Chip label="—" size="small" />;
   const ok = cond.status === 'True';
   return <Chip label={ok ? 'Synced' : 'Not Synced'} size="small"
-    style={{ background: ok ? '#1976d2' : '#ff9800', color: '#fff', fontWeight: 600 }} />;
+    style={{ background: ok ? xpColors.synced.bg : xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />;
 }
 
 // ── Expanded instances sub-table ──────────────────────────────────────────────
 
-function InstancesSubTable({ crd, providerName, statusFilter }: {
+function InstancesSubTable({ crd, providerName, statusFilter, labelFilter }: {
   crd: any;
   providerName: string;
   statusFilter: StatusFilter;
+  labelFilter: string;
 }) {
   const history = useHistory();
   const { instances, loading } = useInstancesForCRD(crd, true, statusFilter);
@@ -119,72 +143,114 @@ function InstancesSubTable({ crd, providerName, statusFilter }: {
   const scope: string = crd.jsonData?.spec?.scope ?? 'Cluster';
   const isNamespaced = scope === 'Namespaced';
 
+  const parsedLabel = parseLabelFilter(labelFilter);
+
+  const visibleInstances = instances
+    ? (parsedLabel
+        ? instances.filter((i: any) => matchesLabelFilter(i.metadata?.labels ?? {}, parsedLabel))
+        : instances)
+    : null;
+
   if (loading) {
     return (
-      <Box px={3} py={2} display="flex" alignItems="center" gap={1}>
-        <CircularProgress size={14} />
-        <Typography variant="body2" color="textSecondary">Loading instances…</Typography>
-      </Box>
+      <tr>
+        <td colSpan={8} style={{ padding: '6px 12px 6px 36px' }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <CircularProgress size={14} />
+            <Typography variant="body2" color="textSecondary">Loading instances…</Typography>
+          </Box>
+        </td>
+      </tr>
     );
   }
-  if (!instances || instances.length === 0) {
+  if (!visibleInstances || visibleInstances.length === 0) {
     return (
-      <Box px={3} py={2}>
-        <Typography variant="body2" color="textSecondary">
-          {statusFilter !== 'all' ? 'No instances match the current filter.' : 'No instances found.'}
-        </Typography>
-      </Box>
+      <tr>
+        <td colSpan={8} style={{ padding: '6px 12px 6px 36px' }}>
+          <Typography variant="body2" color="textSecondary">
+            {parsedLabel ? 'No instances match the label filter.' : statusFilter !== 'all' ? 'No instances match the current filter.' : 'No instances found.'}
+          </Typography>
+        </td>
+      </tr>
     );
   }
 
   return (
-    <Box style={{ background: '#f9f9f9', borderTop: '1px solid #e8e8e8' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <tbody>
-          {instances.map((inst: any) => {
-            const instName: string = inst.metadata?.name ?? '';
-            const ns: string = inst.metadata?.namespace ?? '';
-            const conditions: any[] = inst.status?.conditions ?? [];
-            const created = inst.metadata?.creationTimestamp
-              ? new Date(inst.metadata.creationTimestamp).toLocaleDateString()
-              : '—';
-            const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
-            const isSynced = conditions.find((c: any) => c.type === 'Synced')?.status === 'True';
-            const detailUrl = isNamespaced
-              ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${ns}/${instName}`
-              : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${instName}`;
-            return (
-              <tr key={`${ns}/${instName}`}
-                style={{
-                  borderBottom: '1px solid #ebebeb', cursor: 'pointer',
-                  background: (!isReady || !isSynced) ? 'rgba(244,67,54,0.04)' : 'transparent',
-                }}
-                onClick={() => history.push(detailUrl)}
-              >
-                {/* col 1: indent spacer */}
-                <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
-                {/* col 2: name */}
-                <td style={{ padding: '6px 12px' }}>
-                  <span style={{ color: '#1976d2', textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
-                  {isNamespaced && ns && (
-                    <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
-                  )}
-                </td>
-                {/* col 3+4: group/version/scope spacers — empty, keeps alignment */}
-                <td style={{ padding: '6px 12px', fontSize: 12, color: '#aaa' }} colSpan={3}>{created}</td>
-                {/* col 6: health — aligns with parent "Health" column */}
-                <td style={{ padding: '6px 12px 6px 20px', textAlign: 'right' as const, whiteSpace: 'nowrap' as const }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    {readyChip(conditions)}
-                    {syncedChip(conditions)}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </Box>
+    <>
+      {visibleInstances.map((inst: any) => {
+        const instName: string = inst.metadata?.name ?? '';
+        const ns: string = inst.metadata?.namespace ?? '';
+        const conditions: any[] = inst.status?.conditions ?? [];
+        const labels: Record<string, string> = inst.metadata?.labels ?? {};
+        const created = inst.metadata?.creationTimestamp
+          ? new Date(inst.metadata.creationTimestamp).toLocaleDateString()
+          : '—';
+        const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
+        const isSynced = conditions.find((c: any) => c.type === 'Synced')?.status === 'True';
+        const detailUrl = isNamespaced
+          ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${ns}/${instName}`
+          : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${instName}`;
+        return (
+          <tr
+            key={`${ns}/${instName}`}
+            style={{
+              borderBottom: '1px solid #ebebeb',
+              cursor: 'pointer',
+              background: (!isReady || !isSynced) ? 'rgba(244,67,54,0.04)' : '#fafffe',
+            }}
+            onClick={() => history.push(detailUrl)}
+          >
+            {/* col 1: chevron spacer */}
+            <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
+            {/* col 2: name + labels */}
+            <td style={{ padding: '6px 12px 6px 28px' }}>
+              <div>
+                <span style={{ color: xpColors.link, textDecoration: 'underline', fontSize: 13 }}>{instName}</span>
+                {isNamespaced && ns && (
+                  <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
+                )}
+              </div>
+              {Object.keys(labels).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 3, marginTop: 3 }}>
+                  {Object.entries(labels).map(([k, v]) => (
+                    <span
+                      key={k}
+                      style={{
+                        fontSize: 10,
+                        background: parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel) ? '#e3f2fd' : '#f0f0f0',
+                        color: parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel) ? '#1565c0' : '#555',
+                        border: parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel) ? '1px solid #90caf9' : '1px solid #ddd',
+                        borderRadius: 3,
+                        padding: '1px 5px',
+                        whiteSpace: 'nowrap' as const,
+                      }}
+                    >
+                      {k}: {v}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </td>
+            {/* col 3+4+5: group/version/scope — empty */}
+            <td style={{ padding: '6px 12px' }} />
+            <td style={{ padding: '6px 12px' }} />
+            <td style={{ padding: '6px 12px' }} />
+            {/* col 6: Ready */}
+            <td style={{ padding: '6px 12px', textAlign: 'center' as const }}>
+              {readyChip(conditions)}
+            </td>
+            {/* col 7: Synced */}
+            <td style={{ padding: '6px 12px', textAlign: 'center' as const }}>
+              {syncedChip(conditions)}
+            </td>
+            {/* col 8: Age */}
+            <td style={{ padding: '6px 12px', fontSize: 12, color: '#888', whiteSpace: 'nowrap' as const }}>
+              {created}
+            </td>
+          </tr>
+        );
+      })}
+    </>
   );
 }
 
@@ -195,11 +261,12 @@ type SortDir = 'asc' | 'desc';
 
 // ── CRD row ───────────────────────────────────────────────────────────────────
 
-function CRDRow({ crd, providerName, count, statusFilter }: {
+function CRDRow({ crd, providerName, count, statusFilter, labelFilter }: {
   crd: any;
   providerName: string;
-  count: { total: number; ready: number; notReady: number };
+  count: { total: number; ready: number; notReady: number; synced: number; notSynced: number };
   statusFilter: StatusFilter;
+  labelFilter: string;
 }) {
   const history = useHistory();
   const [expanded, setExpanded] = useState(false);
@@ -211,7 +278,6 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
   const topVersion: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
   const hasInstances = count.total > 0;
 
-  // Auto-expand if a status filter is active and there are instances
   useEffect(() => {
     if (statusFilter !== 'all' && hasInstances) setExpanded(true);
   }, [statusFilter, hasInstances]);
@@ -219,12 +285,13 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
   return (
     <>
       <tr
-        style={{ borderBottom: expanded ? 'none' : '1px solid #f0f0f0', cursor: 'pointer' }}
+        style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
         onClick={() => {
           if (hasInstances) setExpanded((v) => !v);
           else history.push(`${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}`);
         }}
       >
+        {/* col 1: chevron */}
         <td style={{ padding: '8px 4px 8px 12px', width: 24 }}>
           {hasInstances ? (
             <span style={{ fontSize: 11, color: '#888', userSelect: 'none' as const }}>
@@ -232,46 +299,52 @@ function CRDRow({ crd, providerName, count, statusFilter }: {
             </span>
           ) : <span style={{ display: 'inline-block', width: 12 }} />}
         </td>
+        {/* col 2: Kind */}
         <td style={{ padding: '8px 12px' }}>
-          <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{kind}</span>
+          <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{kind}</span>
         </td>
+        {/* col 3: Group */}
         <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
+        {/* col 4: Version */}
         <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
+        {/* col 5: Scope */}
         <td style={{ padding: '8px 12px' }}>
           <Chip label={scope} size="small"
-            style={{ background: scope === 'Cluster' ? '#1976d2' : '#7b1fa2', color: '#fff', fontWeight: 600 }} />
+            style={{ background: scope === 'Cluster' ? xpColors.cluster.bg : xpColors.namespaced.bg, color: '#fff', fontWeight: 600 }} />
         </td>
-        <td style={{ padding: '8px 12px', textAlign: 'right' as const, paddingRight: 20 }}>
-          {hasInstances ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {count.notReady > 0 && (
-                <Chip label={`${count.notReady} not ready`} size="small"
-                  style={{ background: '#f44336', color: '#fff', fontWeight: 600 }} />
-              )}
-              {count.ready > 0 && (
-                <Chip label={`${count.ready} ready`} size="small"
-                  style={{ background: '#4caf50', color: '#fff', fontWeight: 600 }} />
-              )}
-            </span>
-          ) : (
-            <span style={{ color: '#bbb', fontSize: 12 }}>—</span>
-          )}
+        {/* col 6: Ready summary */}
+        <td style={{ padding: '8px 12px', textAlign: 'center' as const }}>
+          {hasInstances && count.notReady > 0 ? (
+            <Chip label={`${count.notReady} not ready`} size="small"
+              style={{ background: xpColors.notReady.bg, color: '#fff', fontWeight: 600 }} />
+          ) : hasInstances ? (
+            <Chip label={`${count.ready} ready`} size="small"
+              style={{ background: xpColors.ready.bg, color: '#fff', fontWeight: 600 }} />
+          ) : <span style={{ color: '#bbb', fontSize: 12 }}>—</span>}
+        </td>
+        {/* col 7: Synced summary */}
+        <td style={{ padding: '8px 12px', textAlign: 'center' as const }}>
+          {hasInstances && count.notSynced > 0 ? (
+            <Chip label={`${count.notSynced} not synced`} size="small"
+              style={{ background: xpColors.notSynced.bg, color: '#fff', fontWeight: 600 }} />
+          ) : hasInstances ? (
+            <Chip label={`${count.synced} synced`} size="small"
+              style={{ background: xpColors.synced.bg, color: '#fff', fontWeight: 600 }} />
+          ) : <span style={{ color: '#bbb', fontSize: 12 }}>—</span>}
+        </td>
+        {/* col 8: Age — instance count */}
+        <td style={{ padding: '8px 12px', textAlign: 'right' as const, paddingRight: 20, fontSize: 12, color: '#555' }}>
+          {hasInstances ? count.total : '—'}
         </td>
       </tr>
-      {expanded && (
-        <tr>
-          <td colSpan={6} style={{ padding: 0 }}>
-            <InstancesSubTable crd={crd} providerName={providerName} statusFilter={statusFilter} />
-          </td>
-        </tr>
-      )}
+      {expanded && <InstancesSubTable crd={crd} providerName={providerName} statusFilter={statusFilter} labelFilter={labelFilter} />}
     </>
   );
 }
 
 // ── Provider section ──────────────────────────────────────────────────────────
 
-function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSort, statusFilter }: {
+function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSort, statusFilter, labelFilter }: {
   provider: any;
   hideUnused: boolean;
   search: string;
@@ -279,6 +352,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
   statusFilter: StatusFilter;
+  labelFilter: string;
 }) {
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const [crds, crdErr] = useCRDsForProvider(provider.metadata.name, currentRevision);
@@ -352,13 +426,15 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
               <SortHeader label="Group" sk="group" />
               <SortHeader label="Version" sk="version" />
               <SortHeader label="Scope" sk="scope" />
-              <SortHeader label="Health" sk="instances" />
+              <th style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, textAlign: 'center' as const }}>Ready</th>
+              <th style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, textAlign: 'center' as const }}>Synced</th>
+              <SortHeader label="Age / Count" sk="instances" />
             </tr>
           </thead>
           <tbody>
             {visibleCrds.map((crd: any) => (
               <CRDRow key={crd.metadata.name} crd={crd} providerName={provider.metadata.name}
-                count={counts?.get(crd.metadata.name) ?? { total: 0, ready: 0, notReady: 0 }} statusFilter={statusFilter} />
+                count={counts?.get(crd.metadata.name) ?? { total: 0, ready: 0, notReady: 0, synced: 0, notSynced: 0 }} statusFilter={statusFilter} labelFilter={labelFilter} />
             ))}
           </tbody>
         </table>
@@ -371,6 +447,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
+  { value: 'needs-attention', label: '⚠ Needs Attention' },
   { value: 'ready', label: 'Ready' },
   { value: 'not-ready', label: 'Not Ready' },
   { value: 'synced', label: 'Synced' },
@@ -383,6 +460,7 @@ export default function ResourceList() {
   const [providers, providerErr] = Provider.useList();
   const [hideUnused, setHideUnused] = useState(true);
   const [search, setSearch] = useState('');
+  const [labelFilter, setLabelFilter] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('kind');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -433,26 +511,47 @@ export default function ResourceList() {
     : (providers ?? []).filter((p: any) => p.metadata.name === providerFilter);
 
   // Active filter banner
-  const hasActiveFilter = statusFilter !== 'all' || providerFilter !== 'all';
+  const hasActiveFilter = statusFilter !== 'all' || providerFilter !== 'all' || labelFilter !== '';
 
   return (
     <Box p={3}>
       {/* Active filter banner */}
       {hasActiveFilter && (
-        <Box mb={2} p={1.5} style={{ background: '#fff3e0', borderRadius: 6, border: '1px solid #ffb74d' }}
-          display="flex" alignItems="center" justifyContent="space-between">
-          <Typography variant="body2">
-            <strong>Filtered view:</strong>
-            {providerFilter !== 'all' && ` Provider = ${providerFilter}`}
-            {statusFilter !== 'all' && ` · Status = ${STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}`}
-            {statusFilter !== 'all' && ' — rows auto-expanded'}
-          </Typography>
-          <span
-            style={{ cursor: 'pointer', color: '#1976d2', fontSize: 13, fontWeight: 600 }}
-            onClick={() => { setStatusFilter('all'); setProviderFilter('all'); }}
-          >
-            Clear filter ×
-          </span>
+        <Box mb={2} display="flex" alignItems="center" gap={1} flexWrap="wrap">
+          <Typography variant="caption" color="textSecondary">Filtered:</Typography>
+          {statusFilter !== 'all' && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: DOT[statusFilter] ?? '#9e9e9e', color: '#fff',
+              borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+            }}>
+              {STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                onClick={() => setStatusFilter('all')}>×</span>
+            </span>
+          )}
+          {providerFilter !== 'all' && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: '#616161', color: '#fff',
+              borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+            }}>
+              {providerFilter}
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                onClick={() => setProviderFilter('all')}>×</span>
+            </span>
+          )}
+          {labelFilter !== '' && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              background: '#1565c0', color: '#fff',
+              borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+            }}>
+              🏷 {labelFilter}
+              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
+                onClick={() => setLabelFilter('')}>×</span>
+            </span>
+          )}
         </Box>
       )}
 
@@ -467,7 +566,8 @@ export default function ResourceList() {
         <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
           <TextField
             size="small"
-            placeholder="Search kind or group…"
+            label="Search"
+            placeholder="Kind or group…"
             value={search}
             onChange={(e: any) => setSearch(e.target.value)}
             InputProps={{
@@ -478,6 +578,26 @@ export default function ResourceList() {
               ),
             }}
             style={{ minWidth: 200 }}
+          />
+          <TextField
+            size="small"
+            label="Label filter"
+            placeholder="e.g. region:eu10"
+            value={labelFilter}
+            onChange={(e: any) => setLabelFilter(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <span style={{ fontSize: 13, opacity: 0.5 }}>🏷</span>
+                </InputAdornment>
+              ),
+              endAdornment: labelFilter ? (
+                <InputAdornment position="end">
+                  <span style={{ cursor: 'pointer', fontSize: 13, opacity: 0.5 }} onClick={() => setLabelFilter('')}>×</span>
+                </InputAdornment>
+              ) : null,
+            }}
+            style={{ minWidth: 220 }}
           />
           <FormControl size="small" style={{ minWidth: 160 }}>
             <InputLabel>Status</InputLabel>
@@ -525,6 +645,7 @@ export default function ResourceList() {
           sortDir={sortDir}
           onSort={handleSort}
           statusFilter={statusFilter}
+          labelFilter={labelFilter}
         />
       ))}
     </Box>

@@ -41,7 +41,7 @@ test.describe('Resource List', () => {
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
     await expect(page).toHaveURL(/status=not-ready/);
-    await expect(page.locator('text=Filtered view')).toBeVisible();
+    await expect(page.locator('text=Filtered:')).toBeVisible();
 
     await page.screenshot({ path: 'e2e/screenshots/resources-status-filter.png', fullPage: true });
   });
@@ -51,10 +51,12 @@ test.describe('Resource List', () => {
     await page.goto(`/c/${CLUSTER}/crossplane/resources?status=not-ready`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('text=provider-nop', { timeout: 20_000 });
 
-    await page.locator('text=Clear filter').click();
+    // Dismiss the status filter chip — the × span sits directly after the label text inside the chip
+    const chip = page.locator('span', { hasText: 'Not Ready' }).filter({ has: page.locator('span', { hasText: '×' }) });
+    await chip.locator('span', { hasText: '×' }).click();
 
     await expect(page).toHaveURL(/\/crossplane\/resources$/);
-    await expect(page.locator('text=Filtered view')).not.toBeVisible();
+    await expect(page.locator('text=Filtered:')).not.toBeVisible();
 
     await page.screenshot({ path: 'e2e/screenshots/resources-filter-cleared.png', fullPage: true });
   });
