@@ -6,8 +6,7 @@
   "scripts": {
     "build": "headlamp-plugin build",
     "start": "headlamp-plugin start",
-    "test": "headlamp-plugin test",
-    "test:e2e": "playwright test"
+    "test": "headlamp-plugin test"
   },
   "keywords": [
     "Crossplane",
@@ -18,7 +17,6 @@
   "license": "Apache-2.0",
   "type": "commonjs",
   "devDependencies": {
-    "@kinvolk/headlamp-plugin": "0.14.0",
-    "@playwright/test": "1.62.0"
+    "@kinvolk/headlamp-plugin": "0.14.0"
   }
 }
