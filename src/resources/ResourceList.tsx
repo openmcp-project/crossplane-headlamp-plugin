@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
-import { Provider } from '../common/Resources';
+import { Provider } from '../providers/provider';
 import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
 import { xpColors, DOT } from '../common/colors';
 
