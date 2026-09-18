@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import { Provider } from '../common/Resources';
+import { Provider } from '../providers/provider';
 import { clusterPrefix, useAllManagedResources, useCRDsForProvider, getApiProxy } from '../helpers';
 
 const { Typography, Box, Paper, CircularProgress, Alert } =
