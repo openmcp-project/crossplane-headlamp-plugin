@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
+import { useHistory, useParams } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { useCRDsForProvider, useAllManagedResources, clusterPrefix, getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
+import {
+  clusterPrefix,
+  getApiProxy,
+  NON_MANAGED_PLURALS,
+  useAllManagedResources,
+  useCRDsForProvider,
+} from '../helpers';
 
 const { Typography, Box, Chip, CircularProgress, Button, Paper, Tabs, Tab, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -83,8 +89,10 @@ function ProviderConfigsSection({
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-          {['Name', 'Credentials', 'Actions'].map((h) => (
-            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+          {['Name', 'Credentials', 'Actions'].map(h => (
+            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
@@ -98,7 +106,9 @@ function ProviderConfigsSection({
           return (
             <tr key={cfgName} style={{ borderBottom: '1px solid #f0f0f0' }}>
               <td style={{ padding: '8px 12px', fontWeight: 600 }}>{cfgName}</td>
-              <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'monospace' }}>{credLabel}</td>
+              <td style={{ padding: '8px 12px', fontSize: 13, fontFamily: 'monospace' }}>
+                {credLabel}
+              </td>
               <td style={{ padding: '8px 12px' }}>
                 <Button
                   size="small"
@@ -200,7 +210,9 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
   if (items.length === 0) {
     return (
       <Box p={2}>
-        <Typography variant="body2" color="textSecondary">No instances found.</Typography>
+        <Typography variant="body2" color="textSecondary">
+          No instances found.
+        </Typography>
       </Box>
     );
   }
@@ -209,8 +221,10 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-          {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map((h) => (
-            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+          {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map(h => (
+            <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
@@ -223,8 +237,12 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
             ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
             : '—';
           const detailUrl = ns
-            ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
-            : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${itemName}`;
+            ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${
+                item._plural
+              }/${ns}/${itemName}`
+            : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${
+                item._plural
+              }/${itemName}`;
           return (
             <tr
               key={`${item._group}/${item._plural}/${ns}/${itemName}`}
@@ -235,7 +253,9 @@ function AllInstancesTab({ providerName }: { providerName: string }) {
               <td style={{ padding: '8px 12px' }}>
                 <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
                 {ns && (
-                  <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>
+                  <Typography variant="caption" display="block" color="textSecondary">
+                    {ns}
+                  </Typography>
                 )}
               </td>
               <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Ready')}</td>
@@ -288,11 +308,13 @@ export default function ProviderDetail() {
 
       {hasError && (
         <Alert severity="error" style={{ marginBottom: 16 }}>
-          {conditions.filter((c: any) => c.status === 'False').map((c: any) => (
-            <div key={c.type}>
-              <strong>{c.type}:</strong> {c.reason} — {c.message}
-            </div>
-          ))}
+          {conditions
+            .filter((c: any) => c.status === 'False')
+            .map((c: any) => (
+              <div key={c.type}>
+                <strong>{c.type}:</strong> {c.reason} — {c.message}
+              </div>
+            ))}
         </Alert>
       )}
 
@@ -305,7 +327,9 @@ export default function ProviderDetail() {
         <>
           {/* Basic Info */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-            <Typography variant="h6" gutterBottom>Provider Info</Typography>
+            <Typography variant="h6" gutterBottom>
+              Provider Info
+            </Typography>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>
                 {[
@@ -332,15 +356,22 @@ export default function ProviderDetail() {
 
           {/* Conditions */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-            <Typography variant="h6" gutterBottom>Conditions</Typography>
+            <Typography variant="h6" gutterBottom>
+              Conditions
+            </Typography>
             {conditions.length === 0 ? (
-              <Typography variant="body2" color="textSecondary">No conditions reported.</Typography>
+              <Typography variant="body2" color="textSecondary">
+                No conditions reported.
+              </Typography>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-                    {['Type', 'Status', 'Reason', 'Message'].map((h) => (
-                      <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
+                    {['Type', 'Status', 'Reason', 'Message'].map(h => (
+                      <th
+                        key={h}
+                        style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}
+                      >
                         {h}
                       </th>
                     ))}
@@ -357,13 +388,17 @@ export default function ProviderDetail() {
 
           {/* Provider Configs */}
           <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-            <Typography variant="h6" gutterBottom>Provider Configs</Typography>
+            <Typography variant="h6" gutterBottom>
+              Provider Configs
+            </Typography>
             <ProviderConfigsSection providerName={name} currentRevision={currentRevision} />
           </Paper>
 
           {/* Managed Resource Types */}
           <Paper elevation={1} style={{ padding: 16 }}>
-            <Typography variant="h6" gutterBottom>Managed Resource Types</Typography>
+            <Typography variant="h6" gutterBottom>
+              Managed Resource Types
+            </Typography>
             <ManagedResourceSection providerName={name} currentRevision={currentRevision} />
           </Paper>
         </>
