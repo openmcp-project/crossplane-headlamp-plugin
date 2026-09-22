@@ -155,12 +155,6 @@ export function useAllManagedResources(filterProviderName?: string): {
   items: FlatMR[];
   loading: boolean;
 } {
-  const [providers] = (K8s as any).ResourceClasses?.Provider
-    ? (K8s as any).ResourceClasses.Provider.useList()
-    : [null];
-
-  // We need Provider list — import it dynamically to avoid circular dep
-  // Instead we receive it via a separate hook usage below
   const [allCrds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const [revisions] = ProviderRevision.useList();
 

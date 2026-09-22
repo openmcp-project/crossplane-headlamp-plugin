@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useHistory,useParams } from 'react-router-dom';
 import { clusterPrefix, detectExternalManager,getApiProxy } from '../helpers';
 
-const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Accordion, AccordionSummary, AccordionDetails } =
+const { Typography, Box, Chip, CircularProgress, Paper, Alert, Accordion, AccordionSummary, AccordionDetails } =
   (window as any).pluginLib?.MuiCore ?? {};
 
 function useCustomResource(
@@ -202,8 +202,9 @@ export default function ManagedDetail() {
                 <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
                   ProviderConfig:
                 </Typography>
-                <span
-                  style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                <button
+                  type="button"
+                  style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer', fontSize: 13, background: 'none', border: 'none', padding: 0 }}
                   onClick={() =>
                     history.push(
                       `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
@@ -211,7 +212,7 @@ export default function ManagedDetail() {
                   }
                 >
                   {providerConfigRef}
-                </span>
+                </button>
               </Box>
             )}
             {compositeRef && (

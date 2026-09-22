@@ -185,8 +185,9 @@ export default function DependencyGraph() {
         position: { x: centerX, y: topY },
         data: {
           label: (
-            <div
-              style={nodeStyle('#546e7a', true)}
+            <button
+              type="button"
+              style={{ ...nodeStyle('#546e7a', true), background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
               onClick={() =>
                 history.push(
                   `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
@@ -195,7 +196,7 @@ export default function DependencyGraph() {
             >
               <div style={{ fontSize: 10, opacity: 0.85, marginBottom: 2 }}>ProviderConfig</div>
               <div>{providerConfigRef} ↗</div>
-            </div>
+            </button>
           ),
         },
         style: { border: 'none', padding: 0, background: 'transparent' },

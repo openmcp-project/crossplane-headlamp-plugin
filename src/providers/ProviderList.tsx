@@ -144,12 +144,13 @@ export default function ProviderList() {
             {statusFilter !== 'all' && ` Status = ${STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}`}
             {lc && ` · Search = "${search}"`}
           </Typography>
-          <span
-            style={{ cursor: 'pointer', color: '#1976d2', fontSize: 13, fontWeight: 600 }}
+          <button
+            type="button"
+            style={{ cursor: 'pointer', color: '#1976d2', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', padding: 0 }}
             onClick={() => { setStatusFilter('all'); setSearch(''); }}
           >
             Clear filter ×
-          </span>
+          </button>
         </Box>
       )}
 

@@ -526,8 +526,8 @@ export default function ResourceList() {
               borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
             }}>
               {STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}
-              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
-                onClick={() => setStatusFilter('all')}>×</span>
+              <button type="button" style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2, background: 'none', border: 'none', padding: 0, color: 'inherit', fontSize: 'inherit' }}
+                onClick={() => setStatusFilter('all')}>×</button>
             </span>
           )}
           {providerFilter !== 'all' && (
@@ -537,8 +537,8 @@ export default function ResourceList() {
               borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
             }}>
               {providerFilter}
-              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
-                onClick={() => setProviderFilter('all')}>×</span>
+              <button type="button" style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2, background: 'none', border: 'none', padding: 0, color: 'inherit', fontSize: 'inherit' }}
+                onClick={() => setProviderFilter('all')}>×</button>
             </span>
           )}
           {labelFilter !== '' && (
@@ -548,8 +548,8 @@ export default function ResourceList() {
               borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 600,
             }}>
               🏷 {labelFilter}
-              <span style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2 }}
-                onClick={() => setLabelFilter('')}>×</span>
+              <button type="button" style={{ cursor: 'pointer', opacity: 0.8, marginLeft: 2, background: 'none', border: 'none', padding: 0, color: 'inherit', fontSize: 'inherit' }}
+                onClick={() => setLabelFilter('')}>×</button>
             </span>
           )}
         </Box>
@@ -593,7 +593,7 @@ export default function ResourceList() {
               ),
               endAdornment: labelFilter ? (
                 <InputAdornment position="end">
-                  <span style={{ cursor: 'pointer', fontSize: 13, opacity: 0.5 }} onClick={() => setLabelFilter('')}>×</span>
+                  <button type="button" style={{ cursor: 'pointer', fontSize: 13, opacity: 0.5, background: 'none', border: 'none', padding: 0 }} onClick={() => setLabelFilter('')}>×</button>
                 </InputAdornment>
               ) : null,
             }}
