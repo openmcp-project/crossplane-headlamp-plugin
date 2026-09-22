@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useHistory } from 'react-router-dom';
-import ReactFlow, {
+import {
+  ReactFlow,
   Node,
   Edge,
   Background,
@@ -8,7 +9,7 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
-} from 'reactflow';
+} from '@xyflow/react';
 import 'reactflow/dist/style.css';
 import { getApiProxy, clusterPrefix } from '../helpers';
 
