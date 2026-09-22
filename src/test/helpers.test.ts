@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach,describe, expect, it, vi } from 'vitest';
 
 // ── Mock @kinvolk/headlamp-plugin/lib ────────────────────────────────────────
 // Must be hoisted before the module under test is imported.
@@ -16,17 +16,17 @@ vi.mock('../common/Resources', () => ({
 }));
 
 import {
+  clusterPrefix,
+  deriveProviderGroupFromImage,
+  detectExternalManager,
+  getConditionMessage,
   getConditionStatus,
   getReadyStatus,
   getSyncedStatus,
   isReady,
   isSynced,
-  getConditionMessage,
-  deriveProviderGroupFromImage,
-  providerPodLogsUrl,
-  clusterPrefix,
   NON_MANAGED_PLURALS,
-  detectExternalManager,
+  providerPodLogsUrl,
 } from '../helpers';
 
 // ── helpers for building mock resources ──────────────────────────────────────

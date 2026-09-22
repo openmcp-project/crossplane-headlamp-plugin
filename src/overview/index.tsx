@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { clusterPrefix, useAllManagedResources, useCRDsForProvider, getApiProxy } from '../helpers';
+import { clusterPrefix, getApiProxy,useAllManagedResources, useCRDsForProvider } from '../helpers';
 
 const { Typography, Box, Paper, CircularProgress, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};

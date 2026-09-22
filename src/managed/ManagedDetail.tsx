@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { getApiProxy, clusterPrefix, detectExternalManager } from '../helpers';
+import { useHistory,useParams } from 'react-router-dom';
+import { clusterPrefix, detectExternalManager,getApiProxy } from '../helpers';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Accordion, AccordionSummary, AccordionDetails } =
   (window as any).pluginLib?.MuiCore ?? {};

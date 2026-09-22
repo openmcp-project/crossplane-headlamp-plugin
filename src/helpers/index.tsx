@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { useEffect, useState } from 'react';
 import { ProviderRevision } from '../common/Resources';
 
 // ── Status helpers ────────────────────────────────────────────────────────────

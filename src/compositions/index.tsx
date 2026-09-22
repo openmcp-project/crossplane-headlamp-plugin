@@ -1,6 +1,5 @@
 import React from 'react';
-import { useHistory } from 'react-router-dom';
-import { Composition, CompositeResourceDefinition } from '../common/Resources';
+import { CompositeResourceDefinition,Composition } from '../common/Resources';
 
 const { Typography, Box, Chip, CircularProgress, Paper } =
   (window as any).pluginLib?.MuiCore ?? {};

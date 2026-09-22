@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { useEffect, useState } from 'react';
+import { useHistory,useParams } from 'react-router-dom';
 import { clusterPrefix, getApiProxy } from '../helpers';
 
 const { Typography, Box, Chip, CircularProgress } =

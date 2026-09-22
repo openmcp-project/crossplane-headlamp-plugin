@@ -100,7 +100,7 @@ export default function ProviderList() {
   });
 
   const sorted = [...filtered].sort((a: any, b: any) => {
-    let va: any, vb: any;
+    let va: any; let vb: any;
     const condVal = (p: any, type: string) =>
       p.jsonData?.status?.conditions?.find((c: any) => c.type === type)?.status ?? '';
     if (sortKey === 'name') { va = a.metadata?.name ?? ''; vb = b.metadata?.name ?? ''; }

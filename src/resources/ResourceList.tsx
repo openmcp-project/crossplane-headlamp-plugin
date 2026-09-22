@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
+import { DOT,xpColors } from '../common/colors';
 import { Provider } from '../common/Resources';
-import { useCRDsForProvider, getApiProxy, clusterPrefix, NON_MANAGED_PLURALS } from '../helpers';
-import { xpColors, DOT } from '../common/colors';
+import { clusterPrefix, getApiProxy, NON_MANAGED_PLURALS,useCRDsForProvider } from '../helpers';
 
 const {
   Typography, Box, Chip, CircularProgress, Paper,
@@ -378,7 +378,7 @@ function ProviderSection({ provider, hideUnused, search, sortKey, sortDir, onSor
       });
     }
     return [...list].sort((a: any, b: any) => {
-      let va: any, vb: any;
+      let va: any; let vb: any;
       if (sortKey === 'kind') { va = a.jsonData?.spec?.names?.kind ?? ''; vb = b.jsonData?.spec?.names?.kind ?? ''; }
       else if (sortKey === 'group') { va = a.jsonData?.spec?.group ?? ''; vb = b.jsonData?.spec?.group ?? ''; }
       else if (sortKey === 'version') { va = a.jsonData?.spec?.versions?.[0]?.name ?? ''; vb = b.jsonData?.spec?.versions?.[0]?.name ?? ''; }
