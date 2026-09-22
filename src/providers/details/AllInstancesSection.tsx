@@ -1,4 +1,9 @@
-import { Link, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import {
+  Link,
+  SectionBox,
+  SimpleTable,
+  StatusLabel,
+} from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { useAllManagedResources } from '../../helpers';
 import { Provider } from '../provider';
 
@@ -44,9 +49,7 @@ export function AllInstancesSection({ provider }: { provider: Provider }) {
                   >
                     {name}
                   </Link>
-                  {ns && (
-                    <span style={{ fontSize: '0.85em', color: '#666' }}>{ns}</span>
-                  )}
+                  {ns && <span style={{ fontSize: '0.85em', color: '#666' }}>{ns}</span>}
                 </div>
               );
             },
