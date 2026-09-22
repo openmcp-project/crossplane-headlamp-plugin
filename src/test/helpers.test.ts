@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mock @kinvolk/headlamp-plugin/lib ────────────────────────────────────────
 // Must be hoisted before the module under test is imported.
@@ -16,17 +16,17 @@ vi.mock('../common/Resources', () => ({
 }));
 
 import {
+  clusterPrefix,
+  deriveProviderGroupFromImage,
+  detectExternalManager,
+  getConditionMessage,
   getConditionStatus,
   getReadyStatus,
   getSyncedStatus,
   isReady,
   isSynced,
-  getConditionMessage,
-  deriveProviderGroupFromImage,
-  providerPodLogsUrl,
-  clusterPrefix,
   NON_MANAGED_PLURALS,
-  detectExternalManager,
+  providerPodLogsUrl,
 } from '../helpers';
 
 // ── helpers for building mock resources ──────────────────────────────────────
@@ -60,7 +60,9 @@ describe('getConditionStatus', () => {
   });
 
   it('returns warning when condition is missing', () => {
-    expect(getConditionStatus({ jsonData: { status: { conditions: [] } } }, 'Ready')).toBe('warning');
+    expect(getConditionStatus({ jsonData: { status: { conditions: [] } } }, 'Ready')).toBe(
+      'warning'
+    );
   });
 
   it('returns warning when resource is null', () => {
@@ -147,18 +149,19 @@ describe('getConditionMessage', () => {
 
 describe('deriveProviderGroupFromImage', () => {
   it('extracts group from standard provider image', () => {
-    expect(deriveProviderGroupFromImage('xpkg.upbound.io/upbound/provider-aws:v0.40.0'))
-      .toBe('aws.crossplane.io');
+    expect(deriveProviderGroupFromImage('xpkg.upbound.io/upbound/provider-aws:v0.40.0')).toBe(
+      'aws.crossplane.io'
+    );
   });
 
   it('handles image without tag', () => {
-    expect(deriveProviderGroupFromImage('xpkg.upbound.io/upbound/provider-gcp'))
-      .toBe('gcp.crossplane.io');
+    expect(deriveProviderGroupFromImage('xpkg.upbound.io/upbound/provider-gcp')).toBe(
+      'gcp.crossplane.io'
+    );
   });
 
   it('handles image without provider- prefix', () => {
-    expect(deriveProviderGroupFromImage('registry.io/org/aws:v1'))
-      .toBe('aws.crossplane.io');
+    expect(deriveProviderGroupFromImage('registry.io/org/aws:v1')).toBe('aws.crossplane.io');
   });
 
   it('returns empty string for empty input', () => {
@@ -174,8 +177,9 @@ describe('deriveProviderGroupFromImage', () => {
 
 describe('providerPodLogsUrl', () => {
   it('builds the correct Headlamp logs URL', () => {
-    expect(providerPodLogsUrl('my-cluster', 'crossplane-system', 'provider-aws-abc123'))
-      .toBe('/c/my-cluster/pods/crossplane-system/provider-aws-abc123/logs');
+    expect(providerPodLogsUrl('my-cluster', 'crossplane-system', 'provider-aws-abc123')).toBe(
+      '/c/my-cluster/pods/crossplane-system/provider-aws-abc123/logs'
+    );
   });
 });
 
@@ -217,19 +221,23 @@ describe('clusterPrefix', () => {
 
 describe('NON_MANAGED_PLURALS', () => {
   const excluded = [
-    'providerconfigs', 'providerconfig',
-    'providerconfigusages', 'providerconfigusage',
-    'storeconfigs', 'storeconfig',
-    'resourceusages', 'resourceusage',
+    'providerconfigs',
+    'providerconfig',
+    'providerconfigusages',
+    'providerconfigusage',
+    'storeconfigs',
+    'storeconfig',
+    'resourceusages',
+    'resourceusage',
   ];
 
   const included = ['buckets', 'vpcs', 'clusters', 'databases', 'subnets'];
 
-  it.each(excluded)('excludes %s', (plural) => {
+  it.each(excluded)('excludes %s', plural => {
     expect(NON_MANAGED_PLURALS.has(plural)).toBe(true);
   });
 
-  it.each(included)('does not exclude managed resource type %s', (plural) => {
+  it.each(included)('does not exclude managed resource type %s', plural => {
     expect(NON_MANAGED_PLURALS.has(plural)).toBe(false);
   });
 });
@@ -245,7 +253,10 @@ describe('detectExternalManager', () => {
   it('detects helm via managed-by=Helm label', () => {
     const r = {
       metadata: {
-        labels: { 'app.kubernetes.io/managed-by': 'Helm', 'app.kubernetes.io/instance': 'my-release' },
+        labels: {
+          'app.kubernetes.io/managed-by': 'Helm',
+          'app.kubernetes.io/instance': 'my-release',
+        },
         annotations: {},
       },
     };
@@ -259,7 +270,10 @@ describe('detectExternalManager', () => {
         annotations: { 'kustomize.toolkit.fluxcd.io/name': 'infra-kustomization' },
       },
     };
-    expect(detectExternalManager(r)).toEqual({ manager: 'flux-kustomization', ref: 'infra-kustomization' });
+    expect(detectExternalManager(r)).toEqual({
+      manager: 'flux-kustomization',
+      ref: 'infra-kustomization',
+    });
   });
 
   it('detects flux-helmrelease', () => {
@@ -269,7 +283,10 @@ describe('detectExternalManager', () => {
         annotations: { 'helm.toolkit.fluxcd.io/name': 'my-helmrelease' },
       },
     };
-    expect(detectExternalManager(r)).toEqual({ manager: 'flux-helmrelease', ref: 'my-helmrelease' });
+    expect(detectExternalManager(r)).toEqual({
+      manager: 'flux-helmrelease',
+      ref: 'my-helmrelease',
+    });
   });
 
   it('detects argocd via annotation', () => {

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
 import { Link, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Provider } from '../provider';
+import { useEffect, useState } from 'react';
 import { getApiProxy, useCRDsForProvider } from '../../helpers';
+import { Provider } from '../provider';
 
 export function ProviderConfigsSection({ provider }: { provider: Provider }) {
   const providerName = provider.getName();

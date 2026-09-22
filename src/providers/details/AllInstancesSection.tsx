@@ -1,6 +1,6 @@
 import { Link, SectionBox, SimpleTable, StatusLabel } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Provider } from '../provider';
 import { useAllManagedResources } from '../../helpers';
+import { Provider } from '../provider';
 
 export function AllInstancesSection({ provider }: { provider: Provider }) {
   const providerName = provider.getName();

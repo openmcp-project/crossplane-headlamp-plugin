@@ -1,6 +1,6 @@
 import { ResourceListView } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Provider } from './provider';
 import { ConditionBadge } from '../common/ConditionBadge';
+import { Provider } from './provider';
 
 export function ProviderList() {
   return (

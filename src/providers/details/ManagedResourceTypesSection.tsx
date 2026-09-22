@@ -1,6 +1,6 @@
 import { Link, SectionBox, SimpleTable } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Provider } from '../provider';
 import { NON_MANAGED_PLURALS, useCRDsForProvider } from '../../helpers';
+import { Provider } from '../provider';
 
 export function ManagedResourceTypesSection({ provider }: { provider: Provider }) {
   const providerName = provider.getName();

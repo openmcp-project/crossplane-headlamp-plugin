@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
-import { useParams, useHistory } from 'react-router-dom';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { getApiProxy, clusterPrefix, detectExternalManager } from '../helpers';
+import { useHistory, useParams } from 'react-router-dom';
+import { clusterPrefix, detectExternalManager, getApiProxy } from '../helpers';
 
-const { Typography, Box, Chip, CircularProgress, Paper, Button, Alert, Accordion, AccordionSummary, AccordionDetails } =
-  (window as any).pluginLib?.MuiCore ?? {};
+const {
+  Typography,
+  Box,
+  Chip,
+  CircularProgress,
+  Paper,
+  Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+} = (window as any).pluginLib?.MuiCore ?? {};
 
-function useCustomResource(
-  group: string,
-  plural: string,
-  name: string,
-  namespace?: string
-) {
+function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
   const [item, setItem] = useState<any>(null);
   const [error, setError] = useState<any>(null);
 
@@ -26,16 +29,24 @@ function useCustomResource(
         try {
           const url = `/apis/${group}/${ver}/${nsPath}${plural}/${name}`;
           const res = await getApiProxy().request(url, { isJSON: true });
-          if (!cancelled) { setItem(res); return; }
+          if (!cancelled) {
+            setItem(res);
+            return;
+          }
         } catch (e: any) {
           if (e?.status === 404) continue;
-          if (!cancelled) { setError(e); return; }
+          if (!cancelled) {
+            setError(e);
+            return;
+          }
         }
       }
       if (!cancelled) setError(new Error(`Resource ${name} not found in any version`));
     }
     tryFetch();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [group, plural, name, namespace]);
 
   return [item, error] as const;
@@ -43,13 +54,17 @@ function useCustomResource(
 
 function ConditionTable({ conditions }: { conditions: any[] }) {
   if (!conditions || conditions.length === 0) {
-    return <Typography variant="body2" color="textSecondary">No conditions.</Typography>;
+    return (
+      <Typography variant="body2" color="textSecondary">
+        No conditions.
+      </Typography>
+    );
   }
   return (
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-          {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map((h) => (
+          {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map(h => (
             <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
               {h}
             </th>
@@ -74,9 +89,7 @@ function ConditionTable({ conditions }: { conditions: any[] }) {
                 {c.message ?? ''}
               </td>
               <td style={{ padding: '6px 12px', fontSize: 12, color: '#888' }}>
-                {c.lastTransitionTime
-                  ? new Date(c.lastTransitionTime).toLocaleString()
-                  : '—'}
+                {c.lastTransitionTime ? new Date(c.lastTransitionTime).toLocaleString() : '—'}
               </td>
             </tr>
           );
@@ -145,7 +158,8 @@ export default function ManagedDetail() {
 
   const managerInfo = detectExternalManager(item);
 
-  const hasRelationships = !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
+  const hasRelationships =
+    !!providerConfigRef || !!compositeRef || !!claimName || managerInfo.manager !== null;
 
   return (
     <Box p={3}>
@@ -165,7 +179,9 @@ export default function ManagedDetail() {
 
       {/* Info */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Info</Typography>
+        <Typography variant="h6" gutterBottom>
+          Info
+        </Typography>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
             {[
@@ -203,8 +219,17 @@ export default function ManagedDetail() {
                 <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
                   ProviderConfig:
                 </Typography>
-                <span
-                  style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}
+                <button
+                  type="button"
+                  style={{
+                    color: '#1976d2',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                  }}
                   onClick={() =>
                     history.push(
                       `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
@@ -212,7 +237,7 @@ export default function ManagedDetail() {
                   }
                 >
                   {providerConfigRef}
-                </span>
+                </button>
               </Box>
             )}
             {compositeRef && (
@@ -261,7 +286,9 @@ export default function ManagedDetail() {
 
       {/* Conditions */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Conditions</Typography>
+        <Typography variant="h6" gutterBottom>
+          Conditions
+        </Typography>
         <ConditionTable conditions={conditions} />
       </Paper>
 

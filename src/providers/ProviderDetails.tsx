@@ -1,14 +1,14 @@
-import { useParams } from 'react-router-dom';
 import {
   ConditionsTable,
   DetailsGrid,
   SectionBox,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Provider } from './provider';
+import { useParams } from 'react-router-dom';
 import { ConditionBadge } from '../common/ConditionBadge';
-import { ProviderConfigsSection } from './details/ProviderConfigsSection';
-import { ManagedResourceTypesSection } from './details/ManagedResourceTypesSection';
 import { AllInstancesSection } from './details/AllInstancesSection';
+import { ManagedResourceTypesSection } from './details/ManagedResourceTypesSection';
+import { ProviderConfigsSection } from './details/ProviderConfigsSection';
+import { Provider } from './provider';
 
 export function ProviderDetails() {
   const params = useParams<{ name: string }>();
