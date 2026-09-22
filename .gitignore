@@ -3,6 +3,7 @@ dist
 kubeconfig*
 *.yaml
 coverage/
+.eslintcache
 
 # macOS
 .DS_Store

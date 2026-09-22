@@ -4,8 +4,12 @@
   "description": "Crossplane plugin for Headlamp",
   "main": "main.js",
   "scripts": {
-    "build": "headlamp-plugin build",
     "start": "headlamp-plugin start",
+    "build": "headlamp-plugin build",
+    "format": "headlamp-plugin format",
+    "lint": "headlamp-plugin lint",
+    "lint-fix": "headlamp-plugin lint --fix",
+    "tsc": "headlamp-plugin tsc",
     "test": "headlamp-plugin test"
   },
   "keywords": [
@@ -13,6 +17,14 @@
     "Headlamp",
     "Kubernetes"
   ],
+  "prettier": "@headlamp-k8s/eslint-config/prettier-config",
+  "eslintConfig": {
+    "extends": [
+      "@headlamp-k8s",
+      "prettier",
+      "plugin:jsx-a11y/recommended"
+    ]
+  },
   "author": "openmcp-project",
   "license": "Apache-2.0",
   "type": "commonjs",
