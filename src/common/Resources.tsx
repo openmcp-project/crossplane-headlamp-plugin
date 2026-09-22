@@ -13,8 +13,12 @@ export class Provider extends makeKubeObject('Provider') {
   static apiName = 'providers';
   static isNamespaced = false;
 
-  get spec(): any { return this.jsonData.spec; }
-  get status(): any { return this.jsonData.status; }
+  get spec(): any {
+    return this.jsonData.spec;
+  }
+  get status(): any {
+    return this.jsonData.status;
+  }
 
   get installedVersion(): string {
     return this.status?.atPkg ?? this.status?.currentRevision ?? '';
@@ -40,8 +44,12 @@ export class ProviderRevision extends makeKubeObject('ProviderRevision') {
   static apiName = 'providerrevisions';
   static isNamespaced = false;
 
-  get spec(): any { return this.jsonData.spec; }
-  get status(): any { return this.jsonData.status; }
+  get spec(): any {
+    return this.jsonData.spec;
+  }
+  get status(): any {
+    return this.jsonData.status;
+  }
 
   get conditions(): any[] {
     return this.status?.conditions ?? [];
@@ -55,8 +63,12 @@ export class CompositeResourceDefinition extends makeKubeObject('CompositeResour
   static apiName = 'compositeresourcedefinitions';
   static isNamespaced = false;
 
-  get spec(): any { return this.jsonData.spec; }
-  get status(): any { return this.jsonData.status; }
+  get spec(): any {
+    return this.jsonData.spec;
+  }
+  get status(): any {
+    return this.jsonData.status;
+  }
 
   get conditions(): any[] {
     return this.status?.conditions ?? [];
@@ -70,8 +82,12 @@ export class Composition extends makeKubeObject('Composition') {
   static apiName = 'compositions';
   static isNamespaced = false;
 
-  get spec(): any { return this.jsonData.spec; }
-  get status(): any { return this.jsonData.status; }
+  get spec(): any {
+    return this.jsonData.spec;
+  }
+  get status(): any {
+    return this.jsonData.status;
+  }
 
   get compositeTypeRef(): { apiVersion: string; kind: string } {
     return this.spec?.compositeTypeRef ?? { apiVersion: '', kind: '' };

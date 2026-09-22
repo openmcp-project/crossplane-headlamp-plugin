@@ -1,10 +1,9 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
-import { useHistory,useParams } from 'react-router-dom';
+import { useHistory, useParams } from 'react-router-dom';
 import { clusterPrefix, getApiProxy } from '../helpers';
 
-const { Typography, Box, Chip, CircularProgress } =
-  (window as any).pluginLib?.MuiCore ?? {};
+const { Typography, Box, Chip, CircularProgress } = (window as any).pluginLib?.MuiCore ?? {};
 
 function conditionChip(conditions: any[], type: string) {
   const cond = conditions?.find((c: any) => c.type === type);
@@ -26,7 +25,8 @@ function useCustomResourceList(group: string, version: string, plural: string) {
   useEffect(() => {
     if (!group || !plural) return;
     const ver = version || 'v1alpha1';
-    getApiProxy().request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
+    getApiProxy()
+      .request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
       .then((res: any) => setItems(res?.items ?? []))
       .catch((e: any) => setError(e));
   }, [group, version, plural]);
@@ -45,8 +45,7 @@ export default function ManagedList() {
   // Find the CRD to get version and scope
   const [crds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const crd = crds?.find(
-    (c: any) =>
-      c.jsonData?.spec?.names?.plural === plural && c.jsonData?.spec?.group === group
+    (c: any) => c.jsonData?.spec?.names?.plural === plural && c.jsonData?.spec?.group === group
   );
 
   const versions: string[] = crd?.jsonData?.spec?.versions?.map((v: any) => v.name) ?? [];
@@ -124,12 +123,8 @@ export default function ManagedList() {
                     </span>
                   </td>
                   {isNamespaced && <td style={{ padding: '8px 12px' }}>{ns}</td>}
-                  <td style={{ padding: '8px 12px' }}>
-                    {conditionChip(conditions, 'Ready')}
-                  </td>
-                  <td style={{ padding: '8px 12px' }}>
-                    {conditionChip(conditions, 'Synced')}
-                  </td>
+                  <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Ready')}</td>
+                  <td style={{ padding: '8px 12px' }}>{conditionChip(conditions, 'Synced')}</td>
                   <td style={{ padding: '8px 12px' }}>{created}</td>
                 </tr>
               );

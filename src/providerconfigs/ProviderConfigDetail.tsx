@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useHistory,useParams } from 'react-router-dom';
+import { useHistory, useParams } from 'react-router-dom';
 import { Provider } from '../common/Resources';
-import { clusterPrefix,getApiProxy, useAllManagedResources, useCRDsForProvider } from '../helpers';
+import { clusterPrefix, getApiProxy, useAllManagedResources, useCRDsForProvider } from '../helpers';
 
 const { Typography, Box, Chip, CircularProgress, Paper, Alert } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -21,14 +21,20 @@ function conditionChip(conditions: any[], type: string) {
 
 function ConditionTable({ conditions }: { conditions: any[] }) {
   if (!conditions || conditions.length === 0) {
-    return <Typography variant="body2" color="textSecondary">No conditions.</Typography>;
+    return (
+      <Typography variant="body2" color="textSecondary">
+        No conditions.
+      </Typography>
+    );
   }
   return (
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr style={{ borderBottom: '2px solid #e0e0e0' }}>
-          {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map((h) => (
-            <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+          {['Type', 'Status', 'Reason', 'Message', 'Last Transition'].map(h => (
+            <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 600 }}>
+              {h}
+            </th>
           ))}
         </tr>
       </thead>
@@ -145,7 +151,9 @@ export default function ProviderConfigDetail() {
 
       {/* Info */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Info</Typography>
+        <Typography variant="h6" gutterBottom>
+          Info
+        </Typography>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <tbody>
             {[
@@ -162,7 +170,9 @@ export default function ProviderConfigDetail() {
             ].map(([label, value]) => (
               <tr key={label} style={{ borderBottom: '1px solid #f5f5f5' }}>
                 <td style={{ padding: '6px 12px', fontWeight: 600, width: 200 }}>{label}</td>
-                <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>{value}</td>
+                <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontSize: 13 }}>
+                  {value}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -171,7 +181,9 @@ export default function ProviderConfigDetail() {
 
       {/* Conditions */}
       <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
-        <Typography variant="h6" gutterBottom>Conditions</Typography>
+        <Typography variant="h6" gutterBottom>
+          Conditions
+        </Typography>
         <ConditionTable conditions={conditions} />
       </Paper>
 
@@ -180,11 +192,7 @@ export default function ProviderConfigDetail() {
         <Typography variant="h6" gutterBottom>
           Managed Resources using this config
           {!instancesLoading && (
-            <Chip
-              label={usingInstances.length}
-              size="small"
-              style={{ marginLeft: 8 }}
-            />
+            <Chip label={usingInstances.length} size="small" style={{ marginLeft: 8 }} />
           )}
         </Typography>
         {instancesLoading ? (
@@ -199,9 +207,17 @@ export default function ProviderConfigDetail() {
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-                {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map((h) => (
-                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{h}</th>
+              <tr
+                style={{
+                  borderBottom: '2px solid #e0e0e0',
+                  textAlign: 'left',
+                  background: '#fafafa',
+                }}
+              >
+                {['Kind', 'Name', 'Ready', 'Synced', 'Age'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -214,8 +230,12 @@ export default function ProviderConfigDetail() {
                   ? new Date(item.metadata.creationTimestamp).toLocaleDateString()
                   : '—';
                 const detailUrl = ns
-                  ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
-                  : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${item._group}/${item._plural}/${itemName}`;
+                  ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${
+                      item._group
+                    }/${item._plural}/${ns}/${itemName}`
+                  : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${
+                      item._group
+                    }/${item._plural}/${itemName}`;
                 return (
                   <tr
                     key={`${item._group}/${item._plural}/${ns}/${itemName}`}
@@ -224,8 +244,14 @@ export default function ProviderConfigDetail() {
                   >
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
                     <td style={{ padding: '8px 12px' }}>
-                      <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
-                      {ns && <Typography variant="caption" display="block" color="textSecondary">{ns}</Typography>}
+                      <span style={{ color: '#1976d2', textDecoration: 'underline' }}>
+                        {itemName}
+                      </span>
+                      {ns && (
+                        <Typography variant="caption" display="block" color="textSecondary">
+                          {ns}
+                        </Typography>
+                      )}
                     </td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Ready')}</td>
                     <td style={{ padding: '8px 12px' }}>{conditionChip(conditions2, 'Synced')}</td>

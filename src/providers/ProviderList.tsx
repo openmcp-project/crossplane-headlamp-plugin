@@ -4,8 +4,16 @@ import { Provider } from '../common/Resources';
 import { clusterPrefix } from '../helpers';
 
 const {
-  Typography, Box, Chip, CircularProgress, TextField, InputAdornment,
-  FormControl, InputLabel, Select, MenuItem,
+  Typography,
+  Box,
+  Chip,
+  CircularProgress,
+  TextField,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } = (window as any).pluginLib?.MuiCore ?? {};
 
 // ── URL helper ────────────────────────────────────────────────────────────────
@@ -27,8 +35,11 @@ function conditionChip(conditions: any[], type: string) {
   if (!cond) return <Chip label="Unknown" size="small" />;
   const ok = cond.status === 'True';
   return (
-    <Chip label={ok ? type : `Not ${type}`} size="small"
-      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }} />
+    <Chip
+      label={ok ? type : `Not ${type}`}
+      size="small"
+      style={{ background: ok ? '#4caf50' : '#f44336', color: '#fff', fontWeight: 600 }}
+    />
   );
 }
 
@@ -64,8 +75,11 @@ export default function ProviderList() {
   }, [statusFilter]);
 
   function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(key); setSortDir('asc'); }
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
   }
 
   if (!providers && !error) {
@@ -100,18 +114,26 @@ export default function ProviderList() {
   });
 
   const sorted = [...filtered].sort((a: any, b: any) => {
-    let va: any; let vb: any;
+    let va: any;
+    let vb: any;
     const condVal = (p: any, type: string) =>
       p.jsonData?.status?.conditions?.find((c: any) => c.type === type)?.status ?? '';
-    if (sortKey === 'name') { va = a.metadata?.name ?? ''; vb = b.metadata?.name ?? ''; }
-    else if (sortKey === 'version') {
+    if (sortKey === 'name') {
+      va = a.metadata?.name ?? '';
+      vb = b.metadata?.name ?? '';
+    } else if (sortKey === 'version') {
       va = a.jsonData?.status?.atPkg ?? a.jsonData?.status?.currentRevision ?? '';
       vb = b.jsonData?.status?.atPkg ?? b.jsonData?.status?.currentRevision ?? '';
-    }
-    else if (sortKey === 'installed') { va = condVal(a, 'Installed'); vb = condVal(b, 'Installed'); }
-    else if (sortKey === 'healthy') { va = condVal(a, 'Healthy'); vb = condVal(b, 'Healthy'); }
-    else if (sortKey === 'ready') { va = condVal(a, 'Ready'); vb = condVal(b, 'Ready'); }
-    else if (sortKey === 'age') {
+    } else if (sortKey === 'installed') {
+      va = condVal(a, 'Installed');
+      vb = condVal(b, 'Installed');
+    } else if (sortKey === 'healthy') {
+      va = condVal(a, 'Healthy');
+      vb = condVal(b, 'Healthy');
+    } else if (sortKey === 'ready') {
+      va = condVal(a, 'Ready');
+      vb = condVal(b, 'Ready');
+    } else if (sortKey === 'age') {
       va = a.metadata?.creationTimestamp ?? '';
       vb = b.metadata?.creationTimestamp ?? '';
     }
@@ -122,14 +144,32 @@ export default function ProviderList() {
 
   const hasActiveFilter = statusFilter !== 'all' || !!lc;
 
-  const SortHeader = ({ label, sk, align = 'left' }: { label: string; sk: SortKey; align?: string }) => (
-    <th onClick={() => handleSort(sk)}
+  const SortHeader = ({
+    label,
+    sk,
+    align = 'left',
+  }: {
+    label: string;
+    sk: SortKey;
+    align?: string;
+  }) => (
+    <th
+      onClick={() => handleSort(sk)}
       style={{
-        padding: '8px 12px', fontWeight: 600, cursor: 'pointer',
-        userSelect: 'none' as const, textAlign: align as any, whiteSpace: 'nowrap' as const,
-      }}>
+        padding: '8px 12px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        userSelect: 'none' as const,
+        textAlign: align as any,
+        whiteSpace: 'nowrap' as const,
+      }}
+    >
       {label}
-      {sortKey === sk && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
+      {sortKey === sk && (
+        <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>
+          {sortDir === 'asc' ? '▲' : '▼'}
+        </span>
+      )}
     </th>
   );
 
@@ -137,17 +177,35 @@ export default function ProviderList() {
     <Box p={3}>
       {/* Active filter banner */}
       {hasActiveFilter && (
-        <Box mb={2} p={1.5} style={{ background: '#fff3e0', borderRadius: 6, border: '1px solid #ffb74d' }}
-          display="flex" alignItems="center" justifyContent="space-between">
+        <Box
+          mb={2}
+          p={1.5}
+          style={{ background: '#fff3e0', borderRadius: 6, border: '1px solid #ffb74d' }}
+          display="flex"
+          alignItems="center"
+          justifyContent="space-between"
+        >
           <Typography variant="body2">
             <strong>Filtered view:</strong>
-            {statusFilter !== 'all' && ` Status = ${STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}`}
+            {statusFilter !== 'all' &&
+              ` Status = ${STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}`}
             {lc && ` · Search = "${search}"`}
           </Typography>
           <button
             type="button"
-            style={{ cursor: 'pointer', color: '#1976d2', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', padding: 0 }}
-            onClick={() => { setStatusFilter('all'); setSearch(''); }}
+            style={{
+              cursor: 'pointer',
+              color: '#1976d2',
+              fontSize: 13,
+              fontWeight: 600,
+              background: 'none',
+              border: 'none',
+              padding: 0,
+            }}
+            onClick={() => {
+              setStatusFilter('all');
+              setSearch('');
+            }}
           >
             Clear filter ×
           </button>
@@ -155,7 +213,14 @@ export default function ProviderList() {
       )}
 
       {/* Toolbar */}
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={1}>
+      <Box
+        display="flex"
+        alignItems="center"
+        justifyContent="space-between"
+        mb={2}
+        flexWrap="wrap"
+        gap={1}
+      >
         <Typography variant="h4">Crossplane Providers</Typography>
         <Box display="flex" alignItems="center" gap={2}>
           <TextField
@@ -174,10 +239,15 @@ export default function ProviderList() {
           />
           <FormControl size="small" style={{ minWidth: 150 }}>
             <InputLabel>Health</InputLabel>
-            <Select value={statusFilter} label="Health"
-              onChange={(e: any) => setStatusFilter(e.target.value as ProviderStatusFilter)}>
-              {STATUS_OPTIONS.map((o) => (
-                <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+            <Select
+              value={statusFilter}
+              label="Health"
+              onChange={(e: any) => setStatusFilter(e.target.value as ProviderStatusFilter)}
+            >
+              {STATUS_OPTIONS.map(o => (
+                <MenuItem key={o.value} value={o.value}>
+                  {o.label}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -191,7 +261,13 @@ export default function ProviderList() {
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
+            <tr
+              style={{
+                borderBottom: '2px solid #e0e0e0',
+                textAlign: 'left',
+                background: '#fafafa',
+              }}
+            >
               <SortHeader label="Name" sk="name" />
               <SortHeader label="Package" sk="name" />
               <SortHeader label="Version" sk="version" />
@@ -204,25 +280,43 @@ export default function ProviderList() {
           <tbody>
             {sorted.map((p: any) => {
               const conditions: any[] = p.jsonData?.status?.conditions ?? [];
-              const version = p.jsonData?.status?.atPkg ?? p.jsonData?.status?.currentRevision ?? '—';
+              const version =
+                p.jsonData?.status?.atPkg ?? p.jsonData?.status?.currentRevision ?? '—';
               const created = p.metadata?.creationTimestamp
                 ? new Date(p.metadata.creationTimestamp).toLocaleDateString()
                 : '—';
-              const isHealthy = conditions.find((c: any) => c.type === 'Healthy')?.status === 'True';
+              const isHealthy =
+                conditions.find((c: any) => c.type === 'Healthy')?.status === 'True';
               const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
               const rowBad = !isHealthy || !isReady;
               return (
-                <tr key={p.metadata.name}
+                <tr
+                  key={p.metadata.name}
                   style={{
-                    borderBottom: '1px solid #f0f0f0', cursor: 'pointer',
+                    borderBottom: '1px solid #f0f0f0',
+                    cursor: 'pointer',
                     background: rowBad ? 'rgba(244,67,54,0.03)' : 'transparent',
                   }}
-                  onClick={() => history.push(`${clusterPrefix()}/crossplane/providers/${p.metadata.name}`)}
+                  onClick={() =>
+                    history.push(`${clusterPrefix()}/crossplane/providers/${p.metadata.name}`)
+                  }
                 >
                   <td style={{ padding: '8px 12px' }}>
-                    <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{p.metadata.name}</span>
+                    <span style={{ color: '#1976d2', textDecoration: 'underline' }}>
+                      {p.metadata.name}
+                    </span>
                   </td>
-                  <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                  <td
+                    style={{
+                      padding: '8px 12px',
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      maxWidth: 280,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap' as const,
+                    }}
+                  >
                     {p.jsonData?.spec?.package ?? '—'}
                   </td>
                   <td style={{ padding: '8px 12px' }}>{version}</td>

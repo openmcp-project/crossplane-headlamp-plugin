@@ -33,7 +33,8 @@ export function isSynced(resource: any): boolean {
 
 // Returns the message field of a condition by type, or ''.
 export function getConditionMessage(resource: any, type: string): string {
-  const conditions: any[] = resource?.status?.conditions ?? resource?.jsonData?.status?.conditions ?? [];
+  const conditions: any[] =
+    resource?.status?.conditions ?? resource?.jsonData?.status?.conditions ?? [];
   return conditions.find((c: any) => c.type === type)?.message ?? '';
 }
 
@@ -95,11 +96,7 @@ export function deriveProviderGroupFromImage(packageRef: string): string {
 
 // ── Provider pod link helper ─────────────────────────────────────────────────
 
-export function providerPodLogsUrl(
-  cluster: string,
-  namespace: string,
-  podName: string
-): string {
+export function providerPodLogsUrl(cluster: string, namespace: string, podName: string): string {
   return `/c/${cluster}/pods/${namespace}/${podName}/logs`;
 }
 
@@ -108,9 +105,10 @@ export function providerPodLogsUrl(
 export function clusterPrefix(): string {
   // Headlamp may be served under a base path (e.g. /api/headlamp) — strip it first.
   const base = (window as any).headlampBaseUrl ?? '';
-  const pathname = base && window.location.pathname.startsWith(base)
-    ? window.location.pathname.slice(base.length)
-    : window.location.pathname;
+  const pathname =
+    base && window.location.pathname.startsWith(base)
+      ? window.location.pathname.slice(base.length)
+      : window.location.pathname;
   const match = pathname.match(/^(\/c\/[^/]+)/);
   return match?.[1] ?? '';
 }
@@ -251,7 +249,10 @@ export function detectExternalManager(resource: any): ExternalManagerInfo {
   const labels: Record<string, string> = resource?.metadata?.labels ?? {};
 
   if (labels['helm.sh/chart'] || labels['app.kubernetes.io/managed-by'] === 'Helm') {
-    return { manager: 'helm', ref: labels['helm.sh/chart'] ?? labels['app.kubernetes.io/instance'] ?? '' };
+    return {
+      manager: 'helm',
+      ref: labels['helm.sh/chart'] ?? labels['app.kubernetes.io/instance'] ?? '',
+    };
   }
   if (annotations['kustomize.toolkit.fluxcd.io/name']) {
     return { manager: 'flux-kustomization', ref: annotations['kustomize.toolkit.fluxcd.io/name'] };

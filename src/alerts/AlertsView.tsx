@@ -1,8 +1,7 @@
 import { useHistory } from 'react-router-dom';
-import { clusterPrefix,useAllManagedResources } from '../helpers';
+import { clusterPrefix, useAllManagedResources } from '../helpers';
 
-const { Typography, Box, Chip, CircularProgress, Alert } =
-  (window as any).pluginLib?.MuiCore ?? {};
+const { Typography, Box, Chip, CircularProgress, Alert } = (window as any).pluginLib?.MuiCore ?? {};
 
 function conditionChip(conditions: any[], type: string) {
   const cond = conditions?.find((c: any) => c.type === type);
@@ -51,16 +50,20 @@ export default function AlertsView() {
     );
   }
 
-  const broken = items.filter((item: any) => {
-    const conditions: any[] = item.status?.conditions ?? [];
-    const ready = conditions.find((c: any) => c.type === 'Ready');
-    const synced = conditions.find((c: any) => c.type === 'Synced');
-    return ready?.status === 'False' || synced?.status === 'False';
-  }).sort((a: any, b: any) => {
-    const aTime = a.status?.conditions?.find((c: any) => c.status === 'False')?.lastTransitionTime ?? '';
-    const bTime = b.status?.conditions?.find((c: any) => c.status === 'False')?.lastTransitionTime ?? '';
-    return new Date(aTime).getTime() - new Date(bTime).getTime();
-  });
+  const broken = items
+    .filter((item: any) => {
+      const conditions: any[] = item.status?.conditions ?? [];
+      const ready = conditions.find((c: any) => c.type === 'Ready');
+      const synced = conditions.find((c: any) => c.type === 'Synced');
+      return ready?.status === 'False' || synced?.status === 'False';
+    })
+    .sort((a: any, b: any) => {
+      const aTime =
+        a.status?.conditions?.find((c: any) => c.status === 'False')?.lastTransitionTime ?? '';
+      const bTime =
+        b.status?.conditions?.find((c: any) => c.status === 'False')?.lastTransitionTime ?? '';
+      return new Date(aTime).getTime() - new Date(bTime).getTime();
+    });
 
   return (
     <Box p={3}>
@@ -85,8 +88,23 @@ export default function AlertsView() {
           </Box>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #e0e0e0', textAlign: 'left', background: '#fafafa' }}>
-                {['Kind', 'Name', 'Provider', 'Ready', 'Synced', 'Failing Since', 'Reason', 'Message'].map((h) => (
+              <tr
+                style={{
+                  borderBottom: '2px solid #e0e0e0',
+                  textAlign: 'left',
+                  background: '#fafafa',
+                }}
+              >
+                {[
+                  'Kind',
+                  'Name',
+                  'Provider',
+                  'Ready',
+                  'Synced',
+                  'Failing Since',
+                  'Reason',
+                  'Message',
+                ].map(h => (
                   <th key={h} style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>
                     {h}
                   </th>
@@ -99,8 +117,12 @@ export default function AlertsView() {
                 const ns: string = item.metadata?.namespace ?? '';
                 const conditions: any[] = item.status?.conditions ?? [];
                 const detailUrl = ns
-                  ? `${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${item._group}/${item._plural}/${ns}/${itemName}`
-                  : `${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${item._group}/${item._plural}/${itemName}`;
+                  ? `${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${
+                      item._group
+                    }/${item._plural}/${ns}/${itemName}`
+                  : `${clusterPrefix()}/crossplane/providers/${item._providerName}/resources/${
+                      item._group
+                    }/${item._plural}/${itemName}`;
 
                 return (
                   <tr
@@ -110,7 +132,9 @@ export default function AlertsView() {
                   >
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item._kind}</td>
                     <td style={{ padding: '8px 12px' }}>
-                      <span style={{ color: '#1976d2', textDecoration: 'underline' }}>{itemName}</span>
+                      <span style={{ color: '#1976d2', textDecoration: 'underline' }}>
+                        {itemName}
+                      </span>
                       {ns && (
                         <Typography variant="caption" display="block" color="textSecondary">
                           {ns}

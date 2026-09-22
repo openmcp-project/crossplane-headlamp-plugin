@@ -9,19 +9,14 @@ import {
   useEdgesState,
   useNodesState,
 } from '@xyflow/react';
-import {useEffect, useState } from 'react';
-import { useHistory,useParams } from 'react-router-dom';
-import { clusterPrefix,getApiProxy } from '../helpers';
+import { useEffect, useState } from 'react';
+import { useHistory, useParams } from 'react-router-dom';
+import { clusterPrefix, getApiProxy } from '../helpers';
 
 const { Typography, Box, CircularProgress, Paper, Button } =
   (window as any).pluginLib?.MuiCore ?? {};
 
-function useCustomResource(
-  group: string,
-  plural: string,
-  name: string,
-  namespace?: string
-) {
+function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
   const [item, setItem] = useState<any>(null);
   const [error, setError] = useState<any>(null);
 
@@ -36,16 +31,24 @@ function useCustomResource(
         try {
           const url = `/apis/${group}/${ver}/${nsPath}${plural}/${name}`;
           const res = await getApiProxy().request(url, { isJSON: true });
-          if (!cancelled) { setItem(res); return; }
+          if (!cancelled) {
+            setItem(res);
+            return;
+          }
         } catch (e: any) {
           if (e?.status === 404) continue;
-          if (!cancelled) { setError(e); return; }
+          if (!cancelled) {
+            setError(e);
+            return;
+          }
         }
       }
       if (!cancelled) setError(new Error(`Resource ${name} not found`));
     }
     tryFetch();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [group, plural, name, namespace]);
 
   return [item, error] as const;
@@ -116,7 +119,9 @@ export default function DependencyGraph() {
           label: (
             <div style={nodeStyle('#7b1fa2')}>
               <div style={{ fontSize: 10, opacity: 0.85, marginBottom: 2 }}>Claim</div>
-              <div>{claimNamespace}/{claimName}</div>
+              <div>
+                {claimNamespace}/{claimName}
+              </div>
             </div>
           ),
         },
@@ -159,7 +164,9 @@ export default function DependencyGraph() {
       data: {
         label: (
           <div style={nodeStyle(mrColor)}>
-            <div style={{ fontSize: 10, opacity: 0.85, marginBottom: 2 }}>{item.kind ?? plural}</div>
+            <div style={{ fontSize: 10, opacity: 0.85, marginBottom: 2 }}>
+              {item.kind ?? plural}
+            </div>
             <div>{name}</div>
           </div>
         ),
@@ -187,7 +194,14 @@ export default function DependencyGraph() {
           label: (
             <button
               type="button"
-              style={{ ...nodeStyle('#546e7a', true), background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+              style={{
+                ...nodeStyle('#546e7a', true),
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
               onClick={() =>
                 history.push(
                   `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
@@ -230,7 +244,9 @@ export default function DependencyGraph() {
   if (error) {
     return (
       <Box p={3}>
-        <Typography color="error">Failed to load resource: {String(error?.message ?? error)}</Typography>
+        <Typography color="error">
+          Failed to load resource: {String(error?.message ?? error)}
+        </Typography>
       </Box>
     );
   }
@@ -269,7 +285,15 @@ export default function DependencyGraph() {
           { color: '#546e7a', label: 'ProviderConfig' },
         ].map(({ color, label }) => (
           <Box key={label} display="flex" alignItems="center" gap={0.5}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: color, display: 'inline-block' }} />
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 3,
+                background: color,
+                display: 'inline-block',
+              }}
+            />
             <Typography variant="caption">{label}</Typography>
           </Box>
         ))}

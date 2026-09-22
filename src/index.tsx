@@ -1,7 +1,4 @@
-import {
-  registerRoute,
-  registerSidebarEntry,
-} from '@kinvolk/headlamp-plugin/lib';
+import { registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 // reserved for future use
 import ManagedDetail from './managed/ManagedDetail';
