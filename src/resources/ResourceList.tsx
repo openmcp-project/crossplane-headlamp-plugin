@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { DOT, xpColors } from '../common/colors';
-import { Provider } from '../common/Resources';
 import { clusterPrefix, getApiProxy, NON_MANAGED_PLURALS, useCRDsForProvider } from '../helpers';
+import { Provider } from '../providers/provider';
 
 const {
   Typography,

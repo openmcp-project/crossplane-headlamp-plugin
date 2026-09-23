@@ -6,37 +6,6 @@ const makeKubeObject: (name: string) => any =
   (K8s as any).makeKubeObject ??
   (() => Object.getPrototypeOf(K8s.ResourceClasses.CustomResourceDefinition));
 
-// Provider – pkg.crossplane.io/v1
-export class Provider extends makeKubeObject('Provider') {
-  static apiVersion = 'pkg.crossplane.io/v1';
-  static kind = 'Provider';
-  static apiName = 'providers';
-  static isNamespaced = false;
-
-  get spec(): any {
-    return this.jsonData.spec;
-  }
-  get status(): any {
-    return this.jsonData.status;
-  }
-
-  get installedVersion(): string {
-    return this.status?.atPkg ?? this.status?.currentRevision ?? '';
-  }
-
-  get packageRef(): string {
-    return this.spec?.package ?? '';
-  }
-
-  get conditions(): any[] {
-    return this.status?.conditions ?? [];
-  }
-
-  getCondition(type: string) {
-    return this.conditions.find((c: any) => c.type === type);
-  }
-}
-
 // ProviderRevision – pkg.crossplane.io/v1
 export class ProviderRevision extends makeKubeObject('ProviderRevision') {
   static apiVersion = 'pkg.crossplane.io/v1';

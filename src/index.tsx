@@ -1,12 +1,12 @@
 import { registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
-// reserved for future use
 import ManagedDetail from './managed/ManagedDetail';
 import ManagedList from './managed/ManagedList';
 import CrossplaneOverview from './overview';
 import ProviderConfigDetail from './providerconfigs/ProviderConfigDetail';
-import ProviderDetail from './providers/ProviderDetail';
-import ProviderList from './providers/ProviderList';
+import { PROVIDER_DETAILS_ROUTE, PROVIDER_LIST_ROUTE } from './providers/provider';
+import { ProviderDetails } from './providers/ProviderDetails';
+import { ProviderList } from './providers/ProviderList';
 import ResourceList from './resources/ResourceList';
 
 const crossplaneIcon = {
@@ -59,17 +59,17 @@ registerRoute({
 registerRoute({
   path: '/crossplane/providers',
   sidebar: 'crossplane-providers',
-  name: 'crossplaneProviders',
+  name: PROVIDER_LIST_ROUTE,
   exact: true,
-  component: () => React.createElement(ProviderList),
+  component: ProviderList,
 });
 
 registerRoute({
   path: '/crossplane/providers/:name',
   sidebar: 'crossplane-providers',
-  name: 'crossplaneProviderDetail',
+  name: PROVIDER_DETAILS_ROUTE,
   exact: true,
-  component: () => React.createElement(ProviderDetail),
+  component: ProviderDetails,
 });
 
 registerRoute({
