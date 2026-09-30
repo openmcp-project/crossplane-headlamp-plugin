@@ -1,5 +1,9 @@
+import * as jsYaml from 'js-yaml';
 import { useEffect, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
+import { xpColors } from '../common/colors';
+import { isDarkMode } from '../common/crdTheme';
+import { openCRDDetailByGroupPlural } from '../crds/CRDList';
 import { clusterPrefix, detectExternalManager, getApiProxy } from '../helpers';
 
 const {
@@ -13,6 +17,45 @@ const {
   AccordionSummary,
   AccordionDetails,
 } = (window as any).pluginLib?.MuiCore ?? {};
+
+const { Editor: MonacoEditor } = (window as any).pluginLib?.ReactMonacoEditor ?? {};
+
+function YamlSection({ item }: { item: any }) {
+  const yaml = jsYaml.dump(item);
+  const dark = isDarkMode();
+  if (MonacoEditor) {
+    return (
+      <MonacoEditor
+        language="yaml"
+        theme={dark ? 'vs-dark' : 'light'}
+        value={yaml}
+        options={{
+          readOnly: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+        }}
+        height="600px"
+      />
+    );
+  }
+  return (
+    <pre
+      style={{
+        overflow: 'auto',
+        borderRadius: 4,
+        padding: 12,
+        fontSize: 12,
+        margin: 0,
+        maxHeight: 600,
+        background: dark ? '#1e1e1e' : '#f5f5f5',
+        color: dark ? '#d4d4d4' : 'inherit',
+      }}
+    >
+      {yaml}
+    </pre>
+  );
+}
 
 function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
   const [item, setItem] = useState<any>(null);
@@ -115,6 +158,32 @@ const managerLabels: Record<string, string> = {
   kro: 'Kro',
 };
 
+export interface ManagedDetailProps {
+  providerName: string;
+  group: string;
+  plural: string;
+  name: string;
+  namespace?: string;
+}
+
+// Opens the full resource detail in a right-hand Activity panel (used from the
+// CRD browser). The routed page renders the same view via ManagedDetail below.
+export function openManagedDetail(props: ManagedDetailProps) {
+  const Activity = (window as any).pluginLib?.Activity;
+  if (!Activity?.launch) {
+    console.warn('Activity.launch not available in this version of Headlamp');
+    return;
+  }
+  const { name, group, plural, namespace } = props;
+  Activity.launch({
+    id: `managed-detail:${group}/${plural}/${namespace ?? ''}/${name}`,
+    location: 'split-right',
+    temporary: true,
+    title: name,
+    content: <ManagedDetailView {...props} />,
+  });
+}
+
 export default function ManagedDetail() {
   const params = useParams<{
     providerName: string;
@@ -123,7 +192,10 @@ export default function ManagedDetail() {
     name: string;
     namespace?: string;
   }>();
-  const { providerName, group, plural, name, namespace } = params;
+  return <ManagedDetailView {...params} />;
+}
+
+function ManagedDetailView({ providerName, group, plural, name, namespace }: ManagedDetailProps) {
   const history = useHistory();
 
   const [item, error] = useCustomResource(group, plural, name, namespace);
@@ -188,7 +260,24 @@ export default function ManagedDetail() {
               ['Name', name],
               ['Namespace', namespace ?? '(cluster-scoped)'],
               ['API Version', item?.apiVersion ?? ''],
-              ['Kind', item?.kind ?? ''],
+              [
+                'Kind',
+                <button
+                  type="button"
+                  style={{
+                    color: xpColors.link,
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                  }}
+                  onClick={() => openCRDDetailByGroupPlural(group, plural, providerName)}
+                >
+                  {item?.kind ?? ''}
+                </button>,
+              ],
               [
                 'Created',
                 item?.metadata?.creationTimestamp
@@ -206,6 +295,15 @@ export default function ManagedDetail() {
           </tbody>
         </table>
       </Paper>
+
+      <Accordion style={{ marginBottom: 24 }}>
+        <AccordionSummary expandIcon={<span>▾</span>}>
+          <Typography variant="h6">YAML</Typography>
+        </AccordionSummary>
+        <AccordionDetails style={{ display: 'block' }}>
+          <YamlSection item={item} />
+        </AccordionDetails>
+      </Accordion>
 
       {/* Relationships */}
       {hasRelationships && (
