@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
+import { ViewYamlButton, YamlSection } from '../common/YamlView';
 import { clusterPrefix, getApiProxy, useAllManagedResources, useCRDsForProvider } from '../helpers';
 import { Provider } from '../providers/provider';
 
@@ -136,9 +137,12 @@ export default function ProviderConfigDetail() {
 
   return (
     <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        ProviderConfig: {configName}
-      </Typography>
+      <Box display="flex" alignItems="center" justifyContent="space-between">
+        <Typography variant="h4" gutterBottom>
+          ProviderConfig: {configName}
+        </Typography>
+        <ViewYamlButton item={config} />
+      </Box>
       <Typography variant="body2" color="textSecondary" gutterBottom>
         Provider: {providerName}
       </Typography>
@@ -185,6 +189,13 @@ export default function ProviderConfigDetail() {
           Conditions
         </Typography>
         <ConditionTable conditions={conditions} />
+      </Paper>
+
+      <Paper elevation={1} style={{ padding: 16, marginBottom: 24 }}>
+        <Typography variant="h6" gutterBottom>
+          YAML
+        </Typography>
+        <YamlSection item={config} />
       </Paper>
 
       {/* Managed resources using this config */}
