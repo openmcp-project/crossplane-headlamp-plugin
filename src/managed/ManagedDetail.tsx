@@ -1,8 +1,7 @@
-import * as jsYaml from 'js-yaml';
 import { useEffect, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { xpColors } from '../common/colors';
-import { isDarkMode } from '../common/crdTheme';
+import { ViewYamlButton, YamlSection } from '../common/YamlView';
 import { openCRDDetailByGroupPlural } from '../crds/CRDList';
 import { clusterPrefix, detectExternalManager, getApiProxy } from '../helpers';
 
@@ -17,45 +16,6 @@ const {
   AccordionSummary,
   AccordionDetails,
 } = (window as any).pluginLib?.MuiCore ?? {};
-
-const { Editor: MonacoEditor } = (window as any).pluginLib?.ReactMonacoEditor ?? {};
-
-function YamlSection({ item }: { item: any }) {
-  const yaml = jsYaml.dump(item);
-  const dark = isDarkMode();
-  if (MonacoEditor) {
-    return (
-      <MonacoEditor
-        language="yaml"
-        theme={dark ? 'vs-dark' : 'light'}
-        value={yaml}
-        options={{
-          readOnly: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          wordWrap: 'on',
-        }}
-        height="600px"
-      />
-    );
-  }
-  return (
-    <pre
-      style={{
-        overflow: 'auto',
-        borderRadius: 4,
-        padding: 12,
-        fontSize: 12,
-        margin: 0,
-        maxHeight: 600,
-        background: dark ? '#1e1e1e' : '#f5f5f5',
-        color: dark ? '#d4d4d4' : 'inherit',
-      }}
-    >
-      {yaml}
-    </pre>
-  );
-}
 
 function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
   const [item, setItem] = useState<any>(null);
@@ -235,9 +195,12 @@ function ManagedDetailView({ providerName, group, plural, name, namespace }: Man
 
   return (
     <Box p={3}>
-      <Typography variant="h4" gutterBottom>
-        {item?.kind ?? plural}: {name}
-      </Typography>
+      <Box display="flex" alignItems="center" justifyContent="space-between">
+        <Typography variant="h4" gutterBottom>
+          {item?.kind ?? plural}: {name}
+        </Typography>
+        <ViewYamlButton item={item} />
+      </Box>
       <Typography variant="body2" color="textSecondary" gutterBottom>
         {group} · {namespace ? `Namespace: ${namespace}` : 'Cluster-scoped'}
       </Typography>

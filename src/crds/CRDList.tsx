@@ -6,6 +6,7 @@ import { SchemaPropertyTree } from '../common/CRDSchema';
 import { neutralColors } from '../common/crdTheme';
 import { ProviderRevision } from '../common/Resources';
 import { ScopeBadge } from '../common/ScopeBadge';
+import { ViewYamlButton, YamlSection } from '../common/YamlView';
 import { getApiProxy, NON_MANAGED_PLURALS } from '../helpers';
 import { openManagedDetail } from '../managed/ManagedDetail';
 import { Provider } from '../providers/provider';
@@ -189,6 +190,8 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
   if (isManagedResource) {
     tabs.push(instanceCount !== null ? `Resources (${instanceCount})` : 'Resources');
   }
+  tabs.push('YAML');
+  const yamlIndex = tabs.length - 1;
 
   return (
     <SectionBox title={kind} subtitle={group} headerProps={{ headerStyle: 'main' }}>
@@ -240,6 +243,15 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
       {tab === 2 && isManagedResource && (
         <Paper elevation={1} style={{ padding: 0 }}>
           <InstancesList crd={crd} providerName={providerName} />
+        </Paper>
+      )}
+
+      {tab === yamlIndex && (
+        <Paper elevation={1} style={{ padding: 16 }}>
+          <div style={{ marginBottom: 8 }}>
+            <ViewYamlButton item={crd.jsonData} />
+          </div>
+          <YamlSection item={crd.jsonData} />
         </Paper>
       )}
     </SectionBox>
