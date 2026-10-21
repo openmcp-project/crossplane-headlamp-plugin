@@ -38,7 +38,7 @@ function useCRDProviderMap(): Map<string, string> {
     const revision = revisions.find((r: any) => r.metadata?.name === currentRevision);
     const refs: any[] = revision?.jsonData?.status?.objectRefs ?? [];
     for (const ref of refs) {
-      if (ref.kind === 'CustomResourceDefinition') map.set(ref.name, providerName);
+      map.set(ref.name, providerName);
     }
   }
   return map;
