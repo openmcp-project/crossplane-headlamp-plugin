@@ -29,7 +29,14 @@ export class Provider extends KubeObject {
   }
 
   get installedVersion(): string {
-    return this.status.atPkg || this.currentRevision;
+    const pkg = this.status.atPkg || this.spec.package;
+    if (pkg) {
+      const tag = pkg.split(':').pop();
+      if (tag && tag !== pkg) {
+        return tag;
+      }
+    }
+    return '';
   }
 
   get currentRevision(): string {
