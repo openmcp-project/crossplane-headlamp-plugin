@@ -191,19 +191,11 @@ function ProviderCard({
 }) {
   const history = useHistory();
   const conditions: any[] = provider.jsonData?.status?.conditions ?? [];
-  const readyCond = conditions.find((c: any) => c.type === 'Ready');
   const healthyCond = conditions.find((c: any) => c.type === 'Healthy');
   const installedCond = conditions.find((c: any) => c.type === 'Installed');
 
-  const allOk =
-    readyCond?.status === 'True' &&
-    healthyCond?.status === 'True' &&
-    installedCond?.status === 'True';
-  const anyError =
-    readyCond?.status === 'False' ||
-    healthyCond?.status === 'False' ||
-    installedCond?.status === 'False';
-  const borderColor = allOk ? '#4caf50' : anyError ? '#f44336' : '#ff9800';
+  const allOk = healthyCond?.status === 'True' && installedCond?.status === 'True';
+  const anyError = healthyCond?.status === 'False' || installedCond?.status === 'False';
 
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const providerName: string = provider.metadata.name;
@@ -265,7 +257,7 @@ function ProviderCard({
   ];
 
   return (
-    <Paper elevation={2} style={{ borderLeft: `4px solid ${borderColor}`, overflow: 'hidden' }}>
+    <Paper elevation={2} style={{ overflow: 'hidden' }}>
       {/* Header */}
       <Box
         px={2}
@@ -286,7 +278,6 @@ function ProviderCard({
         </Box>
         <Box display="flex" gap={0.75} flexWrap="wrap" justifyContent="flex-end">
           {[
-            { label: 'Ready', cond: readyCond },
             { label: 'Healthy', cond: healthyCond },
             { label: 'Installed', cond: installedCond },
           ].map(({ label, cond }) => {
