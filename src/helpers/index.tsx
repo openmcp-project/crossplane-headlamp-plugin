@@ -64,13 +64,11 @@ export function useCRDsForProvider(_providerName: string, currentRevision: strin
   // Find the active revision for this provider
   const revision = revisions?.find((r: any) => r.metadata?.name === currentRevision);
   const objectRefs: any[] = revision?.jsonData?.status?.objectRefs ?? [];
-  const crdNames = new Set(
-    objectRefs.filter((r: any) => r.kind === 'CustomResourceDefinition').map((r: any) => r.name)
-  );
+  const refNames = new Set(objectRefs.map((r: any) => r.name));
 
-  if (crdNames.size === 0) return [[] as any[], crdErr] as const;
+  if (refNames.size === 0) return [[] as any[], crdErr] as const;
 
-  const filtered = allCrds.filter((crd: any) => crdNames.has(crd.metadata?.name));
+  const filtered = allCrds.filter((crd: any) => refNames.has(crd.metadata?.name));
   return [filtered, crdErr] as const;
 }
 
@@ -166,9 +164,7 @@ export function useAllManagedResources(filterProviderName?: string): {
     const revisionCrdMap = new Map<string, any[]>();
     for (const rev of revisions ?? []) {
       const refs: any[] = rev.jsonData?.status?.objectRefs ?? [];
-      const crdNames = new Set(
-        refs.filter((r: any) => r.kind === 'CustomResourceDefinition').map((r: any) => r.name)
-      );
+      const crdNames = new Set(refs.map((r: any) => r.name));
       const crds = (allCrds as any[]).filter((c: any) => crdNames.has(c.metadata?.name));
       revisionCrdMap.set(rev.metadata?.name, crds);
     }
