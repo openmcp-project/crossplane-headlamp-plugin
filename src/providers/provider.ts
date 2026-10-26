@@ -31,12 +31,10 @@ export class Provider extends KubeObject {
   get installedVersion(): string {
     const pkg = this.status.atPkg || this.spec.package;
     if (pkg) {
-      const tag = pkg.split(':').pop();
-      if (tag && tag !== pkg) {
-        return tag;
-      }
+      const parts = pkg.split(':');
+      if (parts.length > 1) return parts[parts.length - 1];
     }
-    return '';
+    return this.currentRevision;
   }
 
   get currentRevision(): string {
