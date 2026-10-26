@@ -194,9 +194,6 @@ function ProviderCard({
   const healthyCond = conditions.find((c: any) => c.type === 'Healthy');
   const installedCond = conditions.find((c: any) => c.type === 'Installed');
 
-  const allOk = healthyCond?.status === 'True' && installedCond?.status === 'True';
-  const anyError = healthyCond?.status === 'False' || installedCond?.status === 'False';
-
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const providerName: string = provider.metadata.name;
   const { configs } = useProviderConfigs(providerName, currentRevision);
