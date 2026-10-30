@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { DOT, xpColors } from '../common/colors';
 import { clusterPrefix, getApiProxy, NON_MANAGED_PLURALS, useCRDsForProvider } from '../helpers';
+import { openManagedDetail } from '../managed/ManagedDetail';
 import { Provider } from '../providers/provider';
 
 const {
@@ -220,7 +221,6 @@ function InstancesSubTable({
   statusFilter: StatusFilter;
   labelFilter: string;
 }) {
-  const history = useHistory();
   const { instances, loading } = useInstancesForCRD(crd, true, statusFilter);
   const group: string = crd.jsonData?.spec?.group ?? '';
   const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
@@ -277,9 +277,6 @@ function InstancesSubTable({
           : '—';
         const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
         const isSynced = conditions.find((c: any) => c.type === 'Synced')?.status === 'True';
-        const detailUrl = isNamespaced
-          ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${ns}/${instName}`
-          : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${instName}`;
         return (
           <tr
             key={`${ns}/${instName}`}
@@ -288,7 +285,15 @@ function InstancesSubTable({
               cursor: 'pointer',
               background: !isReady || !isSynced ? 'rgba(244,67,54,0.04)' : '#fafffe',
             }}
-            onClick={() => history.push(detailUrl)}
+            onClick={() =>
+              openManagedDetail({
+                providerName,
+                group,
+                plural,
+                name: instName,
+                namespace: isNamespaced ? ns : undefined,
+              })
+            }
           >
             {/* col 1: chevron spacer */}
             <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
