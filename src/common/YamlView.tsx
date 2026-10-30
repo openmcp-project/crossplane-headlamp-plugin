@@ -1,43 +1,26 @@
+import Editor from '@monaco-editor/react';
+import { Button, useTheme } from '@mui/material';
 import * as jsYaml from 'js-yaml';
-import { isDarkMode } from './crdTheme';
-
-const { Editor: MonacoEditor } = (window as any).pluginLib?.ReactMonacoEditor ?? {};
-const { Button } = (window as any).pluginLib?.MuiCore ?? {};
+import React, { useMemo } from 'react';
 
 export function YamlSection({ item }: { item: any }) {
-  const yaml = jsYaml.dump(item);
-  const dark = isDarkMode();
-  if (MonacoEditor) {
-    return (
-      <MonacoEditor
-        language="yaml"
-        theme={dark ? 'vs-dark' : 'light'}
-        value={yaml}
-        options={{
-          readOnly: true,
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          wordWrap: 'on',
-        }}
-        height="600px"
-      />
-    );
-  }
+  const theme = useTheme();
+  const dark = theme.palette.mode === 'dark';
+  const yaml = useMemo(() => jsYaml.dump(item), [item]);
+
   return (
-    <pre
-      style={{
-        overflow: 'auto',
-        borderRadius: 4,
-        padding: 12,
-        fontSize: 12,
-        margin: 0,
-        maxHeight: 600,
-        background: dark ? '#1e1e1e' : '#f5f5f5',
-        color: dark ? '#d4d4d4' : 'inherit',
+    <Editor
+      language="yaml"
+      theme={dark ? 'vs-dark' : 'light'}
+      value={yaml}
+      options={{
+        readOnly: true,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
       }}
-    >
-      {yaml}
-    </pre>
+      height="600px"
+    />
   );
 }
 
