@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import { clusterPrefix, getApiProxy, useAllManagedResources, useCRDsForProvider } from '../helpers';
+import { clusterPrefix, useAllManagedResources, useCRDsForProvider } from '../helpers';
+import { useCustomResourceList } from '../helpers/useCustomResources';
 import { Provider } from '../providers/provider';
 
 const { Typography, Box, Paper, CircularProgress, Alert } =
@@ -161,21 +161,9 @@ function useProviderConfigs(
   currentRevision: string
 ): { configs: any[] | null } {
   const [crds] = useCRDsForProvider(providerName, currentRevision);
-  const [configs, setConfigs] = useState<any[] | null>(null);
   const configCrd = crds?.find((c: any) => c.jsonData?.spec?.names?.plural === 'providerconfigs');
-  useEffect(() => {
-    if (!configCrd) {
-      setConfigs([]);
-      return;
-    }
-    const group: string = configCrd.jsonData?.spec?.group ?? '';
-    const ver: string = configCrd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-    getApiProxy()
-      .request(`/apis/${group}/${ver}/providerconfigs`, { isJSON: true })
-      .then((res: any) => setConfigs(res?.items ?? []))
-      .catch(() => setConfigs([]));
-  }, [configCrd?.metadata?.name]);
-  return { configs };
+  const { items: configs } = useCustomResourceList(configCrd);
+  return { configs: configCrd ? configs : [] };
 }
 
 // ── Provider card ─────────────────────────────────────────────────────────────
