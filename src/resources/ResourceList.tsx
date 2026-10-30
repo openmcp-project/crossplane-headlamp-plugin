@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { DOT, xpColors } from '../common/colors';
+import { ScopeBadge } from '../common/ScopeBadge';
 import { clusterPrefix, getApiProxy, NON_MANAGED_PLURALS, useCRDsForProvider } from '../helpers';
 import { Provider } from '../providers/provider';
 
@@ -298,9 +299,6 @@ function InstancesSubTable({
                 <span style={{ color: xpColors.link, textDecoration: 'underline', fontSize: 13 }}>
                   {instName}
                 </span>
-                {isNamespaced && ns && (
-                  <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
-                )}
               </div>
               {Object.keys(labels).length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 3, marginTop: 3 }}>
@@ -332,10 +330,13 @@ function InstancesSubTable({
                 </div>
               )}
             </td>
-            {/* col 3+4+5: group/version/scope — empty */}
+            {/* col 3+4: group/version — empty */}
             <td style={{ padding: '6px 12px' }} />
             <td style={{ padding: '6px 12px' }} />
-            <td style={{ padding: '6px 12px' }} />
+            {/* col 5: Scope */}
+            <td style={{ padding: '6px 12px' }}>
+              <ScopeBadge scope={scope} namespace={ns} />
+            </td>
             {/* col 6: Ready */}
             <td style={{ padding: '6px 12px', textAlign: 'center' as const }}>
               {readyChip(conditions)}
@@ -428,15 +429,7 @@ function CRDRow({
         <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
         {/* col 5: Scope */}
         <td style={{ padding: '8px 12px' }}>
-          <Chip
-            label={scope}
-            size="small"
-            style={{
-              background: scope === 'Cluster' ? xpColors.cluster.bg : xpColors.namespaced.bg,
-              color: '#fff',
-              fontWeight: 600,
-            }}
-          />
+          <ScopeBadge scope={scope} />
         </td>
         {/* col 6: Ready summary */}
         <td style={{ padding: '8px 12px', textAlign: 'center' as const }}>
