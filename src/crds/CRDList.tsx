@@ -44,7 +44,7 @@ function useCRDProviderMap(): Map<string, string> {
   return map;
 }
 
-function InstancesList({ crd, providerName }: { crd: any; providerName: string }) {
+function InstancesList({ crd, providerName }: { crd: any; providerName?: string }) {
   const [instances, setInstances] = useState<any[] | null>(null);
   const group: string = crd.jsonData?.spec?.group ?? '';
   const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
@@ -91,6 +91,7 @@ function InstancesList({ crd, providerName }: { crd: any; providerName: string }
                   openManagedDetail({
                     providerName,
                     group,
+                    version: ver,
                     plural,
                     name: instName,
                     namespace: ns || undefined,
@@ -162,7 +163,7 @@ function InstancesList({ crd, providerName }: { crd: any; providerName: string }
 
 // ── CRD detail view (Activity panel) ─────────────────────────────────────────
 
-function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }) {
+function CRDDetailView({ crd, providerName }: { crd: any; providerName?: string }) {
   const [tab, setTab] = useState(0);
   const [instanceCount, setInstanceCount] = useState<number | null>(null);
 
@@ -215,7 +216,7 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
                 { name: 'Group', value: group },
                 { name: 'Version', value: versions.map((v: any) => v.name).join(', ') },
                 { name: 'Scope', value: <ScopeBadge scope={scope} /> },
-                { name: 'Provider', value: providerName },
+                { name: 'Provider', value: providerName ?? '—' },
               ]}
             />
           </Paper>
@@ -248,7 +249,7 @@ function CRDDetailView({ crd, providerName }: { crd: any; providerName: string }
 
 // ── Activity launchers ────────────────────────────────────────────────────────
 
-function openCRDDetail(crd: any, providerName: string) {
+function openCRDDetail(crd: any, providerName?: string) {
   const Activity = (window as any).pluginLib?.Activity;
   if (!Activity?.launch) return;
   const kind: string = crd.jsonData?.spec?.names?.kind ?? crd.metadata.name;
@@ -261,7 +262,7 @@ function openCRDDetail(crd: any, providerName: string) {
   });
 }
 
-export function openCRDDetailByGroupPlural(group: string, plural: string, providerName: string) {
+export function openCRDDetailByGroupPlural(group: string, plural: string, providerName?: string) {
   getApiProxy()
     .request(`/apis/apiextensions.k8s.io/v1/customresourcedefinitions`, { isJSON: true })
     .then((res: any) => {
@@ -278,7 +279,7 @@ export function openCRDDetailByGroupPlural(group: string, plural: string, provid
 
 // ── CRD row ───────────────────────────────────────────────────────────────────
 
-function CRDRow({ crd, providerName }: { crd: any; providerName: string }) {
+function CRDRow({ crd, providerName }: { crd: any; providerName?: string }) {
   const kind: string = crd.jsonData?.spec?.names?.kind ?? crd.metadata.name;
   const group: string = crd.jsonData?.spec?.group ?? '';
   const scope: string = crd.jsonData?.spec?.scope ?? '';
@@ -312,7 +313,7 @@ export function CRDDetail() {
     location.search.startsWith('?') ? location.search.slice(1) : location.search
   );
   const crdName = params.get('crd') ?? '';
-  const providerName = params.get('provider') ?? '—';
+  const providerName = params.get('provider') ?? undefined;
   const [crd, setCrd] = useState<any>(null);
   const [error, setError] = useState<any>(null);
 
@@ -399,7 +400,7 @@ function GroupSection({
               <CRDRow
                 key={crd.metadata.name}
                 crd={crd}
-                providerName={providerMap.get(crd.metadata.name) ?? '—'}
+                providerName={providerMap.get(crd.metadata.name)}
               />
             ))}
           </tbody>
@@ -708,7 +709,7 @@ export default function CRDList() {
                 <CRDRow
                   key={crd.metadata.name}
                   crd={crd}
-                  providerName={providerMap.get(crd.metadata.name) ?? '—'}
+                  providerName={providerMap.get(crd.metadata.name)}
                 />
               ))}
             </tbody>
