@@ -28,6 +28,10 @@
   "author": "openmcp-project",
   "license": "Apache-2.0",
   "type": "commonjs",
+  "dependencies": {
+    "@xyflow/react": "12.12.0",
+    "elkjs": "0.12.0"
+  },
   "devDependencies": {
     "@kinvolk/headlamp-plugin": "0.14.0"
   }
