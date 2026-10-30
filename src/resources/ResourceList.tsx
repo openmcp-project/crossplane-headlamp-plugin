@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { DOT, xpColors } from '../common/colors';
-import { clusterPrefix, getApiProxy, NON_MANAGED_PLURALS, useCRDsForProvider } from '../helpers';
+import { clusterPrefix, NON_MANAGED_PLURALS, useCRDsForProvider } from '../helpers';
+import { useCustomResourceLists } from '../helpers/useCustomResources';
 import { Provider } from '../providers/provider';
 
 const {
@@ -69,108 +70,6 @@ function matchesLabelFilter(
   return entry[1].toLowerCase().includes(filter.value);
 }
 
-function useInstancesForCRD(crd: any, expanded: boolean, statusFilter: StatusFilter) {
-  const [instances, setInstances] = useState<any[] | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!expanded || !crd) return;
-    const group: string = crd.jsonData?.spec?.group ?? '';
-    const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
-    const ver: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-    setLoading(true);
-    getApiProxy()
-      .request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
-      .then((res: any) => {
-        setInstances(res?.items ?? []);
-        setLoading(false);
-      })
-      .catch(() => {
-        setInstances([]);
-        setLoading(false);
-      });
-  }, [expanded, crd?.metadata?.name]);
-
-  const filtered = instances ? instances.filter(i => matchesStatusFilter(i, statusFilter)) : null;
-
-  return { instances: filtered, loading };
-}
-
-function useCRDInstanceCounts(
-  crds: any[] | null
-): Map<
-  string,
-  { total: number; ready: number; notReady: number; synced: number; notSynced: number }
-> | null {
-  const [counts, setCounts] = useState<Map<
-    string,
-    { total: number; ready: number; notReady: number; synced: number; notSynced: number }
-  > | null>(null);
-
-  useEffect(() => {
-    if (!crds) {
-      setCounts(null);
-      return;
-    }
-    if (crds.length === 0) {
-      setCounts(new Map());
-      return;
-    }
-    let cancelled = false;
-    const result = new Map<
-      string,
-      { total: number; ready: number; notReady: number; synced: number; notSynced: number }
-    >();
-    const fetches = crds.map((crd: any) => {
-      const group: string = crd.jsonData?.spec?.group ?? '';
-      const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
-      const ver: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-      if (!group || !plural) {
-        result.set(crd.metadata.name, { total: 0, ready: 0, notReady: 0, synced: 0, notSynced: 0 });
-        return Promise.resolve();
-      }
-      return getApiProxy()
-        .request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
-        .then((res: any) => {
-          const items: any[] = res?.items ?? [];
-          const ready = items.filter(
-            (i: any) =>
-              i.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True'
-          ).length;
-          const synced = items.filter(
-            (i: any) =>
-              i.status?.conditions?.find((c: any) => c.type === 'Synced')?.status === 'True'
-          ).length;
-          result.set(crd.metadata.name, {
-            total: items.length,
-            ready,
-            notReady: items.length - ready,
-            synced,
-            notSynced: items.length - synced,
-          });
-        })
-        .catch(() => {
-          result.set(crd.metadata.name, {
-            total: 0,
-            ready: 0,
-            notReady: 0,
-            synced: 0,
-            notSynced: 0,
-          });
-        });
-    });
-    Promise.all(fetches).then(() => {
-      if (!cancelled) setCounts(new Map(result));
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [crds?.map((c: any) => c.metadata.name).join(',')]);
-
-  return counts;
-}
-
 // ── Health chips ──────────────────────────────────────────────────────────────
 
 function readyChip(conditions: any[]) {
@@ -214,14 +113,19 @@ function InstancesSubTable({
   providerName,
   statusFilter,
   labelFilter,
+  items,
+  error,
 }: {
   crd: any;
   providerName: string;
   statusFilter: StatusFilter;
   labelFilter: string;
+  items: any[] | null;
+  error?: any;
 }) {
   const history = useHistory();
-  const { instances, loading } = useInstancesForCRD(crd, true, statusFilter);
+  const instances = items?.filter(item => matchesStatusFilter(item, statusFilter)) ?? null;
+  const loading = items === null && !error;
   const group: string = crd.jsonData?.spec?.group ?? '';
   const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
   const scope: string = crd.jsonData?.spec?.scope ?? 'Cluster';
@@ -234,6 +138,16 @@ function InstancesSubTable({
       ? instances.filter((i: any) => matchesLabelFilter(i.metadata?.labels ?? {}, parsedLabel))
       : instances
     : null;
+
+  if (error) {
+    return (
+      <tr>
+        <td colSpan={8} style={{ padding: '8px 12px', color: '#f44336' }}>
+          Failed to load resources: {String(error?.message ?? error)}
+        </td>
+      </tr>
+    );
+  }
 
   if (loading) {
     return (
@@ -373,12 +287,16 @@ function CRDRow({
   crd,
   providerName,
   count,
+  items,
+  error,
   statusFilter,
   labelFilter,
 }: {
   crd: any;
   providerName: string;
   count: { total: number; ready: number; notReady: number; synced: number; notSynced: number };
+  items: any[] | null;
+  error?: any;
   statusFilter: StatusFilter;
   labelFilter: string;
 }) {
@@ -401,7 +319,7 @@ function CRDRow({
       <tr
         style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
         onClick={() => {
-          if (hasInstances) setExpanded(v => !v);
+          if (hasInstances || error) setExpanded(v => !v);
           else
             history.push(
               `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}`
@@ -410,7 +328,7 @@ function CRDRow({
       >
         {/* col 1: chevron */}
         <td style={{ padding: '8px 4px 8px 12px', width: 24 }}>
-          {hasInstances ? (
+          {hasInstances || error ? (
             <span style={{ fontSize: 11, color: '#888', userSelect: 'none' as const }}>
               {expanded ? '▾' : '▸'}
             </span>
@@ -484,7 +402,7 @@ function CRDRow({
             color: '#555',
           }}
         >
-          {hasInstances ? count.total : '—'}
+          {error ? 'Error' : hasInstances ? count.total : '—'}
         </td>
       </tr>
       {expanded && (
@@ -493,6 +411,8 @@ function CRDRow({
           providerName={providerName}
           statusFilter={statusFilter}
           labelFilter={labelFilter}
+          items={items}
+          error={error}
         />
       )}
     </>
@@ -522,11 +442,33 @@ function ProviderSection({
 }) {
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const [crds, crdErr] = useCRDsForProvider(provider.metadata.name, currentRevision);
-  const counts = useCRDInstanceCounts(
+  const {
+    lists,
+    errors,
+    loading: resourcesLoading,
+  } = useCustomResourceLists(
     crds
       ? crds.filter((c: any) => !NON_MANAGED_PLURALS.has(c.jsonData?.spec?.names?.plural ?? ''))
       : null
   );
+  const counts = resourcesLoading
+    ? null
+    : new Map(
+        Array.from(lists, ([name, items]) => {
+          const ready = items.filter(item => matchesStatusFilter(item, 'ready')).length;
+          const synced = items.filter(item => matchesStatusFilter(item, 'synced')).length;
+          return [
+            name,
+            {
+              total: items.length,
+              ready,
+              notReady: items.length - ready,
+              synced,
+              notSynced: items.length - synced,
+            },
+          ];
+        })
+      );
 
   const loading = crds === null && !crdErr;
   const countsLoading = hideUnused && crds !== null && counts === null;
@@ -538,7 +480,9 @@ function ProviderSection({
       (c: any) => !NON_MANAGED_PLURALS.has(c.jsonData?.spec?.names?.plural ?? '')
     );
     if (hideUnused && counts !== null) {
-      list = list.filter((c: any) => (counts.get(c.metadata.name)?.total ?? 0) > 0);
+      list = list.filter(
+        (c: any) => errors.has(c.metadata.name) || (counts.get(c.metadata.name)?.total ?? 0) > 0
+      );
     }
     if (lc) {
       list = list.filter((c: any) => {
@@ -673,6 +617,8 @@ function ProviderSection({
                 key={crd.metadata.name}
                 crd={crd}
                 providerName={provider.metadata.name}
+                items={lists.get(crd.metadata.name) ?? null}
+                error={errors.get(crd.metadata.name)}
                 count={
                   counts?.get(crd.metadata.name) ?? {
                     total: 0,

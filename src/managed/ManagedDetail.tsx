@@ -1,10 +1,11 @@
+import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import * as jsYaml from 'js-yaml';
-import { useEffect, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
 import { xpColors } from '../common/colors';
 import { isDarkMode } from '../common/crdTheme';
 import { openCRDDetailByGroupPlural } from '../crds/CRDList';
-import { clusterPrefix, detectExternalManager, getApiProxy } from '../helpers';
+import { clusterPrefix, detectExternalManager } from '../helpers';
+import { useCustomResourceList } from '../helpers/useCustomResources';
 
 const {
   Typography,
@@ -58,40 +59,22 @@ function YamlSection({ item }: { item: any }) {
 }
 
 function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
-  const [item, setItem] = useState<any>(null);
-  const [error, setError] = useState<any>(null);
-
-  useEffect(() => {
-    if (!group || !plural || !name) return;
-    const nsPath = namespace ? `namespaces/${namespace}/` : '';
-    const tryVersions = ['v1alpha1', 'v1beta1', 'v1'];
-    let cancelled = false;
-
-    async function tryFetch() {
-      for (const ver of tryVersions) {
-        try {
-          const url = `/apis/${group}/${ver}/${nsPath}${plural}/${name}`;
-          const res = await getApiProxy().request(url, { isJSON: true });
-          if (!cancelled) {
-            setItem(res);
-            return;
-          }
-        } catch (e: any) {
-          if (e?.status === 404) continue;
-          if (!cancelled) {
-            setError(e);
-            return;
-          }
-        }
-      }
-      if (!cancelled) setError(new Error(`Resource ${name} not found in any version`));
-    }
-    tryFetch();
-    return () => {
-      cancelled = true;
-    };
-  }, [group, plural, name, namespace]);
-
+  const [crds, crdError] = K8s.ResourceClasses.CustomResourceDefinition.useList();
+  const crd = crds?.find(
+    (c: any) => c.jsonData.spec.group === group && c.jsonData.spec.names.plural === plural
+  );
+  const { items, error: listError, loading } = useCustomResourceList(crd, { name, namespace });
+  const item = items?.find(
+    item => item.metadata.name === name && (!namespace || item.metadata.namespace === namespace)
+  );
+  const error =
+    crdError ??
+    listError ??
+    (crds && !crd
+      ? new Error(`CRD ${plural}.${group} not found`)
+      : !loading && !item
+      ? new Error(`Resource ${name} not found`)
+      : null);
   return [item, error] as const;
 }
 

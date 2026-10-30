@@ -1,7 +1,7 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { useEffect, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
-import { clusterPrefix, getApiProxy } from '../helpers';
+import { clusterPrefix } from '../helpers';
+import { useCustomResourceList } from '../helpers/useCustomResources';
 
 const { Typography, Box, Chip, CircularProgress } = (window as any).pluginLib?.MuiCore ?? {};
 
@@ -18,22 +18,6 @@ function conditionChip(conditions: any[], type: string) {
   );
 }
 
-function useCustomResourceList(group: string, version: string, plural: string) {
-  const [items, setItems] = useState<any[] | null>(null);
-  const [error, setError] = useState<any>(null);
-
-  useEffect(() => {
-    if (!group || !plural) return;
-    const ver = version || 'v1alpha1';
-    getApiProxy()
-      .request(`/apis/${group}/${ver}/${plural}`, { isJSON: true })
-      .then((res: any) => setItems(res?.items ?? []))
-      .catch((e: any) => setError(e));
-  }, [group, version, plural]);
-
-  return [items, error] as const;
-}
-
 export default function ManagedList() {
   const { providerName, group, plural } = useParams<{
     providerName: string;
@@ -43,17 +27,17 @@ export default function ManagedList() {
   const history = useHistory();
 
   // Find the CRD to get version and scope
-  const [crds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
+  const [crds, crdError] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const crd = crds?.find(
     (c: any) => c.jsonData?.spec?.names?.plural === plural && c.jsonData?.spec?.group === group
   );
 
-  const versions: string[] = crd?.jsonData?.spec?.versions?.map((v: any) => v.name) ?? [];
-  const topVersion = versions[0] ?? 'v1alpha1';
   const scope: string = crd?.jsonData?.spec?.scope ?? 'Cluster';
   const kind: string = crd?.jsonData?.spec?.names?.kind ?? plural;
 
-  const [items, error] = useCustomResourceList(group, topVersion, plural);
+  const { items, error: listError } = useCustomResourceList(crd);
+  const error =
+    crdError ?? listError ?? (crds && !crd ? new Error(`CRD ${plural}.${group} not found`) : null);
 
   const isNamespaced = scope === 'Namespaced';
 
