@@ -1,3 +1,5 @@
+import { Activity } from '@kinvolk/headlamp-plugin/lib';
+import { EditorDialog } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import Editor from '@monaco-editor/react';
 import { Button, useTheme } from '@mui/material';
 import * as jsYaml from 'js-yaml';
@@ -25,10 +27,8 @@ export function YamlSection({ item }: { item: any }) {
 }
 
 export function openResourceYaml(item: any) {
-  const Activity = (window as any).pluginLib?.Activity;
-  const EditorDialog = (window as any).pluginLib?.CommonComponents?.EditorDialog;
-  if (!Activity?.launch || !EditorDialog) {
-    console.warn('Native EditorDialog/Activity not available in this Headlamp version');
+  if (!Activity?.launch) {
+    console.warn('Native Activity not available in this Headlamp version');
     return;
   }
   const id = `yaml-${item?.metadata?.uid ?? item?.metadata?.name ?? 'resource'}`;
