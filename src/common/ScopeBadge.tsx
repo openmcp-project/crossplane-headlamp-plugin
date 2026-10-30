@@ -7,7 +7,14 @@ interface ScopeBadgeProps {
 
 export function ScopeBadge({ scope, namespace }: ScopeBadgeProps) {
   const isNamespaced = scope === 'Namespaced';
-  const badge = (
+  // Derive a stable hue so a namespace keeps its color across sorting and filtering.
+  let hash = 0;
+  for (const char of namespace ?? '') {
+    hash = (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0;
+  }
+  const hue = hash % 360;
+  const hasNamespace = isNamespaced && !!namespace;
+  return (
     <span
       style={{
         display: 'inline-block',
@@ -15,21 +22,17 @@ export function ScopeBadge({ scope, namespace }: ScopeBadgeProps) {
         borderRadius: 10,
         fontSize: 11,
         fontWeight: 600,
-        background: isNamespaced ? xpColors.namespaced.bg : xpColors.cluster.bg,
-        color: '#fff',
+        background: hasNamespace
+          ? `hsl(${hue}, 45%, 93%)`
+          : isNamespaced
+          ? xpColors.namespaced.bg
+          : '#eeeeee',
+        color: hasNamespace ? `hsl(${hue}, 40%, 30%)` : isNamespaced ? '#fff' : '#616161',
         verticalAlign: 'middle',
+        whiteSpace: 'nowrap',
       }}
     >
-      {isNamespaced ? 'Namespaced' : 'Cluster'}
-    </span>
-  );
-
-  if (!isNamespaced || !namespace) return badge;
-
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      {badge}
-      <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{namespace}</span>
+      {hasNamespace ? namespace : isNamespaced ? 'Namespaced' : 'Cluster'}
     </span>
   );
 }
