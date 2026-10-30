@@ -1,6 +1,7 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { useEffect, useState } from 'react';
 import { ProviderRevision } from '../common/Resources';
+import { Provider } from '../providers/provider';
+import { useCustomResourceLists } from './useCustomResources';
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 
@@ -140,87 +141,49 @@ export interface FlatMR {
 
 // ── useAllManagedResources ────────────────────────────────────────────────────
 
-/**
- * Fetches all managed resource instances across all providers.
- * Fires parallel requests for every CRD type owned by every provider.
- * Returns a flat array of instances with provider metadata attached.
- *
- * Pass `filterProviderName` to scope to a single provider.
- */
+/** Watches managed resource instances across the active revision of each provider. */
 export function useAllManagedResources(filterProviderName?: string): {
   items: FlatMR[];
   loading: boolean;
 } {
   const [allCrds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const [revisions] = ProviderRevision.useList();
+  const [providers] = Provider.useList();
 
-  const [items, setItems] = useState<FlatMR[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!allCrds || !revisions) return;
-
-    // Build map: revisionName → crds[]
-    const revisionCrdMap = new Map<string, any[]>();
-    for (const rev of revisions ?? []) {
-      const refs: any[] = rev.jsonData?.status?.objectRefs ?? [];
-      const crdNames = new Set(refs.map((r: any) => r.name));
-      const crds = (allCrds as any[]).filter((c: any) => crdNames.has(c.metadata?.name));
-      revisionCrdMap.set(rev.metadata?.name, crds);
-    }
-
-    // We fetch provider list ourselves via direct API call
-    getApiProxy()
-      .request('/apis/pkg.crossplane.io/v1/providers', { isJSON: true })
-      .then((res: any) => {
-        const providerList: any[] = res?.items ?? [];
-        const filtered = filterProviderName
-          ? providerList.filter((p: any) => p.metadata?.name === filterProviderName)
-          : providerList;
-
-        const allFetches: Promise<FlatMR[]>[] = [];
-
-        for (const provider of filtered) {
-          const providerName: string = provider.metadata?.name ?? '';
-          const currentRevision: string = provider.status?.currentRevision ?? '';
-          const crds = revisionCrdMap.get(currentRevision) ?? [];
-
-          for (const crd of crds) {
-            const group: string = crd.jsonData?.spec?.group ?? '';
-            const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
-            const kind: string = crd.jsonData?.spec?.names?.kind ?? '';
-            const scope: string = crd.jsonData?.spec?.scope ?? 'Cluster';
-            const topVersion: string = crd.jsonData?.spec?.versions?.[0]?.name ?? 'v1alpha1';
-
-            // Skip infrastructure CRDs — they have no Ready/Synced conditions
-            if (NON_MANAGED_PLURALS.has(plural)) continue;
-
-            const fetch = getApiProxy()
-              .request(`/apis/${group}/${topVersion}/${plural}`, { isJSON: true })
-              .then((r: any) =>
-                (r?.items ?? []).map((item: any) => ({
-                  ...item,
-                  _providerName: providerName,
-                  _group: group,
-                  _plural: plural,
-                  _kind: kind,
-                  _scope: scope,
-                }))
-              )
-              .catch(() => [] as FlatMR[]);
-
-            allFetches.push(fetch);
-          }
+  const resources: { crd: any; providerName: string }[] = [];
+  if (allCrds && revisions && providers) {
+    for (const provider of providers) {
+      const providerName = provider.metadata.name;
+      if (filterProviderName && providerName !== filterProviderName) continue;
+      const revision = revisions.find((r: any) => r.metadata.name === provider.currentRevision);
+      const refs = new Set(
+        (revision?.jsonData?.status?.objectRefs ?? []).map((ref: any) => ref.name)
+      );
+      for (const crd of allCrds) {
+        if (
+          refs.has(crd.metadata.name) &&
+          !NON_MANAGED_PLURALS.has(crd.jsonData.spec.names.plural)
+        ) {
+          resources.push({ crd, providerName });
         }
+      }
+    }
+  }
 
-        return Promise.all(allFetches);
-      })
-      .then((results: FlatMR[][]) => {
-        setItems(results.flat());
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [allCrds, revisions, filterProviderName]);
+  const { lists, loading } = useCustomResourceLists(
+    allCrds && revisions && providers ? resources.map(r => r.crd) : null
+  );
+  const items: FlatMR[] = resources.flatMap(({ crd, providerName }) => {
+    const spec = crd.jsonData.spec;
+    return (lists.get(crd.metadata.name) ?? []).map(item => ({
+      ...item,
+      _providerName: providerName,
+      _group: spec.group,
+      _plural: spec.names.plural,
+      _kind: spec.names.kind,
+      _scope: spec.scope,
+    }));
+  });
 
   return { items, loading };
 }

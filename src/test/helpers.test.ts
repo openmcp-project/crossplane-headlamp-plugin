@@ -11,6 +11,10 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   },
 }));
 
+vi.mock('../providers/provider', () => ({
+  Provider: { useList: vi.fn(() => [[], null]) },
+}));
+
 vi.mock('../common/Resources', () => ({
   ProviderRevision: { useList: vi.fn(() => [[], null]) },
 }));
