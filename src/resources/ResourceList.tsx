@@ -288,7 +288,11 @@ function InstancesSubTable({
         return (
           <tr
             key={`${ns}/${instName}`}
-            style={{ borderBottom: `1px solid ${dark ? '#333' : '#ebebeb'}`, cursor: 'pointer', background: rowBg }}
+            style={{
+              borderBottom: `1px solid ${dark ? '#333' : '#ebebeb'}`,
+              cursor: 'pointer',
+              background: rowBg,
+            }}
             onClick={() => history.push(detailUrl)}
           >
             <td className={styles.instanceChevronCell} />
