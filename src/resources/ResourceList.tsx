@@ -242,7 +242,7 @@ function InstancesSubTable({
   if (loading) {
     return (
       <tr>
-        <td colSpan={8} className={styles.loadingCell}>
+        <td colSpan={7} className={styles.loadingCell}>
           <Box display="flex" alignItems="center" gap={1}>
             <CircularProgress size={14} />
             <Typography variant="body2" color="textSecondary">
@@ -256,7 +256,7 @@ function InstancesSubTable({
   if (!visibleInstances || visibleInstances.length === 0) {
     return (
       <tr>
-        <td colSpan={8} className={styles.emptyCell}>
+        <td colSpan={7} className={styles.emptyCell}>
           <Typography variant="body2" color="textSecondary">
             {parsedLabel
               ? 'No instances match the label filter.'
@@ -276,9 +276,6 @@ function InstancesSubTable({
         const ns: string = inst.metadata?.namespace ?? '';
         const conditions: any[] = inst.status?.conditions ?? [];
         const labels: Record<string, string> = inst.metadata?.labels ?? {};
-        const created = inst.metadata?.creationTimestamp
-          ? new Date(inst.metadata.creationTimestamp).toLocaleDateString()
-          : '—';
         const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
         const isSynced = conditions.find((c: any) => c.type === 'Synced')?.status === 'True';
         const detailUrl = isNamespaced
@@ -330,9 +327,6 @@ function InstancesSubTable({
             </td>
             <td className={styles.instanceStatusCell}>{readyChip(conditions)}</td>
             <td className={styles.instanceStatusCell}>{syncedChip(conditions)}</td>
-            <td className={styles.instanceAgeCell} style={{ color: dark ? '#888' : '#888' }}>
-              {created}
-            </td>
           </tr>
         );
       })}
@@ -342,7 +336,7 @@ function InstancesSubTable({
 
 // ── Sort types ────────────────────────────────────────────────────────────────
 
-type SortKey = 'kind' | 'group' | 'version' | 'scope' | 'instances';
+type SortKey = 'kind' | 'group' | 'version' | 'scope';
 type SortDir = 'asc' | 'desc';
 
 // ── CRD row ───────────────────────────────────────────────────────────────────
@@ -437,9 +431,6 @@ function CRDRow({
             <span style={{ color: dark ? '#666' : '#bbb', fontSize: 12 }}>—</span>
           )}
         </td>
-        <td className={styles.countCell} style={{ color: dark ? '#aaa' : '#555' }}>
-          {hasInstances ? count.total : '—'}
-        </td>
       </tr>
       {expanded && (
         <InstancesSubTable
@@ -517,9 +508,6 @@ function ProviderSection({
       } else if (sortKey === 'scope') {
         va = a.jsonData?.spec?.scope ?? '';
         vb = b.jsonData?.spec?.scope ?? '';
-      } else if (sortKey === 'instances') {
-        va = counts?.get(a.metadata.name)?.total ?? 0;
-        vb = counts?.get(b.metadata.name)?.total ?? 0;
       }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
@@ -587,7 +575,6 @@ function ProviderSection({
               <SortHeader label="Scope" sk="scope" />
               <th className={styles.staticHeader}>Ready</th>
               <th className={styles.staticHeader}>Synced</th>
-              <SortHeader label="Age / Count" sk="instances" />
             </tr>
           </thead>
           <tbody>
