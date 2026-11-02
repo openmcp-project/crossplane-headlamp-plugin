@@ -121,7 +121,9 @@ describe('useCustomResourceLists', () => {
       status: { conditions: [{ type: 'Ready', status: 'False' }] },
     };
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [item] });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(result.current.lists.get(definition.metadata.name)).toEqual([
       expect.objectContaining({ metadata: { name: 'test' } }),
     ]);
@@ -129,12 +131,16 @@ describe('useCustomResourceLists', () => {
     // Item becomes ready.
     const ready = { ...item, status: { conditions: [{ type: 'Ready', status: 'True' }] } };
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [ready] });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(result.current.lists.get(definition.metadata.name)?.[0].status).toEqual(ready.status);
 
     // Item deleted.
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(result.current.lists.get(definition.metadata.name)).toEqual([]);
   });
 
@@ -167,8 +173,8 @@ describe('useCustomResourceLists', () => {
     renderHook(() => useCustomResourceLists([crd(), crd()]));
     await act(async () => {});
     // Only one request for buckets even though crd() was passed twice.
-    const calls = mocks.clusterRequest.mock.calls.filter(
-      ([url]: [string]) => url.includes('/buckets')
+    const calls = mocks.clusterRequest.mock.calls.filter(([url]: [string]) =>
+      url.includes('/buckets')
     );
     expect(calls).toHaveLength(1);
   });
@@ -225,14 +231,16 @@ describe('useCustomResourceLists', () => {
     await act(async () => {});
     unmount();
     const callsBefore = mocks.clusterRequest.mock.calls.length;
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     // No new requests after unmount.
     expect(mocks.clusterRequest.mock.calls.length).toBe(callsBefore);
   });
 
   it('settles errors independently per CRD and recovers on the next successful poll', async () => {
     mocks.clusterRequest
-      .mockRejectedValueOnce(new Error('Forbidden'))  // buckets fails
+      .mockRejectedValueOnce(new Error('Forbidden')) // buckets fails
       .mockResolvedValueOnce({ kind: 'VpcList', items: [] }); // vpcs succeeds
 
     const { result } = renderHook(() => useCustomResourceLists([crd('buckets'), crd('vpcs')]));
@@ -243,7 +251,9 @@ describe('useCustomResourceLists', () => {
 
     // Next poll for buckets succeeds — error clears.
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(result.current.errors.size).toBe(0);
   });
 
@@ -271,11 +281,15 @@ describe('useCustomResourceLists', () => {
       kind: 'BucketList',
       items: [{ metadata: { name: 'test', namespace: 'team-a' } }],
     });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(result.current.items).toHaveLength(1);
 
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(result.current.items).toEqual([]);
   });
 });
@@ -303,7 +317,12 @@ describe('useAllManagedResources', () => {
       },
     ];
 
-    const item = { metadata: { name: 'test' }, kind: 'Bucket', apiVersion: 'example.org/v1', status: { conditions: [] } };
+    const item = {
+      metadata: { name: 'test' },
+      kind: 'Bucket',
+      apiVersion: 'example.org/v1',
+      status: { conditions: [] },
+    };
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [item] });
 
     const { result, rerender } = renderHook(() => useAllManagedResources());
@@ -400,13 +419,17 @@ describe('Managed Resources page', () => {
         },
       ],
     });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(screen.getByText('1 ready')).toBeTruthy();
     expect(screen.queryByText('Not Ready')).toBeNull();
 
     // Next poll: item deleted.
     mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
-    await act(async () => { vi.advanceTimersByTime(10000); });
+    await act(async () => {
+      vi.advanceTimersByTime(10000);
+    });
     expect(screen.queryByText('test-bucket')).toBeNull();
     expect(screen.getByText(/No resource types with instances/)).toBeTruthy();
   });
