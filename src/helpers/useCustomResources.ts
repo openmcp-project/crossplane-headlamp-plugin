@@ -1,6 +1,6 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useMemo, useState } from 'react';
-import { ResourceDefinitionSpec, listCRDResources } from './apiProxy';
+import { listCRDResources, ResourceDefinitionSpec } from './apiProxy';
 
 interface ResourceDefinition {
   name: string;

@@ -88,29 +88,6 @@ function crd(plural = 'buckets', scope = 'Cluster') {
   };
 }
 
-/** Returns the URL that listCRDResources would request for a given CRD. */
-function urlFor(plural: string, { namespace, name }: { namespace?: string; name?: string } = {}) {
-  const base = namespace
-    ? `/apis/example.org/v1/namespaces/${namespace}/${plural}`
-    : `/apis/example.org/v1/${plural}`;
-  return name ? `${base}?fieldSelector=metadata.name%3D${encodeURIComponent(name)}` : base;
-}
-
-/** Resolve the next pending clusterRequest for this URL with the given items. */
-async function resolve(plural: string, items: any[], opts: { namespace?: string; name?: string } = {}) {
-  const url = urlFor(plural, opts);
-  // Find the most recent call matching this URL and resolve it.
-  const calls = mocks.clusterRequest.mock.calls;
-  for (let i = calls.length - 1; i >= 0; i--) {
-    if (calls[i][0] === url) {
-      // Re-mock to return this value for any subsequent calls too.
-      mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items });
-      break;
-    }
-  }
-  await act(async () => {});
-}
-
 beforeEach(() => {
   vi.useFakeTimers();
   mocks.cluster = 'cluster-a';
