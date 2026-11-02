@@ -1,14 +1,10 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ResourceDefinitionSpec, listCRDResources } from './apiProxy';
 
 interface ResourceDefinition {
   name: string;
-  spec: {
-    group: string;
-    scope: string;
-    names: { plural: string; singular: string; kind: string };
-    versions: { name: string; served: boolean; storage: boolean }[];
-  };
+  spec: ResourceDefinitionSpec;
 }
 
 interface ResourceLists {
@@ -20,42 +16,10 @@ interface ResourceLists {
 
 const POLL_INTERVAL_MS = 10000;
 
-function getApiRoot(group: string, version: string): string {
-  return group ? `/apis/${group}/${version}` : `/api/${version}`;
-}
-
-/** Do a plain LIST request (no watch) using Headlamp's clusterRequest. */
-async function listResources(
-  definition: ResourceDefinition,
-  cluster: string,
-  namespace?: string,
-  name?: string
-): Promise<any[]> {
-  const apiProxy = (K8s as any).ApiProxy ?? (window as any).pluginLib?.ApiProxy;
-  const version =
-    definition.spec.versions.find(v => v.storage) ?? definition.spec.versions[0];
-  const scopedPath =
-    definition.spec.scope === 'Namespaced' && namespace
-      ? `namespaces/${namespace}/${definition.spec.names.plural}`
-      : definition.spec.names.plural;
-  const base = `${getApiRoot(definition.spec.group, version.name)}/${scopedPath}`;
-  const qs = name ? `?fieldSelector=metadata.name%3D${encodeURIComponent(name)}` : '';
-  const url = `${base}${qs}`;
-
-  const response = await apiProxy.clusterRequest(url, { cluster });
-  const items: any[] = response?.items ?? [];
-  const fixedKind = (response?.kind ?? '').replace(/List$/, '') || definition.spec.names.kind;
-  return items.map((item: any) => {
-    if (!item.kind) item.kind = fixedKind;
-    if (!item.apiVersion) item.apiVersion = `${definition.spec.group}/${version.name}`;
-    return item;
-  });
-}
-
 /** List dynamic CRD types using polling (plain HTTP GET every POLL_INTERVAL_MS).
  *
  * We avoid streaming/watch because many cluster proxies close WebSocket
- * connections immediately and Headlamp's stream() then reconnects in a tight
+ * connections immediately, causing Headlamp's stream() to reconnect in a tight
  * loop. Polling is simpler and reliable across all environments.
  */
 export function useCustomResourceLists(
@@ -63,6 +27,8 @@ export function useCustomResourceLists(
   { name, namespace }: { name?: string; namespace?: string } = {}
 ) {
   const cluster = K8s.useCluster();
+  // CRD watch events and callers can create new arrays on every render. Only
+  // restart polling when an endpoint changes, not when a CRD's status changes.
   const definitionsKey = JSON.stringify(
     crds === null
       ? null
@@ -100,70 +66,66 @@ export function useCustomResourceLists(
     loading: true,
   });
 
-  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
-
   useEffect(() => {
     let cancelled = false;
-
-    pollTimers.current.forEach(t => clearInterval(t));
-    pollTimers.current.clear();
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const pending = new Set(definitions?.map(d => d.name));
 
     setState({
       key,
       lists: new Map(),
       errors: new Map(),
-      loading: definitions === null || (definitions?.length ?? 0) > 0,
+      loading: definitions === null || pending.size > 0,
     });
 
     for (const definition of definitions ?? []) {
-      const pending = { done: false };
+      const update = (items?: any[], error?: any) => {
+        if (cancelled) return;
+        pending.delete(definition.name);
+        const remaining = pending.size;
+        setState(previous => {
+          // Discard responses that arrived after a key change (e.g. cluster switch).
+          if (previous.key !== key) return previous;
+          const lists = new Map(previous.lists);
+          const errors = new Map(previous.errors);
+          if (items !== undefined) lists.set(definition.name, items);
+          if (error) errors.set(definition.name, error);
+          else errors.delete(definition.name);
+          return { key, lists, errors, loading: remaining > 0 };
+        });
+      };
 
       const poll = async () => {
         if (cancelled) return;
         try {
-          const items = await listResources(definition, cluster ?? '', namespace, name);
-          if (cancelled) return;
-          const wasPending = !pending.done;
-          pending.done = true;
-          setState(previous => {
-            const lists = new Map(previous.lists);
-            const errors = new Map(previous.errors);
-            lists.set(definition.name, items);
-            errors.delete(definition.name);
-            // Still loading only if some other definitions haven't resolved yet.
-            const stillLoading = wasPending
-              ? Array.from(previous.lists.keys()).length + 1 < (definitions?.length ?? 0)
-              : previous.loading;
-            return { key, lists, errors, loading: stillLoading };
-          });
+          if (definition.spec.versions.length === 0) {
+            throw new Error(`No served version for ${definition.name}`);
+          }
+          const items = await listCRDResources(
+            definition.spec,
+            definition.name,
+            cluster ?? '',
+            namespace,
+            name
+          );
+          update(items);
         } catch (error) {
-          if (cancelled) return;
-          const wasPending = !pending.done;
-          pending.done = true;
-          setState(previous => {
-            const lists = new Map(previous.lists);
-            const errors = new Map(previous.errors);
-            errors.set(definition.name, error);
-            const stillLoading = wasPending
-              ? Array.from(previous.lists.keys()).length < (definitions?.length ?? 0)
-              : previous.loading;
-            return { key, lists, errors, loading: stillLoading };
-          });
+          update(undefined, error);
         }
       };
 
       poll();
-      const timer = setInterval(poll, POLL_INTERVAL_MS);
-      pollTimers.current.set(definition.name, timer);
+      timers.push(setInterval(poll, POLL_INTERVAL_MS));
     }
 
     return () => {
       cancelled = true;
-      pollTimers.current.forEach(t => clearInterval(t));
-      pollTimers.current.clear();
+      timers.forEach(t => clearInterval(t));
     };
   }, [definitions, cluster, name, namespace, key]);
 
+  // Never expose the previous cluster/resource's data during a route change,
+  // and report loading immediately when key changes (before the effect runs).
   if (state.key !== key) {
     return { key, lists: new Map<string, any[]>(), errors: new Map<string, any>(), loading: true };
   }

@@ -2,6 +2,8 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-li
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// ── Host UI stubs ─────────────────────────────────────────────────────────────
+
 const mocks = vi.hoisted(() => {
   const Container = ({ children }: any) => children;
   (window as any).pluginLib = {
@@ -26,37 +28,27 @@ const mocks = vi.hoisted(() => {
     crds: [] as any[],
     providers: [] as any[],
     revisions: [] as any[],
-    connect: vi.fn(),
-    streams: [] as {
-      definition: any;
-      onList: (items: any[]) => void;
-      onError: (error: any) => void;
-      options: any;
-      cancel: ReturnType<typeof vi.fn>;
-    }[],
+    // Per-endpoint response queues: url → items[]
+    responses: new Map<string, any[]>(),
+    clusterRequest: vi.fn(),
   };
 });
+
+// ── Headlamp SDK mock ─────────────────────────────────────────────────────────
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
     useCluster: () => mocks.cluster,
+    // clusterRequest is accessed via K8s.ApiProxy at runtime
+    ApiProxy: {
+      clusterRequest: (...args: any[]) => mocks.clusterRequest(...args),
+    },
     ResourceClasses: {
       CustomResourceDefinition: class {
         static useList() {
           return [mocks.crds, null];
         }
         constructor(public jsonData: any) {}
-        makeCRClass() {
-          const definition = this.jsonData;
-          return {
-            apiList: (onList: any, onError: any, options: any) => () => {
-              const cancel = vi.fn();
-              const stream = { definition, onList, onError, options, cancel };
-              mocks.streams.push(stream);
-              return mocks.connect(stream);
-            },
-          };
-        }
       },
     },
   },
@@ -73,6 +65,8 @@ vi.mock('../providers/provider', () => ({
 import { useAllManagedResources } from '../helpers';
 import { useCustomResourceList, useCustomResourceLists } from '../helpers/useCustomResources';
 import ResourceList from '../resources/ResourceList';
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
 
 function crd(plural = 'buckets', scope = 'Cluster') {
   const metadata = { name: `${plural}.example.org` };
@@ -94,65 +88,115 @@ function crd(plural = 'buckets', scope = 'Cluster') {
   };
 }
 
-function publish(index: number, items: any[]) {
-  act(() => mocks.streams[index].onList(items.map(jsonData => ({ jsonData }))));
+/** Returns the URL that listCRDResources would request for a given CRD. */
+function urlFor(plural: string, { namespace, name }: { namespace?: string; name?: string } = {}) {
+  const base = namespace
+    ? `/apis/example.org/v1/namespaces/${namespace}/${plural}`
+    : `/apis/example.org/v1/${plural}`;
+  return name ? `${base}?fieldSelector=metadata.name%3D${encodeURIComponent(name)}` : base;
+}
+
+/** Resolve the next pending clusterRequest for this URL with the given items. */
+async function resolve(plural: string, items: any[], opts: { namespace?: string; name?: string } = {}) {
+  const url = urlFor(plural, opts);
+  // Find the most recent call matching this URL and resolve it.
+  const calls = mocks.clusterRequest.mock.calls;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    if (calls[i][0] === url) {
+      // Re-mock to return this value for any subsequent calls too.
+      mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items });
+      break;
+    }
+  }
+  await act(async () => {});
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
   mocks.cluster = 'cluster-a';
   mocks.crds = [];
   mocks.providers = [];
   mocks.revisions = [];
-  mocks.streams = [];
-  mocks.connect.mockReset();
-  mocks.connect.mockImplementation(stream => Promise.resolve(stream.cancel));
+  mocks.clusterRequest.mockReset();
+  mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+// ── useCustomResourceLists ────────────────────────────────────────────────────
+
 describe('useCustomResourceLists', () => {
-  it('updates lists for resource additions, condition changes, and deletions', () => {
+  it('updates lists for resource additions, condition changes, and deletions', async () => {
     const definition = crd();
     const { result } = renderHook(() => useCustomResourceLists([definition]));
     expect(result.current.loading).toBe(true);
-    publish(0, []);
-    expect(result.current.loading).toBe(false);
 
+    // First poll resolves with empty list.
+    await act(async () => {});
+    expect(result.current.loading).toBe(false);
+    expect(result.current.lists.get(definition.metadata.name)).toEqual([]);
+
+    // Poll returns an item.
     const item = {
       metadata: { name: 'test' },
       status: { conditions: [{ type: 'Ready', status: 'False' }] },
     };
-    publish(0, [item]);
-    expect(result.current.lists.get(definition.metadata.name)).toEqual([item]);
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [item] });
+    await act(async () => { vi.advanceTimersByTime(10000); });
+    expect(result.current.lists.get(definition.metadata.name)).toEqual([
+      expect.objectContaining({ metadata: { name: 'test' } }),
+    ]);
+
+    // Item becomes ready.
     const ready = { ...item, status: { conditions: [{ type: 'Ready', status: 'True' }] } };
-    publish(0, [ready]);
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [ready] });
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(result.current.lists.get(definition.metadata.name)?.[0].status).toEqual(ready.status);
-    publish(0, []);
+
+    // Item deleted.
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(result.current.lists.get(definition.metadata.name)).toEqual([]);
   });
 
-  it('waits for discovery and handles an empty set without opening a stream', () => {
+  it('waits for discovery and handles an empty set without making requests', async () => {
     const { result, rerender } = renderHook(({ crds }) => useCustomResourceLists(crds), {
       initialProps: { crds: null as any[] | null },
     });
     expect(result.current.loading).toBe(true);
     rerender({ crds: [] });
+    await act(async () => {});
     expect(result.current.loading).toBe(false);
-    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.clusterRequest).not.toHaveBeenCalled();
   });
 
-  it('prefers the served storage version and excludes unserved versions', () => {
+  it('prefers the served storage version and excludes unserved versions', async () => {
     renderHook(() => useCustomResourceLists([crd()]));
-    expect(mocks.streams[0].definition.spec.versions.map((v: any) => v.name)).toEqual([
-      'v1',
-      'v1beta1',
-    ]);
+    await act(async () => {});
+    // URL should use v1 (storage=true), not v1beta1 or v1alpha1.
+    expect(mocks.clusterRequest).toHaveBeenCalledWith(
+      expect.stringContaining('/apis/example.org/v1/buckets'),
+      expect.anything()
+    );
+    expect(mocks.clusterRequest).not.toHaveBeenCalledWith(
+      expect.stringContaining('v1beta1'),
+      expect.anything()
+    );
   });
 
-  it('deduplicates types referenced by multiple providers', () => {
+  it('deduplicates types referenced by multiple providers', async () => {
     renderHook(() => useCustomResourceLists([crd(), crd()]));
-    expect(mocks.connect).toHaveBeenCalledOnce();
+    await act(async () => {});
+    // Only one request for buckets even though crd() was passed twice.
+    const calls = mocks.clusterRequest.mock.calls.filter(
+      ([url]: [string]) => url.includes('/buckets')
+    );
+    expect(calls).toHaveLength(1);
   });
 
-  it('reports CRDs without a served version instead of leaving them loading', async () => {
+  it('reports CRDs without a served version as an error, not loading', async () => {
     const definition = crd();
     definition.jsonData.spec.versions = [];
     const { result } = renderHook(() => useCustomResourceLists([definition]));
@@ -160,139 +204,177 @@ describe('useCustomResourceLists', () => {
     expect(result.current.errors.get(definition.metadata.name)?.message).toContain(
       'No served version'
     );
-    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.clusterRequest).not.toHaveBeenCalled();
   });
 
-  it('does not restart streams on CRD status updates or new array references', () => {
+  it('does not restart polling on CRD status updates or new array references', async () => {
     const { rerender } = renderHook(({ crds }) => useCustomResourceLists(crds), {
       initialProps: { crds: [crd('buckets'), crd('vpcs')] },
     });
+    await act(async () => {});
+    const callsAfterInit = mocks.clusterRequest.mock.calls.length;
+
     const updated = crd('buckets');
     (updated.jsonData as any).status = { conditions: [{ status: 'True' }] };
     rerender({ crds: [crd('vpcs'), updated] });
-    expect(mocks.connect).toHaveBeenCalledTimes(2);
+    await act(async () => {});
+    // No new poll triggered — same endpoints, just a status update.
+    expect(mocks.clusterRequest.mock.calls.length).toBe(callsAfterInit);
   });
 
-  it('stops old streams on cluster changes and ignores late callbacks', async () => {
-    const { result, rerender, unmount } = renderHook(() => useCustomResourceLists([crd()]));
-    publish(0, [{ metadata: { name: 'old' } }]);
+  it('stops polling on cluster changes and ignores in-flight responses from the old cluster', async () => {
+    const { result, rerender } = renderHook(() => useCustomResourceLists([crd()]));
     await act(async () => {});
+    expect(result.current.lists.get('buckets.example.org')).toEqual([]);
+
+    // Switch cluster — state should reset immediately.
     mocks.cluster = 'cluster-b';
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
     rerender();
-    expect(mocks.streams[0].cancel).toHaveBeenCalledOnce();
-    expect(mocks.streams[1].options.cluster).toBe('cluster-b');
+
+    // Before new poll resolves, lists are empty (key changed).
     expect(result.current.lists.size).toBe(0);
-    publish(0, [{ metadata: { name: 'late' } }]);
-    expect(result.current.lists.size).toBe(0);
+
+    // New cluster poll should use cluster-b.
+    await act(async () => {});
+    expect(mocks.clusterRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ cluster: 'cluster-b' })
+    );
+  });
+
+  it('clears timers on unmount', async () => {
+    const { unmount } = renderHook(() => useCustomResourceLists([crd()]));
     await act(async () => {});
     unmount();
-    expect(mocks.streams[1].cancel).toHaveBeenCalledOnce();
+    const callsBefore = mocks.clusterRequest.mock.calls.length;
+    await act(async () => { vi.advanceTimersByTime(10000); });
+    // No new requests after unmount.
+    expect(mocks.clusterRequest.mock.calls.length).toBe(callsBefore);
   });
 
-  it('cancels a connection that resolves after unmount', async () => {
-    let resolve!: (cancel: () => void) => void;
-    mocks.connect.mockImplementation(
-      () =>
-        new Promise(r => {
-          resolve = r;
-        })
-    );
-    const { unmount } = renderHook(() => useCustomResourceLists([crd()]));
-    unmount();
-    await act(async () => resolve(mocks.streams[0].cancel));
-    expect(mocks.streams[0].cancel).toHaveBeenCalledOnce();
-  });
+  it('settles errors independently per CRD and recovers on the next successful poll', async () => {
+    mocks.clusterRequest
+      .mockRejectedValueOnce(new Error('Forbidden'))  // buckets fails
+      .mockResolvedValueOnce({ kind: 'VpcList', items: [] }); // vpcs succeeds
 
-  it('settles errors independently and recovers on the next successful update', () => {
     const { result } = renderHook(() => useCustomResourceLists([crd('buckets'), crd('vpcs')]));
-    const error = new Error('Forbidden');
-    act(() => mocks.streams[0].onError(error));
-    expect(result.current.loading).toBe(true);
-    publish(1, []);
+    await act(async () => {});
     expect(result.current.loading).toBe(false);
-    expect(result.current.errors.get('buckets.example.org')).toBe(error);
-    publish(0, []);
+    expect(result.current.errors.get('buckets.example.org')?.message).toBe('Forbidden');
+    expect(result.current.errors.has('vpcs.example.org')).toBe(false);
+
+    // Next poll for buckets succeeds — error clears.
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(result.current.errors.size).toBe(0);
   });
 
-  it('reports connection failures rather than remaining in loading state', async () => {
-    mocks.connect.mockRejectedValue(new Error('Connection failed'));
+  it('reports an immediate fetch failure instead of remaining in loading state', async () => {
+    mocks.clusterRequest.mockRejectedValue(new Error('Connection failed'));
     const { result } = renderHook(() => useCustomResourceLists([crd()]));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.errors.get('buckets.example.org')?.message).toBe('Connection failed');
   });
 
-  it('scopes detail subscriptions by namespace and name, including deletion updates', () => {
+  it('scopes requests by namespace and name for detail subscriptions', async () => {
     const { result } = renderHook(() =>
       useCustomResourceList(crd('buckets', 'Namespaced'), {
         name: 'test',
         namespace: 'team-a',
       })
     );
-    expect(mocks.streams[0].definition.spec.scope).toBe('Namespaced');
-    expect(mocks.streams[0].options).toMatchObject({
-      namespace: 'team-a',
-      queryParams: { fieldSelector: 'metadata.name=test' },
+    await act(async () => {});
+    expect(mocks.clusterRequest).toHaveBeenCalledWith(
+      '/apis/example.org/v1/namespaces/team-a/buckets?fieldSelector=metadata.name%3Dtest',
+      expect.anything()
+    );
+
+    mocks.clusterRequest.mockResolvedValue({
+      kind: 'BucketList',
+      items: [{ metadata: { name: 'test', namespace: 'team-a' } }],
     });
-    publish(0, [{ metadata: { name: 'test', namespace: 'team-a' } }]);
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(result.current.items).toHaveLength(1);
-    publish(0, []);
+
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(result.current.items).toEqual([]);
   });
 });
 
+// ── useAllManagedResources ────────────────────────────────────────────────────
+
 describe('useAllManagedResources', () => {
-  it('watches the active revision and updates provider totals without a page reload', async () => {
+  it('polls the active revision and updates provider totals without a page reload', async () => {
     mocks.crds = [crd(), crd('providerconfigs'), crd('vpcs')];
-    mocks.providers = [{ metadata: { name: 'provider-a' }, currentRevision: 'revision-a' }];
+    mocks.providers = [
+      {
+        metadata: { name: 'provider-a' },
+        jsonData: { status: { currentRevision: 'revision-a' } },
+        currentRevision: 'revision-a',
+      },
+    ];
     mocks.revisions = [
       {
         metadata: { name: 'revision-a' },
         jsonData: {
           status: {
-            objectRefs: mocks.crds.slice(0, 2).map(c => ({ name: c.metadata.name })),
+            objectRefs: mocks.crds.slice(0, 2).map((c: any) => ({ name: c.metadata.name })),
           },
         },
       },
     ];
+
+    const item = { metadata: { name: 'test' }, kind: 'Bucket', apiVersion: 'example.org/v1', status: { conditions: [] } };
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [item] });
+
     const { result, rerender } = renderHook(() => useAllManagedResources());
-    expect(mocks.streams).toHaveLength(1);
-    publish(0, [{ metadata: { name: 'test' }, status: { conditions: [] } }]);
+    await act(async () => {});
+
     expect(result.current.items).toMatchObject([
       { _providerName: 'provider-a', _plural: 'buckets' },
     ]);
-    publish(0, []);
-    expect(result.current.items).toEqual([]);
 
-    await act(async () => {});
-    mocks.providers = [{ metadata: { name: 'provider-a' }, currentRevision: 'revision-b' }];
+    // Provider switches to a new revision that owns vpcs instead.
+    mocks.providers = [
+      {
+        metadata: { name: 'provider-a' },
+        jsonData: { status: { currentRevision: 'revision-b' } },
+        currentRevision: 'revision-b',
+      },
+    ];
     mocks.revisions = [
       {
         metadata: { name: 'revision-b' },
-        jsonData: {
-          status: {
-            objectRefs: [{ name: 'vpcs.example.org' }],
-          },
-        },
+        jsonData: { status: { objectRefs: [{ name: 'vpcs.example.org' }] } },
       },
     ];
+    mocks.clusterRequest.mockResolvedValue({
+      kind: 'VpcList',
+      items: [{ metadata: { name: 'new-vpc' }, kind: 'Vpc', apiVersion: 'example.org/v1' }],
+    });
+
     rerender();
-    expect(mocks.streams[0].cancel).toHaveBeenCalledOnce();
-    expect(mocks.streams[1].definition.metadata.name).toBe('vpcs.example.org');
-    publish(1, [{ metadata: { name: 'new-vpc' } }]);
+    await act(async () => {});
+
     expect(result.current.items).toMatchObject([
       { _plural: 'vpcs', metadata: { name: 'new-vpc' } },
     ]);
   });
 });
 
-// Render the actual Resources page with lightweight host UI components. This
-// verifies that counters and expanded rows consume the same watched snapshots.
+// ── Managed Resources page ────────────────────────────────────────────────────
+
 describe('Managed Resources page', () => {
   it('updates counts and expanded rows when a resource becomes ready or is deleted', async () => {
     mocks.crds = [crd()];
     mocks.providers = [
-      { metadata: { name: 'provider-a' }, jsonData: { status: { currentRevision: 'revision-a' } } },
+      {
+        metadata: { name: 'provider-a' },
+        jsonData: { status: { currentRevision: 'revision-a' } },
+        currentRevision: 'revision-a',
+      },
     ];
     mocks.revisions = [
       {
@@ -300,13 +382,11 @@ describe('Managed Resources page', () => {
         jsonData: { status: { objectRefs: [{ name: 'buckets.example.org' }] } },
       },
     ];
-    render(
-      <MemoryRouter>
-        <ResourceList />
-      </MemoryRouter>
-    );
+
     const item = {
       metadata: { name: 'test-bucket' },
+      kind: 'Bucket',
+      apiVersion: 'example.org/v1',
       status: {
         conditions: [
           { type: 'Ready', status: 'False' },
@@ -314,27 +394,42 @@ describe('Managed Resources page', () => {
         ],
       },
     };
-    publish(0, [item]);
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [item] });
+
+    render(
+      <MemoryRouter>
+        <ResourceList />
+      </MemoryRouter>
+    );
+    await act(async () => {});
+
     expect(screen.getByText('1 not ready')).toBeTruthy();
     fireEvent.click(screen.getByText('Bucket'));
     expect(screen.getByText('test-bucket')).toBeTruthy();
     expect(screen.getByText('Not Ready')).toBeTruthy();
-    // Expanding a row reuses its list and must not create another subscription.
-    expect(mocks.connect).toHaveBeenCalledOnce();
-    publish(0, [
-      {
-        ...item,
-        status: {
-          conditions: [
-            { type: 'Ready', status: 'True' },
-            { type: 'Synced', status: 'True' },
-          ],
+
+    // Next poll: item becomes ready.
+    mocks.clusterRequest.mockResolvedValue({
+      kind: 'BucketList',
+      items: [
+        {
+          ...item,
+          status: {
+            conditions: [
+              { type: 'Ready', status: 'True' },
+              { type: 'Synced', status: 'True' },
+            ],
+          },
         },
-      },
-    ]);
+      ],
+    });
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(screen.getByText('1 ready')).toBeTruthy();
     expect(screen.queryByText('Not Ready')).toBeNull();
-    publish(0, []);
+
+    // Next poll: item deleted.
+    mocks.clusterRequest.mockResolvedValue({ kind: 'BucketList', items: [] });
+    await act(async () => { vi.advanceTimersByTime(10000); });
     expect(screen.queryByText('test-bucket')).toBeNull();
     expect(screen.getByText(/No resource types with instances/)).toBeTruthy();
   });
