@@ -1,5 +1,4 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { useRef } from 'react';
 import { ProviderRevision } from '../common/Resources';
 import { Provider } from '../providers/provider';
 import { useCustomResourceLists } from './useCustomResources';
@@ -147,29 +146,24 @@ export function useAllManagedResources(filterProviderName?: string): {
   items: FlatMR[];
   loading: boolean;
 } {
-  const cluster = K8s.useCluster();
   const [allCrds] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const [revisions] = ProviderRevision.useList();
   const [providers] = Provider.useList();
 
-  // useList() may return stale cached data from a previous cluster before the
-  // new cluster's lists arrive. Track the cluster the lists belong to.
-  const dataCluster = useRef<string | null | undefined>(undefined);
-  if (allCrds && revisions && providers) dataCluster.current = cluster;
-  else dataCluster.current = undefined;
-
-  const discoveryLoading = !allCrds || !revisions || !providers || dataCluster.current !== cluster;
+  const ready = !!(allCrds && revisions && providers);
 
   const resources: { crd: any; providerName: string }[] = [];
-  if (allCrds && revisions && providers) {
-    for (const provider of providers) {
+  if (ready) {
+    for (const provider of providers!) {
       const providerName = provider.metadata.name;
       if (filterProviderName && providerName !== filterProviderName) continue;
-      const revision = revisions.find((r: any) => r.metadata.name === provider.currentRevision);
+      const currentRevision: string =
+        provider.jsonData?.status?.currentRevision ?? provider.currentRevision ?? '';
+      const revision = revisions!.find((r: any) => r.metadata.name === currentRevision);
       const refs = new Set(
         (revision?.jsonData?.status?.objectRefs ?? []).map((ref: any) => ref.name)
       );
-      for (const crd of allCrds) {
+      for (const crd of allCrds!) {
         if (
           refs.has(crd.metadata.name) &&
           !NON_MANAGED_PLURALS.has(crd.jsonData.spec.names.plural)
@@ -181,9 +175,9 @@ export function useAllManagedResources(filterProviderName?: string): {
   }
 
   const { lists, loading: watchLoading } = useCustomResourceLists(
-    discoveryLoading ? null : resources.map(r => r.crd)
+    ready ? resources.map(r => r.crd) : null
   );
-  const loading = discoveryLoading || watchLoading;
+  const loading = !ready || watchLoading;
   const items: FlatMR[] = resources.flatMap(({ crd, providerName }) => {
     const spec = crd.jsonData.spec;
     return (lists.get(crd.metadata.name) ?? []).map(item => ({
