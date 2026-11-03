@@ -59,15 +59,15 @@ describe('component compaction', () => {
     compactComponents(input, layout);
 
     for (const index of [0, 1]) {
-      expect(layout.positions.get(`root-${index}`)!.y).toBe(328);
-      expect(layout.positions.get(`child-${index}`)!.y).toBe(644);
+      expect(layout.positions.get(`root-${index}`)!.y).toBe(232);
+      expect(layout.positions.get(`child-${index}`)!.y).toBe(548);
     }
     for (const [id, position] of before.positions) {
-      const dy = id.startsWith('root-') || id.startsWith('child-') ? -948 : 0;
+      const dy = id.startsWith('root-') || id.startsWith('child-') ? -1044 : 0;
       expect(layout.positions.get(id)).toEqual({ x: position.x, y: position.y + dy });
     }
     for (const [id, route] of before.routes) {
-      const dy = id.startsWith('lower-') ? -948 : 0;
+      const dy = id.startsWith('lower-') ? -1044 : 0;
       expect(layout.routes.get(id)!.points).toEqual(
         route.points.map(point => ({ x: point.x, y: point.y + dy }))
       );
@@ -81,8 +81,8 @@ describe('component compaction', () => {
   });
 
   it.each([
-    { obstacle: 'route detour', x: 480, labelPosition: undefined, expectedTop: 520 },
-    { obstacle: 'label bounds', x: 520, labelPosition: { x: 350, y: 360 }, expectedTop: 532 },
+    { obstacle: 'route detour', x: 390, labelPosition: undefined, expectedTop: 424 },
+    { obstacle: 'label bounds', x: 420, labelPosition: { x: 350, y: 360 }, expectedTop: 436 },
   ])('reserves space for $obstacle outside the cards', ({ x, labelPosition, expectedTop }) => {
     const { input, layout } = fixture(
       [
@@ -179,8 +179,8 @@ describe('component compaction', () => {
   });
 
   it.each([
-    { gap: 160, expectedTop: 20 },
-    { gap: 159, expectedTop: 280 },
+    { gap: 64, expectedTop: 20 },
+    { gap: 63, expectedTop: 184 },
   ])(
     'allows side-by-side placement only with sufficient horizontal spacing ($gap)',
     ({ gap, expectedTop }) => {
@@ -198,7 +198,7 @@ describe('component compaction', () => {
   it('never pushes a component downward to enlarge an existing gap', () => {
     const { input, layout } = fixture([
       { id: 'upper', x: 0, y: 20, width: 100, height: 100 },
-      { id: 'lower', x: 0, y: 200, width: 100, height: 100 },
+      { id: 'lower', x: 0, y: 160, width: 100, height: 100 },
     ]);
     const before = structuredClone(layout);
 

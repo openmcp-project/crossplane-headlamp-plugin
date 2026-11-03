@@ -42,7 +42,7 @@ describe('managed graph routing', () => {
     const boxes = input.nodes.map(node => ({ ...node, ...positions.get(node.id)! }));
     expect(
       boxes.slice(1).map((node, index) => node.y - boxes[index].y - boxes[index].height)
-    ).toEqual([160, 160, 160]);
+    ).toEqual([96, 96, 96]);
     expect(routes.size).toBe(4);
     expect(routes.get('binding')!.points.length).toBeGreaterThan(2);
     for (const edge of input.edges) {

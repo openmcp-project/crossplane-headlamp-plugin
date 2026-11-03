@@ -1,7 +1,7 @@
 import type { EdgeRoute, GraphLayout, GraphLayoutInput } from './layoutGraph';
 import { EDGE_LABEL_SIZE } from './placeEdgeLabels';
 
-export const COMPONENT_SPACING = 160;
+export const COMPONENT_SPACING = 64;
 
 /** Moves whole components upward into free space while preserving their horizontal placement. */
 export function compactComponents(input: GraphLayoutInput, layout: GraphLayout): void {
