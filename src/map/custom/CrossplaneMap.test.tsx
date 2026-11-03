@@ -38,7 +38,22 @@ vi.mock('../common/useManagedGraph', () => ({
 }));
 vi.mock('elkjs/lib/elk.bundled.js', () => ({
   default: class {
-    layout = mocks.layout;
+    async layout(input: any) {
+      const result = await mocks.layout(input);
+      return {
+        ...result,
+        edges: (result.edges ?? input.edges).map((edge: any) => ({
+          ...edge,
+          sections: edge.sections ?? [
+            {
+              id: `${edge.id}:section`,
+              startPoint: { x: 132, y: 156 },
+              endPoint: { x: 132, y: 316 },
+            },
+          ],
+        })),
+      };
+    }
   },
 }));
 vi.mock('@xyflow/react', async () => {
@@ -427,6 +442,28 @@ describe('Crossplane map discovery and layout state', () => {
     }
   );
 
+  it('waits for a matching route when a relationship changes while layout is pending', async () => {
+    mocks.source.current = loadedGraph();
+    const { rerender } = render(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.edges).toHaveLength(1));
+    let finishLayout!: (graph: any) => void;
+    mocks.layout.mockImplementation(() => new Promise(resolve => (finishLayout = resolve)));
+    mocks.source.current = {
+      ...loadedGraph(),
+      edges: [{ id: 'relationship', source: 'child', target: 'parent', aux: true }],
+    };
+    rerender(<CrossplaneMap />);
+    expect(mocks.edges).toHaveLength(0);
+    await act(async () => finishLayout(mocks.layout.mock.calls[1][0]));
+    expect(mocks.edges[0]).toMatchObject({
+      source: 'child',
+      target: 'parent',
+      sourceHandle: 'aux-source',
+      targetHandle: 'aux-target',
+      data: { source: 'child', target: 'parent', aux: true },
+    });
+  });
+
   it('does not apply an older layout after a newer topology has finished', async () => {
     const pending: Array<{ input: any; finish: (graph: any) => void }> = [];
     mocks.layout.mockImplementation(
@@ -536,6 +573,16 @@ function positionedLayout(input: any, offset = 0) {
       ...node,
       x: offset + index * 360,
       y: offset + index * 220,
+    })),
+    edges: input.edges.map((edge: any, index: number) => ({
+      ...edge,
+      sections: [
+        {
+          id: `${edge.id}:section`,
+          startPoint: { x: offset + index * 20, y: offset + 156 },
+          endPoint: { x: offset + index * 20, y: offset + 316 },
+        },
+      ],
     })),
   };
 }
@@ -818,18 +865,23 @@ describe('Crossplane map context and matching views', () => {
     expect(mocks.fitView).toHaveBeenCalledTimes(1);
   });
 
-  it('restores the exact full positions and captured viewport without another layout', async () => {
+  it('restores the exact full positions, edge routes and captured viewport without another layout', async () => {
     await renderBlueFilter();
     const fullPositions = positions();
+    const fullRoutes = mocks.edges.map(edge => edge.data);
     const contextViewport = { x: -137, y: 92, zoom: 0.63 };
     mocks.viewport = contextViewport;
     fireEvent.click(matchingCheckbox());
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    expect(mocks.edges.find(edge => edge.id === 'reference').data.points).not.toEqual(
+      fullRoutes.find(route => route.id === 'reference').points
+    );
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
     mocks.viewport = { x: -900, y: -700, zoom: 1.8 };
     fireEvent.click(matchingCheckbox());
     await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
     expect(positions()).toEqual(fullPositions);
+    expect(mocks.edges.map(edge => edge.data)).toEqual(fullRoutes);
     expect(mocks.setViewport.mock.calls[0][0]).toEqual(contextViewport);
     expect(mocks.layout).toHaveBeenCalledTimes(2);
     expect(mocks.fitView).toHaveBeenCalledTimes(1);

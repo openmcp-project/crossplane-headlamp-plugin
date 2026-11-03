@@ -1,6 +1,8 @@
 import type { XYPosition } from '@xyflow/react';
 import ELK from 'elkjs/lib/elk.bundled.js';
+import type { ElkNode } from 'elkjs/lib/elk-api';
 import type { GraphEdge } from '../common/types';
+import { AUX_HANDLE_OFFSET } from './styles';
 
 export type GraphLayoutInput = {
   nodes: ReadonlyArray<{ id: string; width: number; height: number }>;
@@ -9,12 +11,19 @@ export type GraphLayoutInput = {
 
 const elk = new ELK();
 
-/** Positions resource cards without retaining their current data or presentation. */
-export async function layoutGraph({
-  nodes,
-  edges,
-}: GraphLayoutInput): Promise<Map<string, XYPosition>> {
-  const layout = await elk.layout({
+export type EdgeRoute = GraphEdge & {
+  points: XYPosition[];
+  labelPosition?: XYPosition;
+};
+
+export type GraphLayout = {
+  positions: Map<string, XYPosition>;
+  routes: Map<string, EdgeRoute>;
+};
+
+/** Routes both relationship types around the reserved card and label bounds. */
+export async function layoutGraph({ nodes, edges }: GraphLayoutInput): Promise<GraphLayout> {
+  const layout = await elk.layout<ElkNode>({
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
@@ -23,23 +32,58 @@ export async function layoutGraph({
       'elk.layered.spacing.nodeNodeBetweenLayers': '160',
       'elk.spacing.nodeNode': '120',
       'elk.spacing.componentComponent': '160',
+      'elk.spacing.edgeNode': '24',
+      'elk.spacing.edgeEdge': '16',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '24',
+      'elk.layered.spacing.edgeEdgeBetweenLayers': '16',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     },
-    children: nodes.map(node => ({ ...node })),
-    // Parent edges drive the layering; aux edges get a low priority so they
-    // don't pull nodes out of the parent hierarchy (ui-frontend parity). Aux
-    // edges stay in the layout even when hidden, so toggling them never shifts
-    // node positions.
-    edges: edges.map(e => ({
-      id: e.id,
-      sources: [e.source],
-      targets: [e.target],
-      layoutOptions: { 'elk.priority': e.aux ? '0' : '10' },
+    children: nodes.map(node => ({
+      ...node,
+      layoutOptions: { 'elk.portConstraints': 'FIXED_POS' },
+      ports: [
+        { id: 'source', x: node.width / 2, y: node.height, side: 'SOUTH' },
+        { id: 'target', x: node.width / 2, y: 0, side: 'NORTH' },
+        { id: 'aux-source', x: node.width / 2 + AUX_HANDLE_OFFSET, y: node.height, side: 'SOUTH' },
+        { id: 'aux-target', x: node.width / 2 + AUX_HANDLE_OFFSET, y: 0, side: 'NORTH' },
+      ].map(port => ({
+        id: `${node.id}:${port.id}`,
+        x: port.x,
+        y: port.y,
+        width: 0,
+        height: 0,
+        layoutOptions: { 'elk.port.side': port.side },
+      })),
+    })),
+    // Include additional references even when collapsed so visibility does not move the graph.
+    edges: edges.map(edge => ({
+      id: edge.id,
+      sources: [`${edge.source}:${edge.aux ? 'aux-source' : 'source'}`],
+      targets: [`${edge.target}:${edge.aux ? 'aux-target' : 'target'}`],
+      layoutOptions: { 'elk.priority': edge.aux ? '0' : '10' },
+      labels: edge.aux ? [{ text: 'infers', width: 48, height: 24 }] : undefined,
     })),
   });
 
   const positions = new Map((layout.children ?? []).map(c => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }]));
 
-  return new Map(nodes.map(node => [node.id, positions.get(node.id) ?? { x: 0, y: 0 }]));
+  const routedEdges = new Map((layout.edges ?? []).map(edge => [edge.id, edge]));
+  const routes = new Map<string, EdgeRoute>();
+  for (const edge of edges) {
+    const routed = routedEdges.get(edge.id);
+    const section = routed?.sections?.[0];
+    if (!section) throw new Error(`Could not route relationship ${edge.id}.`);
+    const label = routed?.labels?.[0];
+    routes.set(edge.id, {
+      ...edge,
+      points: [section.startPoint, ...(section.bendPoints ?? []), section.endPoint],
+      labelPosition:
+        label?.x !== undefined && label.y !== undefined
+          ? { x: label.x + (label.width ?? 0) / 2, y: label.y + (label.height ?? 0) / 2 }
+          : undefined,
+    });
+  }
+
+  return { positions, routes };
 }

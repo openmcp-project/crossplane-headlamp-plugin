@@ -11,7 +11,13 @@ import {
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Handle, Node, NodeProps, Position, useReactFlow } from '@xyflow/react';
-import { CATEGORY_SWATCH_SX, NAMESPACE_LINE_HEIGHT, NODE_WIDTH, TRIMMED_TEXT_SX } from './styles';
+import {
+  AUX_HANDLE_OFFSET,
+  CATEGORY_SWATCH_SX,
+  NAMESPACE_LINE_HEIGHT,
+  NODE_WIDTH,
+  TRIMMED_TEXT_SX,
+} from './styles';
 
 export type ResourceNodeData = {
   kind: string;
@@ -77,7 +83,20 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
 
   return (
     <>
-      <Handle type="target" position={Position.Top} style={handleStyle} isConnectable={false} />
+      <Handle
+        id="target"
+        type="target"
+        position={Position.Top}
+        style={handleStyle}
+        isConnectable={false}
+      />
+      <Handle
+        id="aux-target"
+        type="target"
+        position={Position.Top}
+        style={{ ...handleStyle, left: NODE_WIDTH / 2 + AUX_HANDLE_OFFSET }}
+        isConnectable={false}
+      />
       <Card
         className="nodrag nopan"
         variant="elevation"
@@ -268,7 +287,20 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
           </CardActions>
         )}
       </Card>
-      <Handle type="source" position={Position.Bottom} style={handleStyle} isConnectable={false} />
+      <Handle
+        id="source"
+        type="source"
+        position={Position.Bottom}
+        style={handleStyle}
+        isConnectable={false}
+      />
+      <Handle
+        id="aux-source"
+        type="source"
+        position={Position.Bottom}
+        style={{ ...handleStyle, left: NODE_WIDTH / 2 + AUX_HANDLE_OFFSET }}
+        isConnectable={false}
+      />
     </>
   );
 }

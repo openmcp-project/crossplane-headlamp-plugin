@@ -4,6 +4,7 @@ export const NODE_WIDTH = 264;
 // Reserve space for a two-line name and the separate status/action footer.
 export const NODE_HEIGHT = 156;
 export const NAMESPACE_LINE_HEIGHT = 20;
+export const AUX_HANDLE_OFFSET = 32;
 export const PANEL_ELEVATION = 2;
 export const PANEL_SX = {
   border: (theme: Theme) => (theme.palette.mode === 'dark' ? 1 : 0),

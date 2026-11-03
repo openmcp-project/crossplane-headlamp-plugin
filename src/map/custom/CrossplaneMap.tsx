@@ -27,7 +27,6 @@ import {
   useReactFlow,
   useStoreApi,
   Viewport,
-  XYPosition,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openManagedDetail } from '../../managed/ManagedDetail';
@@ -45,9 +44,10 @@ import {
 } from './graphCategories';
 import { getGraphCollapseState } from './graphCollapse';
 import { GraphControls, StatusFilter } from './GraphControls';
-import { GraphLayoutInput, layoutGraph } from './layoutGraph';
+import { GraphLayout, GraphLayoutInput, layoutGraph } from './layoutGraph';
 import type { ResourceNodeData } from './ResourceNode';
 import { ResourceNode } from './ResourceNode';
+import { RoutedEdge } from './RoutedEdge';
 import {
   NAMESPACE_LINE_HEIGHT,
   NODE_HEIGHT,
@@ -58,9 +58,8 @@ import {
 import { useAnimatedGraphVisibility } from './useAnimatedGraphVisibility';
 
 type ViewportAction = { type: 'fit' } | { type: 'restore'; viewport: Viewport };
-type LayoutResult = {
+type LayoutResult = GraphLayout & {
   input: GraphLayoutInput;
-  positions: Map<string, XYPosition>;
 };
 type LayoutCommit = LayoutResult & {
   revision: number;
@@ -83,6 +82,7 @@ function CrossplaneMapView() {
   const { fitView, getViewport, setViewport, viewportInitialized } = useReactFlow();
   const flowStore = useStoreApi();
   const nodeTypes = useMemo(() => ({ resource: ResourceNode }), []);
+  const edgeTypes = useMemo(() => ({ routed: RoutedEdge }), []);
   const resourcesById = useMemo(
     () => new Map((graph?.nodes ?? []).map(resource => [resource.id, resource])),
     [graph?.nodes]
@@ -357,9 +357,9 @@ function CrossplaneMapView() {
         : pendingTransitionRef.current
         ? { type: 'fit' }
         : null;
-    const commit = (positions: Map<string, XYPosition>) => {
+    const commit = ({ positions, routes }: GraphLayout) => {
       if (cancelled || revision !== requestRevisionRef.current) return;
-      if (!showMatchesOnly) fullLayoutRef.current = { input: layoutInput, positions };
+      if (!showMatchesOnly) fullLayoutRef.current = { input: layoutInput, positions, routes };
       // An empty transition is complete even before the viewport initializes.
       if (positions.size === 0) pendingTransitionRef.current = null;
       setNodes(current => {
@@ -374,6 +374,7 @@ function CrossplaneMapView() {
       const result = {
         input: layoutInput,
         positions,
+        routes,
         revision,
         showMatchesOnly,
         viewportAction: positions.size === 0 ? null : viewportAction,
@@ -381,10 +382,10 @@ function CrossplaneMapView() {
       layoutCommitRef.current = result;
       setLayoutCommit(result);
     };
-    if (layoutInput.nodes.length === 0) commit(new Map());
-    else if (cachedFullLayout) commit(cachedFullLayout.positions);
+    if (layoutInput.nodes.length === 0) commit({ positions: new Map(), routes: new Map() });
+    else if (cachedFullLayout) commit(cachedFullLayout);
     else if (!relayout && hasSameLayoutInput(layoutCommitRef.current?.input ?? null, layoutInput))
-      commit(layoutCommitRef.current!.positions);
+      commit(layoutCommitRef.current!);
     else
       layoutGraph(layoutInput)
         .then(commit)
@@ -483,47 +484,70 @@ function CrossplaneMapView() {
     const positionedIds = new Set(displayNodes.map(node => node.id));
     return (graph?.edges ?? [])
       .filter(edge => positionedIds.has(edge.source) && positionedIds.has(edge.target))
-      .map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        // Keep arrowheads above the cards and their shadows.
-        zIndex: 1,
-        // Parent direction is implicit; dashed additional references need a label.
-        label: edge.aux ? 'infers' : undefined,
-        labelShowBg: true,
-        labelBgPadding: [8, 4],
-        labelBgBorderRadius: 6,
-        // The referenced resource is the source, so arrows point against the layout direction.
-        markerStart: {
-          type: MarkerType.ArrowClosed,
-          width: 20,
-          height: 20,
-          color: edgeStroke,
-        },
-        // React Flow routes parent edges orthogonally and additional references as curves.
-        type: edge.aux ? 'default' : 'smoothstep',
-        style: edge.aux
-          ? { stroke: edgeStroke, strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
-          : { stroke: edgeStroke, strokeWidth: 1.5 },
-        hidden:
-          animatedVisibility.hiddenIds.has(edge.source) ||
-          animatedVisibility.hiddenIds.has(edge.target),
-        className:
-          animatedVisibility.transparentIds.has(edge.source) ||
-          animatedVisibility.transparentIds.has(edge.target)
-            ? 'crossplane-map-fading'
-            : dimmedIds.has(edge.source) || dimmedIds.has(edge.target)
-            ? 'crossplane-map-dimmed'
-            : undefined,
-        selectable: false,
-        focusable: false,
-        domAttributes: {
-          'aria-hidden': excludedIds.has(edge.source) || excludedIds.has(edge.target) || undefined,
-          inert: excludedIds.has(edge.source) || excludedIds.has(edge.target) ? '' : undefined,
-        },
-      }));
-  }, [graph?.edges, displayNodes, edgeStroke, excludedIds, dimmedIds, animatedVisibility]);
+      .flatMap(edge => {
+        const route = layoutCommit?.routes.get(edge.id);
+        if (
+          !route ||
+          route.source !== edge.source ||
+          route.target !== edge.target ||
+          Boolean(route.aux) !== Boolean(edge.aux)
+        )
+          return [];
+        return [
+          {
+            id: edge.id,
+            source: edge.source,
+            target: edge.target,
+            sourceHandle: edge.aux ? 'aux-source' : 'source',
+            targetHandle: edge.aux ? 'aux-target' : 'target',
+            data: route,
+            // Keep arrowheads above the cards and their shadows.
+            zIndex: 1,
+            // Parent direction is implicit; dashed additional references need a label.
+            label: edge.aux ? 'infers' : undefined,
+            labelShowBg: true,
+            labelBgPadding: [8, 4],
+            labelBgBorderRadius: 6,
+            // The referenced resource is the source, so arrows point against the layout direction.
+            markerStart: {
+              type: MarkerType.ArrowClosed,
+              width: 20,
+              height: 20,
+              color: edgeStroke,
+            },
+            type: 'routed',
+            style: edge.aux
+              ? { stroke: edgeStroke, strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
+              : { stroke: edgeStroke, strokeWidth: 1.5 },
+            hidden:
+              animatedVisibility.hiddenIds.has(edge.source) ||
+              animatedVisibility.hiddenIds.has(edge.target),
+            className:
+              animatedVisibility.transparentIds.has(edge.source) ||
+              animatedVisibility.transparentIds.has(edge.target)
+                ? 'crossplane-map-fading'
+                : dimmedIds.has(edge.source) || dimmedIds.has(edge.target)
+                ? 'crossplane-map-dimmed'
+                : undefined,
+            selectable: false,
+            focusable: false,
+            domAttributes: {
+              'aria-hidden':
+                excludedIds.has(edge.source) || excludedIds.has(edge.target) || undefined,
+              inert: excludedIds.has(edge.source) || excludedIds.has(edge.target) ? '' : undefined,
+            },
+          },
+        ];
+      });
+  }, [
+    graph?.edges,
+    layoutCommit,
+    displayNodes,
+    edgeStroke,
+    excludedIds,
+    dimmedIds,
+    animatedVisibility,
+  ]);
 
   useEffect(() => {
     if (
@@ -647,6 +671,7 @@ function CrossplaneMapView() {
           nodes={displayNodes}
           edges={displayEdges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onPaneClick={() => setSelectedId(null)}
           onMoveStart={event => {
