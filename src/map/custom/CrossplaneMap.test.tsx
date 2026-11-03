@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CrossplaneMap from './CrossplaneMap';
 
@@ -8,7 +9,20 @@ const mocks = vi.hoisted(() => ({
   layout: vi.fn(),
   openDetails: vi.fn(),
   nodes: [] as any[],
+  edges: [] as any[],
   onNodesChange: vi.fn(),
+  onMoveStart: vi.fn(),
+  flowStore: { getState: vi.fn(), setState: vi.fn() },
+  flowState: {
+    fitViewQueued: false,
+    fitViewOptions: undefined as any,
+    fitViewResolver: null as any,
+  },
+  fitView: vi.fn(),
+  setViewport: vi.fn(),
+  getViewport: vi.fn(),
+  viewport: { x: 0, y: 0, zoom: 1 },
+  reduceMotion: true,
 }));
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: { useCluster: () => mocks.cluster.current },
@@ -16,7 +30,7 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 vi.mock('@kinvolk/headlamp-plugin/lib/CommonComponents', () => ({ SectionHeader: () => null }));
 vi.mock('@mui/material', async () => ({
   ...(await vi.importActual<typeof import('@mui/material')>('@mui/material')),
-  useMediaQuery: () => true,
+  useMediaQuery: () => mocks.reduceMotion,
 }));
 vi.mock('../../managed/ManagedDetail', () => ({ openManagedDetail: mocks.openDetails }));
 vi.mock('../common/useManagedGraph', () => ({
@@ -32,15 +46,42 @@ vi.mock('@xyflow/react', async () => {
   return {
     Background: () => null,
     BackgroundVariant: { Dots: 'dots' },
-    Controls: () => null,
+    Controls: ({ onZoomIn, onZoomOut }: any) => (
+      <div>
+        <button
+          type="button"
+          onClick={() => {
+            mocks.viewport = { ...mocks.viewport, zoom: mocks.viewport.zoom * 1.2 };
+            // React Flow toolbar zooms do not carry a native source event.
+            mocks.onMoveStart(undefined);
+            onZoomIn?.();
+          }}
+        >
+          Zoom in
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            mocks.viewport = { ...mocks.viewport, zoom: mocks.viewport.zoom / 1.2 };
+            mocks.onMoveStart(undefined);
+            onZoomOut?.();
+          }}
+        >
+          Zoom out
+        </button>
+      </div>
+    ),
     Handle: () => null,
     MarkerType: { ArrowClosed: 'arrowclosed' },
     MiniMap: () => null,
     Panel: ({ children }: any) => <div>{children}</div>,
     Position: { Top: 'top', Bottom: 'bottom' },
-    ReactFlow: ({ nodes, edges, children, onNodesChange }: any) => {
+    ReactFlowProvider: ({ children }: any) => children,
+    ReactFlow: ({ nodes, edges, children, onNodesChange, onMoveStart }: any) => {
       mocks.nodes = nodes;
+      mocks.edges = edges;
       mocks.onNodesChange = onNodesChange;
+      mocks.onMoveStart = onMoveStart;
       return (
         <div>
           <div data-testid="nodes">
@@ -51,7 +92,12 @@ vi.mock('@xyflow/react', async () => {
           </div>
           <div data-testid="edges">{edges.map((edge: any) => edge.id).join(',')}</div>
           {nodes.map((node: any) => (
-            <button key={node.id} type="button" onClick={node.data.onOpenDetails}>
+            <button
+              className="react-flow__node"
+              key={node.id}
+              type="button"
+              onClick={node.data.onOpenDetails}
+            >
               Open {node.data.name}
             </button>
           ))}
@@ -60,7 +106,15 @@ vi.mock('@xyflow/react', async () => {
       );
     },
     useNodesState,
-    useReactFlow: () => ({}),
+    useStoreApi: () => mocks.flowStore,
+    useNodesInitialized: () => true,
+    useReactFlow: () => ({
+      fitView: mocks.fitView,
+      setViewport: mocks.setViewport,
+      getViewport: mocks.getViewport,
+      getNodes: () => mocks.nodes,
+      viewportInitialized: true,
+    }),
   };
 });
 
@@ -70,6 +124,17 @@ beforeEach(() => {
   mocks.source.current = null;
   mocks.cluster.current = 'cluster-a';
   mocks.nodes = [];
+  mocks.edges = [];
+  mocks.viewport = { x: 0, y: 0, zoom: 1 };
+  mocks.reduceMotion = true;
+  mocks.fitView.mockReset().mockResolvedValue(true);
+  mocks.setViewport.mockReset().mockResolvedValue(true);
+  mocks.getViewport.mockReset().mockImplementation(() => ({ ...mocks.viewport }));
+  mocks.flowState = { fitViewQueued: false, fitViewOptions: undefined, fitViewResolver: null };
+  mocks.flowStore.getState.mockReset().mockImplementation(() => mocks.flowState);
+  mocks.flowStore.setState
+    .mockReset()
+    .mockImplementation(update => Object.assign(mocks.flowState, update));
 });
 afterEach(cleanup);
 
@@ -127,14 +192,18 @@ describe('Crossplane map category filtering', () => {
     fireEvent.click(screen.getByRole('option', { name: 'All' }));
     fireEvent.click(screen.getByRole('option', { name: value }));
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
-    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('named'));
+    expect(screen.getByTestId('nodes').textContent).toBe('named,missing');
+    expect(mocks.nodes.find(node => node.id === 'missing').className).toContain('dimmed');
+    expect(mocks.nodes.find(node => node.id === 'named').className ?? '').not.toContain('dimmed');
     expect(filter.textContent).toContain(value);
 
     fireEvent.mouseDown(filter);
     fireEvent.click(screen.getByRole('option', { name: value }));
     fireEvent.click(screen.getByRole('option', { name: 'Not set' }));
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
-    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('missing'));
+    expect(screen.getByTestId('nodes').textContent).toBe('named,missing');
+    expect(mocks.nodes.find(node => node.id === 'named').className).toContain('dimmed');
+    expect(mocks.nodes.find(node => node.id === 'missing').className ?? '').not.toContain('dimmed');
     expect(filter.textContent).toContain('Not set');
 
     fireEvent.mouseDown(filter);
@@ -142,6 +211,8 @@ describe('Crossplane map category filtering', () => {
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('named,missing'));
     expect(filter.textContent).toContain('All');
+    expect(mocks.nodes.every(node => !node.className?.includes('dimmed'))).toBe(true);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -434,5 +505,1171 @@ describe('Crossplane map discovery and layout state', () => {
     mocks.source.current = empty;
     rerender(<CrossplaneMap />);
     expect(screen.getByText('No Crossplane resources found.')).toBeTruthy();
+  });
+});
+
+function filteringGraph() {
+  return {
+    nodes: ['parent', 'child', 'grandchild', 'leaf'].map(id => ({
+      id,
+      status: id === 'child' ? 'error' : 'success',
+      customResourceDefinition: 'resources.example.org',
+      kubeObject: {
+        apiVersion: 'example.org/v1',
+        kind: 'Resource',
+        metadata: { name: id, labels: { team: id === 'child' ? 'red' : 'blue' } },
+      },
+    })),
+    edges: [
+      { id: 'parent-child', source: 'parent', target: 'child' },
+      { id: 'child-grandchild', source: 'child', target: 'grandchild' },
+      { id: 'grandchild-leaf', source: 'grandchild', target: 'leaf' },
+      { id: 'reference', source: 'parent', target: 'grandchild', aux: true },
+    ],
+  };
+}
+
+function positionedLayout(input: any, offset = 0) {
+  return {
+    ...input,
+    children: input.children.map((node: any, index: number) => ({
+      ...node,
+      x: offset + index * 360,
+      y: offset + index * 220,
+    })),
+  };
+}
+
+function selectOption(label: string, option: string) {
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: label }));
+  fireEvent.click(screen.getByRole('option', { name: option }));
+  if (screen.queryByRole('listbox')) {
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+  }
+}
+
+function selectTeam(team = 'blue') {
+  selectOption('Categorize by', 'Common Label');
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Common Label' }));
+  fireEvent.click(screen.getByRole('option', { name: 'All' }));
+  fireEvent.click(screen.getByRole('option', { name: team }));
+  fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+}
+
+// Rendered as a MUI Switch, which keeps the checkbox ARIA role.
+function matchingCheckbox() {
+  return screen.getByRole('checkbox', { name: 'Hide non-matching' }) as HTMLInputElement;
+}
+
+function positions() {
+  return mocks.nodes.map(node => ({ id: node.id, position: { ...node.position } }));
+}
+
+function node(id: string) {
+  return mocks.nodes.find(node => node.id === id);
+}
+
+function delayedLayouts() {
+  const pending: Array<{
+    input: any;
+    finish: (offset?: number) => void;
+    fail: () => void;
+  }> = [];
+  mocks.layout.mockImplementation(
+    input =>
+      new Promise((resolve, reject) =>
+        pending.push({
+          input,
+          finish: (offset = 0) => resolve(positionedLayout(input, offset)),
+          fail: () => reject(new Error('Layout unavailable')),
+        })
+      )
+  );
+  return pending;
+}
+
+async function renderFilteringGraph() {
+  mocks.layout.mockImplementation(async input => positionedLayout(input));
+  mocks.source.current = filteringGraph();
+  const result = render(<CrossplaneMap />);
+  await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+  await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+  mocks.fitView.mockClear();
+  mocks.setViewport.mockClear();
+  return result;
+}
+
+async function renderBlueFilter() {
+  const result = await renderFilteringGraph();
+  selectTeam();
+  return result;
+}
+
+describe('Crossplane map context and matching views', () => {
+  it('dims non-matches without changing geometry, layout or viewport and clears dimming with All', async () => {
+    await renderFilteringGraph();
+    const fullPositions = positions();
+    selectTeam();
+
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child,grandchild,leaf');
+    expect(node('child').className).toContain('dimmed');
+    expect(node('child').domAttributes).toMatchObject({ 'aria-hidden': true, inert: '' });
+    expect(node('parent').domAttributes['aria-hidden']).toBeUndefined();
+    expect(node('parent').domAttributes.inert).toBeUndefined();
+    expect(positions()).toEqual(fullPositions);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+
+    selectOption('Common Label', 'All');
+    expect(mocks.nodes.every(node => !node.className?.includes('dimmed'))).toBe(true);
+    expect(positions()).toEqual(fullPositions);
+    expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+
+  it('combines category and status filters and counts exclusions independently of collapse', async () => {
+    await renderBlueFilter();
+    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent');
+    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
+
+    selectOption('Status', 'Not Ready');
+    expect(matchingCheckbox().checked).toBe(false);
+    expect(screen.getByText('0 of 4 resources match filters')).toBeTruthy();
+    expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
+    expect(mocks.nodes.every(node => node.className?.includes('dimmed'))).toBe(true);
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child,grandchild,leaf');
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+
+  it('uses singular wording in the match count when the graph holds one resource', async () => {
+    mocks.layout.mockImplementation(async input => positionedLayout(input));
+    mocks.source.current = {
+      nodes: [filteringGraph().nodes[0]],
+      edges: [],
+    };
+    render(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(1));
+
+    selectOption('Status', 'Ready');
+    expect(screen.getByText('1 of 1 resource matches filters')).toBeTruthy();
+
+    selectOption('Status', 'Not Ready');
+    expect(screen.getByText('0 of 1 resource matches filters')).toBeTruthy();
+  });
+
+  it('hides the toggle when a filter is active but excludes nothing', async () => {
+    const { rerender } = await renderFilteringGraph();
+    expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({ ...node, status: 'success' })),
+    };
+    rerender(<CrossplaneMap />);
+    selectOption('Status', 'Ready');
+    expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+
+  it('compacts matching nodes and valid edges, including matches hidden by structural collapse', async () => {
+    await renderBlueFilter();
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    expect(pending).toHaveLength(1);
+    expect(pending[0].input.children.map((node: any) => node.id)).toEqual([
+      'parent',
+      'grandchild',
+      'leaf',
+    ]);
+    expect(pending[0].input.edges.map((edge: any) => edge.id)).toEqual([
+      'grandchild-leaf',
+      'reference',
+    ]);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    const geometryAtFit: string[][] = [];
+    mocks.fitView.mockImplementation(async () => {
+      geometryAtFit.push(mocks.nodes.map(node => node.id));
+      return true;
+    });
+    await act(async () => pending[0].finish(50));
+    expect(mocks.nodes.map(node => node.id)).toEqual(['parent', 'grandchild', 'leaf']);
+    expect(screen.getByTestId('nodes').textContent).toBe('parent');
+    expect(node('parent').data.childCount).toBe(1);
+    expect(node('parent').data.collapsed).toBe(true);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView.mock.calls[0][0].nodes.map((node: any) => node.id)).toEqual(['parent']);
+    expect(geometryAtFit).toEqual([['parent', 'grandchild', 'leaf']]);
+
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,grandchild,leaf');
+    expect(node('grandchild').position).toEqual({ x: 410, y: 270 });
+    expect(mocks.layout).toHaveBeenCalledTimes(2);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the exact full positions and captured viewport without another layout', async () => {
+    await renderBlueFilter();
+    const fullPositions = positions();
+    const contextViewport = { x: -137, y: 92, zoom: 0.63 };
+    mocks.viewport = contextViewport;
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    mocks.viewport = { x: -900, y: -700, zoom: 1.8 };
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    expect(positions()).toEqual(fullPositions);
+    expect(mocks.setViewport.mock.calls[0][0]).toEqual(contextViewport);
+    expect(mocks.layout).toHaveBeenCalledTimes(2);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['category mode', 'category selection', 'status', 'label key'])(
+    'keeps matching mode checked and lays out the new matches after changing %s',
+    async change => {
+      const { rerender } = await renderBlueFilter();
+      mocks.viewport = { x: 77, y: -42, zoom: 0.7 };
+      if (change === 'label key') {
+        mocks.source.current = {
+          ...mocks.source.current,
+          nodes: mocks.source.current.nodes.map((node: any, index: number) => ({
+            ...node,
+            kubeObject: {
+              ...node.kubeObject,
+              metadata: {
+                ...node.kubeObject.metadata,
+                labels: {
+                  ...node.kubeObject.metadata.labels,
+                  ...(index === 0 ? { env: 'dev' } : {}),
+                },
+              },
+            },
+          })),
+        };
+        rerender(<CrossplaneMap />);
+      }
+      if (change === 'status') {
+        mocks.source.current = {
+          ...mocks.source.current,
+          nodes: mocks.source.current.nodes.map((resource: any) => ({
+            ...resource,
+            status: resource.id === 'leaf' ? 'error' : resource.status,
+          })),
+        };
+        rerender(<CrossplaneMap />);
+      }
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+      mocks.layout.mockImplementation(async input => positionedLayout(input, 100));
+      if (change === 'category mode') selectOption('Categorize by', 'Flux');
+      if (change === 'category selection') selectOption('Common Label', 'red');
+      if (change === 'status') selectOption('Status', 'Not Ready');
+      if (change === 'label key') selectOption('Label', 'env');
+      expect(matchingCheckbox().checked).toBe(true);
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+      expect(mocks.layout).toHaveBeenCalledTimes(3);
+      const expectedIds =
+        change === 'status' ? ['leaf'] : ['parent', 'child', 'grandchild', 'leaf'];
+      expect(mocks.layout.mock.calls[2][0].children.map((resource: any) => resource.id)).toEqual(
+        expectedIds
+      );
+      expect(mocks.nodes.map(resource => resource.id)).toEqual(expectedIds);
+      expect(node(expectedIds[0]).position).toEqual({ x: 100, y: 100 });
+      expect(mocks.setViewport).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['topology', 'dimensions', 'edge priority'])(
+    'recomputes and fits the current full graph when cached %s became invalid',
+    async change => {
+      const { rerender } = await renderBlueFilter();
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+      const graph = filteringGraph();
+      mocks.source.current = {
+        ...graph,
+        nodes: graph.nodes.map(node => ({
+          ...node,
+          kubeObject: {
+            ...node.kubeObject,
+            metadata: {
+              ...node.kubeObject.metadata,
+              ...(change === 'dimensions' && node.id === 'child' ? { namespace: 'team-a' } : {}),
+            },
+          },
+        })),
+        edges: graph.edges.map(edge =>
+          edge.id === 'parent-child'
+            ? {
+                ...edge,
+                source: change === 'topology' ? 'grandchild' : edge.source,
+                aux: change === 'edge priority',
+              }
+            : edge
+        ),
+      };
+      rerender(<CrossplaneMap />);
+      expect(mocks.layout).toHaveBeenCalledTimes(2);
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+      expect(mocks.layout).toHaveBeenCalledTimes(3);
+      expect(mocks.fitView).toHaveBeenCalledTimes(2);
+      expect(mocks.setViewport).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserves matching mode on live membership changes and never fits subsequent live layouts', async () => {
+    const { rerender } = await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    mocks.source.current = {
+      ...mocks.source.current,
+      nodes: mocks.source.current.nodes.map((node: any) => ({
+        ...node,
+        kubeObject: {
+          ...node.kubeObject,
+          metadata: { ...node.kubeObject.metadata, labels: { team: 'blue' } },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(screen.getByText('Hide non-matching')).toBeTruthy();
+    expect(mocks.layout).toHaveBeenCalledTimes(3);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
+    expect(mocks.layout).toHaveBeenCalledTimes(3);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves matching mode on live status changes and updates membership without fitting', async () => {
+    const { rerender } = await renderFilteringGraph();
+    selectOption('Status', 'Ready');
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({
+        ...node,
+        status: node.id === 'parent' ? 'error' : node.status,
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes.map(node => node.id)).toEqual(['grandchild', 'leaf']));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(mocks.layout).toHaveBeenCalledTimes(3);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it('recalculates the new matching subset when a previously unrestricted checked view is filtered', async () => {
+    const { rerender } = await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    const graph = filteringGraph();
+    mocks.source.current = {
+      ...graph,
+      nodes: graph.nodes.map(resource => ({
+        ...resource,
+        kubeObject: {
+          ...resource.kubeObject,
+          metadata: { ...resource.kubeObject.metadata, labels: { team: 'blue' } },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(screen.getByText('Hide non-matching')).toBeTruthy();
+    expect(mocks.layout).toHaveBeenCalledTimes(3);
+    mocks.layout.mockImplementation(async input => positionedLayout(input, 150));
+
+    selectOption('Status', 'Ready');
+    expect(matchingCheckbox().checked).toBe(true);
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+    expect(mocks.layout).toHaveBeenCalledTimes(4);
+    expect(mocks.nodes.map(resource => resource.id)).toEqual(['parent', 'grandchild', 'leaf']);
+    expect(node('parent').position).toEqual({ x: 150, y: 150 });
+    expect(node('child')).toBeUndefined();
+  });
+
+  it.each(['All', 'None'])(
+    'keeps a checked checkbox visible after selecting %s and applies the next filter in matching mode',
+    async option => {
+      await renderBlueFilter();
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+      if (option === 'All') selectOption('Common Label', 'All');
+      else selectOption('Categorize by', 'None');
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+      expect(mocks.nodes).toHaveLength(4);
+      expect(matchingCheckbox().checked).toBe(true);
+
+      selectOption('Status', 'Ready');
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(3));
+      expect(mocks.nodes.map(resource => resource.id)).toEqual(['parent', 'grandchild', 'leaf']);
+      expect(matchingCheckbox().checked).toBe(true);
+      expect(mocks.layout).toHaveBeenCalledTimes(4);
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+      expect(matchingCheckbox().checked).toBe(false);
+    }
+  );
+
+  it('keeps matching mode through an empty filter result and fits the next non-empty result', async () => {
+    await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    selectOption('Status', 'Not Ready');
+    expect(matchingCheckbox().checked).toBe(true);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
+    expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    expect(mocks.layout).toHaveBeenCalledTimes(2);
+
+    selectOption('Status', 'Ready');
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+    expect(mocks.nodes.map(resource => resource.id)).toEqual(['parent', 'grandchild', 'leaf']);
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
+  });
+
+  it('relayouts matching mode when a data-driven label-key fallback invalidates the filter', async () => {
+    const { rerender } = await renderBlueFilter();
+    mocks.viewport = { x: 11, y: 22, zoom: 0.8 };
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({
+        ...node,
+        kubeObject: {
+          ...node.kubeObject,
+          metadata: { ...node.kubeObject.metadata, labels: { env: 'production' } },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(screen.getByRole('combobox', { name: 'Label' }).textContent).toBe('env');
+    expect(screen.getByRole('combobox', { name: 'Common Label' }).textContent).toBe('All');
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+    expect(mocks.fitView).toHaveBeenCalledTimes(2);
+    expect(mocks.layout).toHaveBeenCalledTimes(3);
+  });
+
+  it('applies identical dimming and exclusion rules to node and edge accessibility while layout is pending', async () => {
+    await renderBlueFilter();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    expect(pending).toHaveLength(1);
+    expect(node('child')).toMatchObject({
+      hidden: false,
+      domAttributes: { 'aria-hidden': true, inert: '' },
+    });
+    for (const id of ['parent-child', 'child-grandchild']) {
+      const edge = mocks.edges.find(edge => edge.id === id);
+      expect(edge.className).toContain('dimmed');
+      expect(edge.domAttributes['aria-hidden']).toBe(true);
+      expect(edge.focusable).toBe(false);
+      expect(edge.selectable).toBe(false);
+    }
+    expect(
+      mocks.edges.find(edge => edge.id === 'grandchild-leaf').domAttributes['aria-hidden']
+    ).toBeUndefined();
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(node('child').domAttributes['aria-hidden']).toBe(true);
+    expect(node('grandchild').domAttributes).toMatchObject({ 'aria-hidden': true, inert: '' });
+    expect(mocks.edges.every(edge => edge.domAttributes['aria-hidden'])).toBe(true);
+    await act(async () => pending[0].finish());
+  });
+
+  it('does not relayout when reduced motion changes and uses zero viewport duration', async () => {
+    const { rerender } = await renderBlueFilter();
+    mocks.reduceMotion = false;
+    rerender(<CrossplaneMap />);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    mocks.reduceMotion = true;
+    rerender(<CrossplaneMap />);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    expect(mocks.fitView.mock.calls[0][0].duration).toBe(0);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    expect(mocks.setViewport.mock.calls[0][1].duration).toBe(0);
+  });
+});
+
+describe('Crossplane map collapse with filtering', () => {
+  it('hides excluded children and follows excluded intermediate nodes without losing expand controls', async () => {
+    await renderBlueFilter();
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent');
+    expect(node('parent').data).toMatchObject({ childCount: 1, collapsed: true });
+    expect(node('child').hidden).toBe(true);
+    expect(node('grandchild').hidden).toBe(true);
+    expect(node('leaf').hidden).toBe(true);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child,grandchild,leaf');
+    expect(node('child').className).toContain('dimmed');
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+
+  it('ignores a non-matching stored collapse root and restores it when the filter is removed', async () => {
+    await renderFilteringGraph();
+    act(() => node('child').data.onToggleCollapse('child'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child');
+    selectTeam();
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child,grandchild,leaf');
+    expect(node('child').data.collapsed).toBe(true);
+    expect(node('grandchild').domAttributes.inert).toBeUndefined();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,grandchild,leaf');
+    expect(node('grandchild').data.childCount).toBe(1);
+    selectOption('Common Label', 'All');
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child');
+    expect(node('child').data.collapsed).toBe(true);
+    expect(node('grandchild').hidden).toBe(true);
+  });
+
+  it('preserves nested collapse entries when a matching ancestor expands', async () => {
+    await renderBlueFilter();
+    act(() => node('grandchild').data.onToggleCollapse('grandchild'));
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent');
+    act(() => node('parent').data.onToggleCollapse('parent'));
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child,grandchild');
+    expect(node('grandchild').data).toMatchObject({ collapsed: true, childCount: 1 });
+    expect(node('leaf').hidden).toBe(true);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+});
+
+describe('Crossplane map layout transitions', () => {
+  it('keeps a pending context layout valid when a label-key fallback clears the filter', async () => {
+    const { rerender } = await renderBlueFilter();
+    const pending = delayedLayouts();
+    const graph = filteringGraph();
+    mocks.source.current = {
+      ...graph,
+      nodes: graph.nodes.map(resource => ({
+        ...resource,
+        kubeObject: {
+          ...resource.kubeObject,
+          metadata: { ...resource.kubeObject.metadata, namespace: 'team-a' },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(1);
+    mocks.source.current = {
+      ...mocks.source.current,
+      nodes: mocks.source.current.nodes.map((resource: any) => ({
+        ...resource,
+        kubeObject: {
+          ...resource.kubeObject,
+          metadata: { ...resource.kubeObject.metadata, labels: { env: 'production' } },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(1);
+    await act(async () => pending[0].finish(200));
+    expect(mocks.nodes).toHaveLength(4);
+    expect(node('parent').position).toEqual({ x: 200, y: 200 });
+    expect(screen.getByRole('combobox', { name: 'Common Label' }).textContent).toBe('All');
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+
+  it('cancels an already queued fit before restoring the context viewport', async () => {
+    await renderBlueFilter();
+    const contextViewport = { x: 17, y: -30, zoom: 0.6 };
+    mocks.viewport = contextViewport;
+    const resolved = vi.fn();
+    mocks.fitView.mockImplementation(
+      options =>
+        new Promise(resolve => {
+          mocks.flowState.fitViewQueued = true;
+          mocks.flowState.fitViewOptions = options;
+          mocks.flowState.fitViewResolver = {
+            resolve: (value: boolean) => {
+              resolved(value);
+              resolve(value);
+            },
+          };
+        })
+    );
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.flowState.fitViewQueued).toBe(true));
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(mocks.flowState.fitViewQueued).toBe(false);
+    expect(mocks.flowState.fitViewOptions).toBeUndefined();
+    expect(mocks.flowState.fitViewResolver).toBeNull();
+    expect(resolved).toHaveBeenCalledWith(false);
+    expect(mocks.setViewport.mock.calls.at(-1)[0]).toEqual(contextViewport);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['user pan', 'native card focus'])(
+    'captures the new context viewport after %s interrupts a restore animation',
+    async interruption => {
+      await renderBlueFilter();
+      mocks.viewport = { x: 17, y: -30, zoom: 0.6 };
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+      mocks.setViewport.mockImplementationOnce(() => new Promise(() => {}));
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+      act(() =>
+        interruption === 'user pan'
+          ? mocks.onMoveStart(new Event('wheel'))
+          : fireEvent.focus(screen.getByRole('button', { name: 'Open parent' }))
+      );
+      const pannedViewport = { x: -400, y: 125, zoom: 1.2 };
+      mocks.viewport = pannedViewport;
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() =>
+        expect(mocks.setViewport).toHaveBeenCalledTimes(interruption === 'user pan' ? 2 : 3)
+      );
+      expect(mocks.setViewport.mock.calls.at(-1)[0]).toEqual(pannedViewport);
+    }
+  );
+
+  it.each(['Zoom in', 'Zoom out'])(
+    'captures the viewport chosen with %s during a restore animation',
+    async control => {
+      await renderBlueFilter();
+      mocks.reduceMotion = false;
+      mocks.viewport = { x: 17, y: -30, zoom: 0.6 };
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+      mocks.setViewport.mockImplementationOnce(() => new Promise(() => {}));
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+      mocks.viewport = { x: -400, y: 125, zoom: 1.2 };
+
+      fireEvent.click(screen.getByRole('button', { name: control }));
+      const chosenViewport = { ...mocks.viewport };
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+      fireEvent.click(matchingCheckbox());
+      await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(2));
+      expect(mocks.setViewport.mock.calls.at(-1)[0]).toEqual(chosenViewport);
+    }
+  );
+
+  it('retains the original context baseline when a restore animation is reversed', async () => {
+    await renderBlueFilter();
+    const originalViewport = { x: 17, y: -30, zoom: 0.6 };
+    mocks.viewport = originalViewport;
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    mocks.setViewport.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    mocks.viewport = { x: -800, y: -100, zoom: 1.7 };
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+    expect(mocks.setViewport.mock.calls[1][1].duration).toBe(0);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(3));
+    expect(mocks.setViewport.mock.calls.at(-1)[0]).toEqual(originalViewport);
+  });
+
+  it('performs the initial fit during a StrictMode mount', async () => {
+    mocks.source.current = filteringGraph();
+    render(
+      <StrictMode>
+        <CrossplaneMap />
+      </StrictMode>
+    );
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes an empty matching transition without fitting and preserves selection and collapse', async () => {
+    const { rerender } = await renderBlueFilter();
+    act(() => {
+      node('parent').data.onOpenDetails();
+      node('parent').data.onToggleCollapse('parent');
+    });
+    selectOption('Status', 'Not Ready');
+    expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
+    expect(node('parent').selected).toBe(true);
+    expect(node('parent').data.collapsed).toBe(true);
+    expect(screen.getByTestId('nodes').textContent).toBe('parent,child,grandchild,leaf');
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({ ...node, status: 'error' })),
+    };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(node('parent').selected).toBe(true);
+    expect(node('parent').data.collapsed).toBe(true);
+    expect(screen.getByTestId('nodes').textContent).toBe('parent');
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
+    selectOption('Status', 'All');
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(mocks.nodes).toHaveLength(3);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(node('parent').selected).toBe(true);
+    expect(node('parent').data.collapsed).toBe(true);
+  });
+
+  it('clears selection and collapse on actual source emptiness, including from matching view', async () => {
+    const { rerender } = await renderBlueFilter();
+    act(() => {
+      node('parent').data.onOpenDetails();
+      node('parent').data.onToggleCollapse('parent');
+    });
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    mocks.source.current = { nodes: [], edges: [] };
+    rerender(<CrossplaneMap />);
+    expect(screen.getByText('No Crossplane resources found.')).toBeTruthy();
+    expect(mocks.nodes).toHaveLength(0);
+    mocks.source.current = filteringGraph();
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes.length).toBeGreaterThan(0));
+    expect(mocks.nodes.every(node => !node.selected && !node.data.collapsed)).toBe(true);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a delayed matching layout and its fit when the toggle is reversed', async () => {
+    await renderBlueFilter();
+    const fullPositions = positions();
+    mocks.viewport = { x: -25, y: 30, zoom: 0.5 };
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    expect(pending).toHaveLength(1);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    expect(positions()).toEqual(fullPositions);
+    await act(async () => pending[0].finish(800));
+    expect(positions()).toEqual(fullPositions);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    expect(mocks.setViewport).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces a delayed matching layout with fresh matching geometry after the filter changes', async () => {
+    await renderBlueFilter();
+    const fullPositions = positions();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    selectOption('Status', 'Ready');
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(pending).toHaveLength(2);
+    expect(pending[1].input.children.map((resource: any) => resource.id)).toEqual([
+      'parent',
+      'grandchild',
+      'leaf',
+    ]);
+    await act(async () => pending[0].finish(900));
+    expect(positions()).toEqual(fullPositions);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    await act(async () => pending[1].finish(100));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(node('parent').position).toEqual({ x: 100, y: 100 });
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+  });
+
+  it('keeps matching mode and replaces its unfinished fit when a filter changes', async () => {
+    await renderBlueFilter();
+    let finishOldFit!: (value: boolean) => void;
+    mocks.fitView.mockImplementationOnce(() => new Promise(resolve => (finishOldFit = resolve)));
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    const pending = delayedLayouts();
+
+    selectOption('Status', 'Ready');
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(pending).toHaveLength(1);
+    await act(async () => finishOldFit(true));
+    await act(async () => pending[0].finish(100));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(mocks.nodes.every(resource => !resource.className?.includes('dimmed'))).toBe(true);
+    expect(mocks.fitView).toHaveBeenCalledTimes(2);
+    expect(mocks.fitView.mock.calls[1][0].nodes.map((resource: any) => resource.id)).toEqual([
+      'parent',
+      'grandchild',
+      'leaf',
+    ]);
+  });
+
+  it('continues an unfinished fit across live layouts without letting obsolete completion consume it', async () => {
+    const { rerender } = await renderBlueFilter();
+    selectOption('Status', 'Ready');
+    const fits: Array<(value: boolean) => void> = [];
+    mocks.fitView.mockImplementation(() => new Promise(resolve => fits.push(resolve)));
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(fits).toHaveLength(1));
+    const pending = delayedLayouts();
+    const graph = filteringGraph();
+    mocks.source.current = {
+      ...graph,
+      nodes: graph.nodes.map(resource => ({
+        ...resource,
+        status: resource.id === 'parent' ? 'error' : resource.status,
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[0].finish(100));
+    expect(mocks.nodes.map(resource => resource.id)).toEqual(['grandchild', 'leaf']);
+    expect(fits).toHaveLength(2);
+
+    await act(async () => fits[0](true));
+    mocks.source.current = filteringGraph();
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[1].finish(200));
+    expect(fits).toHaveLength(3);
+    await act(async () => fits[2](true));
+
+    mocks.source.current = { ...graph, edges: graph.edges.filter(edge => !edge.aux) };
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[2].finish(300));
+    expect(fits).toHaveLength(3);
+    expect(matchingCheckbox().checked).toBe(true);
+  });
+
+  it('replaces an interrupted restore with a fit when live full topology changes', async () => {
+    const { rerender } = await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    let finishRestore!: (value: boolean) => void;
+    mocks.setViewport.mockImplementationOnce(
+      () => new Promise(resolve => (finishRestore = resolve))
+    );
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    const pending = delayedLayouts();
+    const fits: Array<(value: boolean) => void> = [];
+    mocks.fitView.mockImplementation(() => new Promise(resolve => fits.push(resolve)));
+    const graph = filteringGraph();
+    mocks.source.current = {
+      ...graph,
+      edges: graph.edges.filter(edge => edge.id !== 'parent-child'),
+    };
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[0].finish(100));
+    expect(mocks.nodes).toHaveLength(4);
+    expect(fits).toHaveLength(1);
+    await act(async () => finishRestore(true));
+
+    mocks.source.current = {
+      ...graph,
+      edges: graph.edges.filter(edge => edge.id !== 'child-grandchild'),
+    };
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[1].finish(200));
+    expect(fits).toHaveLength(2);
+    await act(async () => fits[1](true));
+
+    mocks.source.current = filteringGraph();
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[2].finish(300));
+    expect(fits).toHaveLength(2);
+    expect(matchingCheckbox().checked).toBe(false);
+  });
+
+  it('transfers a pending matching fit to live replacement work, then leaves later updates alone', async () => {
+    const { rerender } = await renderBlueFilter();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({
+        ...node,
+        kubeObject: {
+          ...node.kubeObject,
+          metadata: {
+            ...node.kubeObject.metadata,
+            labels: { team: node.id === 'parent' ? 'red' : node.kubeObject.metadata.labels.team },
+          },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(2);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    await act(async () => pending[0].finish(700));
+    expect(mocks.nodes).toHaveLength(4);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    await act(async () => pending[1].finish(100));
+    expect(mocks.nodes.map(node => node.id)).toEqual(['grandchild', 'leaf']);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    mocks.source.current = filteringGraph();
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(3);
+    await act(async () => pending[2].finish(200));
+    expect(mocks.nodes.map(node => node.id)).toEqual(['parent', 'grandchild', 'leaf']);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes an empty replacement instead of deferring its fit to future live matches', async () => {
+    const { rerender } = await renderBlueFilter();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({
+        ...node,
+        kubeObject: {
+          ...node.kubeObject,
+          metadata: { ...node.kubeObject.metadata, labels: { team: 'red' } },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(pending).toHaveLength(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    await act(async () => pending[0].finish(1000));
+    expect(mocks.nodes).toHaveLength(0);
+    mocks.source.current = filteringGraph();
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(2);
+    await act(async () => pending[1].finish(50));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+  });
+
+  it('fulfills a pending return fit on an unchanged committed matching input', async () => {
+    const { rerender } = await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({
+        ...node,
+        kubeObject: {
+          ...node.kubeObject,
+          metadata: {
+            ...node.kubeObject.metadata,
+            ...(node.id === 'child' ? { namespace: 'team-a' } : {}),
+          },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    expect(pending).toHaveLength(1);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(mocks.nodes).toHaveLength(3);
+    await act(async () => pending[0].finish(1000));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(mocks.fitView).toHaveBeenCalledTimes(2);
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+  });
+
+  it('preserves the original context viewport during rapid reversals before return layout commits', async () => {
+    const { rerender } = await renderBlueFilter();
+    const originalViewport = { x: 15, y: 25, zoom: 0.55 };
+    mocks.viewport = originalViewport;
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    const matchingPositions = positions();
+    mocks.viewport = { x: -1000, y: -800, zoom: 2 };
+    const graph = filteringGraph();
+    const excluded = {
+      ...graph.nodes[1],
+      id: 'new-excluded',
+      kubeObject: {
+        ...graph.nodes[1].kubeObject,
+        metadata: { name: 'new-excluded', labels: { team: 'red' } },
+      },
+    };
+    mocks.source.current = { ...graph, nodes: [...graph.nodes, excluded] };
+    rerender(<CrossplaneMap />);
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    expect(pending).toHaveLength(1);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
+    expect(positions()).toEqual(matchingPositions);
+    mocks.source.current = filteringGraph();
+    rerender(<CrossplaneMap />);
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.setViewport).toHaveBeenCalledTimes(1));
+    expect(mocks.setViewport.mock.calls[0][0]).toEqual(originalViewport);
+    expect(mocks.nodes).toHaveLength(4);
+    await act(async () => pending[0].finish(1000));
+    expect(mocks.nodes).toHaveLength(4);
+    expect(mocks.setViewport).toHaveBeenCalledTimes(1);
+  });
+
+  it('transfers an unfinished invalidated return fit when live full topology changes again', async () => {
+    const { rerender } = await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    const graph = filteringGraph();
+    mocks.source.current = {
+      ...graph,
+      edges: graph.edges.filter(edge => edge.id !== 'parent-child'),
+    };
+    rerender(<CrossplaneMap />);
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    expect(pending).toHaveLength(1);
+    mocks.source.current = {
+      ...graph,
+      edges: graph.edges.filter(edge => edge.id !== 'child-grandchild'),
+    };
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(2);
+    await act(async () => pending[0].finish(700));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    await act(async () => pending[1].finish(100));
+    expect(mocks.nodes).toHaveLength(4);
+    expect(mocks.fitView).toHaveBeenCalledTimes(2);
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+  });
+
+  it('shows a failed requested layout with explicit Retry and does not leak fit work into live updates', async () => {
+    const { rerender } = await renderBlueFilter();
+    const fullPositions = positions();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    await act(async () => pending[0].fail());
+    expect(screen.getByRole('alert').textContent).toContain('Could not arrange the map.');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(positions()).toEqual(fullPositions);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({ ...node, providerName: 'updated-provider' })),
+    };
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(pending).toHaveLength(2);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    await act(async () => pending[1].finish(50));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('retries a failed filter-change layout without reusing the committed matching layout', async () => {
+    await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    const pending = delayedLayouts();
+    selectOption('Status', 'Ready');
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(pending).toHaveLength(1);
+    await act(async () => pending[0].fail());
+    expect(screen.getByRole('alert').textContent).toContain('Could not arrange the map.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(pending).toHaveLength(2);
+    expect(pending[1].input.children.map((resource: any) => resource.id)).toEqual([
+      'parent',
+      'grandchild',
+      'leaf',
+    ]);
+    await act(async () => pending[1].finish(100));
+    expect(mocks.nodes).toHaveLength(3);
+    expect(node('parent').position).toEqual({ x: 100, y: 100 });
+    expect(mocks.fitView).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('clears viewport work after a failed live layout until an explicit retry transition', async () => {
+    const { rerender } = await renderBlueFilter();
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    const pending = delayedLayouts();
+    mocks.source.current = {
+      ...filteringGraph(),
+      nodes: filteringGraph().nodes.map(node => ({
+        ...node,
+        kubeObject: {
+          ...node.kubeObject,
+          metadata: { ...node.kubeObject.metadata, labels: { team: 'blue' } },
+        },
+      })),
+    };
+    rerender(<CrossplaneMap />);
+    await act(async () => pending[0].fail());
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await act(async () => pending[1].finish());
+    expect(mocks.nodes).toHaveLength(4);
+    expect(mocks.fitView).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores both a delayed layout and its viewport action after unmount', async () => {
+    const { unmount } = await renderBlueFilter();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    unmount();
+    await act(async () => pending[0].finish(900));
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+  });
+
+  it('discards delayed mode geometry and viewport work when the cluster switches', async () => {
+    const { rerender } = await renderBlueFilter();
+    const pending = delayedLayouts();
+    fireEvent.click(matchingCheckbox());
+    mocks.cluster.current = 'cluster-b';
+    rerender(<CrossplaneMap />);
+    expect(pending).toHaveLength(2);
+    expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
+    await act(async () => pending[1].finish(50));
+    expect(mocks.nodes).toHaveLength(4);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    const newPositions = positions();
+    await act(async () => pending[0].finish(900));
+    expect(positions()).toEqual(newPositions);
+    expect(mocks.fitView).toHaveBeenCalledTimes(1);
+    expect(mocks.setViewport).not.toHaveBeenCalled();
   });
 });

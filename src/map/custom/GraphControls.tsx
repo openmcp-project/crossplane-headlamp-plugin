@@ -3,9 +3,11 @@ import {
   Box,
   Checkbox,
   colors,
+  FormControlLabel,
   FormLabel,
   MenuItem,
   Paper,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -37,6 +39,11 @@ export function GraphControls({
   onCategorySelectionChange,
   statusFilter,
   onStatusFilterChange,
+  hasActiveFilters,
+  matchingCount,
+  totalCount,
+  showMatchesOnly,
+  onShowMatchesOnlyChange,
 }: {
   categoryMode: CategoryMode;
   onCategoryModeChange: (m: CategoryMode) => void;
@@ -49,6 +56,11 @@ export function GraphControls({
   onCategorySelectionChange: (values: CategoryKey[] | null) => void;
   statusFilter: StatusFilter;
   onStatusFilterChange: (status: StatusFilter) => void;
+  hasActiveFilters: boolean;
+  matchingCount: number;
+  totalCount: number;
+  showMatchesOnly: boolean;
+  onShowMatchesOnlyChange: (checked: boolean) => void;
 }) {
   const theme = useTheme();
   const errorColor = theme.palette.mode === 'dark' ? colors.red[200] : theme.palette.error.main;
@@ -140,6 +152,33 @@ export function GraphControls({
               </MenuItem>
             ))}
           </TextField>
+          {hasActiveFilters && (
+            <Typography variant="caption" color="text.secondary" component="p" sx={{ m: 0, mt: 1.5 }}>
+              {matchingCount} of {totalCount} {totalCount === 1 ? 'resource' : 'resources'}{' '}
+              {totalCount === 1 ? 'matches' : 'match'} filters
+            </Typography>
+          )}
+          {(matchingCount < totalCount || showMatchesOnly) && (
+            <Box sx={{ mt: 1.5 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={showMatchesOnly}
+                    onChange={event => onShowMatchesOnlyChange(event.target.checked)}
+                    size="small"
+                  />
+                }
+                label="Hide non-matching"
+                labelPlacement="start"
+                sx={{
+                  m: 0,
+                  width: '100%',
+                  justifyContent: 'space-between',
+                  '& .MuiFormControlLabel-label': { typography: 'body2' },
+                }}
+              />
+            </Box>
+          )}
         </Box>
       </Box>
     </Paper>
