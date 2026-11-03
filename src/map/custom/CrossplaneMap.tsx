@@ -121,7 +121,7 @@ function CrossplaneMapView() {
   // hooks below run before the loading early-return to keep hook order stable.
   const [categoryMode, setCategoryMode] = useState<CategoryMode>('provider');
   const [labelKey, setLabelKey] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
   const [categoryFilter, setCategoryFilter] = useState<{
     categoryMode: CategoryMode;
     labelKey: string;
@@ -233,7 +233,7 @@ function CrossplaneMapView() {
     const matchingNodes = sourceNodes.filter(
       node =>
         !categoryExcludedIds.has(node.id) &&
-        (statusFilter === 'all' || node.status === statusFilter)
+        (statusFilter === null || statusFilter.includes(node.status))
     );
     const matchingIds = new Set(matchingNodes.map(node => node.id));
     return {
@@ -244,7 +244,7 @@ function CrossplaneMapView() {
     };
   }, [graph, categoryExcludedIds, statusFilter]);
   const hasActiveFilters =
-    statusFilter !== 'all' || (categoryMode !== 'none' && selectedCategories !== null);
+    statusFilter !== null || (categoryMode !== 'none' && selectedCategories !== null);
   const { childrenById, hiddenIds: collapseHiddenIds } = useMemo(
     () =>
       getGraphCollapseState(
@@ -716,9 +716,9 @@ function CrossplaneMapView() {
                 );
               }}
               statusFilter={statusFilter}
-              onStatusFilterChange={status => {
+              onStatusFilterChange={statuses => {
                 relayoutMatchingView();
-                setStatusFilter(status);
+                setStatusFilter(statuses);
               }}
               hasActiveFilters={hasActiveFilters}
               matchingCount={matchingNodes.length}

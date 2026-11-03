@@ -548,6 +548,19 @@ function selectOption(label: string, option: string) {
   }
 }
 
+function selectStatus(status: 'Ready' | 'Not Ready' | 'All') {
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Status' }));
+  if (status !== 'All') {
+    const other = screen.getByRole('option', {
+      name: status === 'Ready' ? 'Not Ready' : 'Ready',
+    });
+    if (other.getAttribute('aria-selected') === 'true') fireEvent.click(other);
+  }
+  const option = screen.getByRole('option', { name: status });
+  if (option.getAttribute('aria-selected') !== 'true') fireEvent.click(option);
+  fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+}
+
 function selectTeam(team = 'blue') {
   selectOption('Categorize by', 'Common Label');
   fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Common Label' }));
@@ -606,6 +619,98 @@ async function renderBlueFilter() {
 }
 
 describe('Crossplane map context and matching views', () => {
+  it('toggles each status independently and keeps all four selections in the graph context', async () => {
+    await renderFilteringGraph();
+    const fullPositions = positions();
+    const filter = screen.getByRole('combobox', { name: 'Status' });
+    expect(filter.textContent).toBe('All');
+
+    fireEvent.mouseDown(filter);
+    const all = screen.getByRole('option', { name: 'All' });
+    const ready = screen.getByRole('option', { name: 'Ready' });
+    const notReady = screen.getByRole('option', { name: 'Not Ready' });
+    expect(screen.getByRole('listbox').getAttribute('aria-multiselectable')).toBe('true');
+    expect(
+      [all, ready, notReady].map(option => option.querySelector<HTMLInputElement>('input')?.checked)
+    ).toEqual([true, true, true]);
+
+    fireEvent.click(ready);
+    expect(filter.textContent).toBe('Not Ready');
+    expect(all.querySelector('input')?.getAttribute('data-indeterminate')).toBe('true');
+    expect(
+      mocks.nodes.filter(node => !node.className?.includes('dimmed')).map(node => node.id)
+    ).toEqual(['child']);
+    expect(screen.getByText('1 of 4 resources match filters')).toBeTruthy();
+
+    fireEvent.click(notReady);
+    expect(filter.textContent).toBe('None');
+    expect(
+      [all, ready, notReady].map(option => option.querySelector<HTMLInputElement>('input')?.checked)
+    ).toEqual([false, false, false]);
+    expect(all.querySelector('input')?.getAttribute('data-indeterminate')).toBe('false');
+    expect(mocks.nodes.every(node => node.className?.includes('dimmed'))).toBe(true);
+    expect(screen.getByText('0 of 4 resources match filters')).toBeTruthy();
+
+    fireEvent.click(ready);
+    expect(filter.textContent).toBe('Ready');
+    expect(node('child').className).toContain('dimmed');
+    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
+
+    fireEvent.click(notReady);
+    expect(filter.textContent).toBe('All');
+    expect(all.querySelector<HTMLInputElement>('input')?.checked).toBe(true);
+    expect(mocks.nodes.every(node => !node.className?.includes('dimmed'))).toBe(true);
+    expect(screen.queryByText(/resources match filters/)).toBeNull();
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    expect(positions()).toEqual(fullPositions);
+    expect(mocks.layout).toHaveBeenCalledTimes(1);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+    expect(mocks.setViewport).not.toHaveBeenCalled();
+  });
+
+  it('keeps the status checkboxes out of the pointer focus path so keyboard navigation survives a click', async () => {
+    await renderFilteringGraph();
+    const filter = screen.getByRole('combobox', { name: 'Status' });
+
+    fireEvent.mouseDown(filter);
+    const ready = screen.getByRole('option', { name: 'Ready' });
+
+    // The checkbox is presentational: a mouse click must reach the owning
+    // option, never the aria-hidden <input>. tabIndex=-1 alone does not stop
+    // pointer focus, so the input (and its MUI wrapper) must not take pointer
+    // events — otherwise focus leaves the listbox option and the menu's
+    // arrow-key handler jumps back to the first item (jsdom has no native
+    // click-to-focus, so we assert the structural cause rather than focus).
+    const input = ready.querySelector<HTMLInputElement>('input')!;
+    expect(getComputedStyle(input.closest('.MuiCheckbox-root')!).pointerEvents).toBe('none');
+
+    // Clicking the box still toggles the status, because the option handles it.
+    fireEvent.click(input);
+    expect(filter.textContent).toBe('Not Ready');
+  });
+
+  it('clears and restores all statuses while keeping an empty matching view usable', async () => {
+    await renderFilteringGraph();
+    selectOption('Status', 'All');
+    expect(screen.getByRole('combobox', { name: 'Status' }).textContent).toBe('None');
+    expect(screen.getByText('0 of 4 resources match filters')).toBeTruthy();
+    expect(mocks.nodes.every(node => node.className?.includes('dimmed'))).toBe(true);
+
+    fireEvent.click(matchingCheckbox());
+    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
+    expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(mocks.fitView).not.toHaveBeenCalled();
+
+    selectOption('Status', 'All');
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('combobox', { name: 'Status' }).textContent).toBe('All');
+    expect(matchingCheckbox().checked).toBe(true);
+    expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
+    expect(mocks.nodes.every(node => !node.className?.includes('dimmed'))).toBe(true);
+  });
+
   it('dims non-matches without changing geometry, layout or viewport and clears dimming with All', async () => {
     await renderFilteringGraph();
     const fullPositions = positions();
@@ -636,7 +741,7 @@ describe('Crossplane map context and matching views', () => {
     expect(screen.getByTestId('nodes').textContent).toBe('parent');
     expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
 
-    selectOption('Status', 'Not Ready');
+    selectStatus('Not Ready');
     expect(matchingCheckbox().checked).toBe(false);
     expect(screen.getByText('0 of 4 resources match filters')).toBeTruthy();
     expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
@@ -655,10 +760,10 @@ describe('Crossplane map context and matching views', () => {
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(1));
 
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     expect(screen.getByText('1 of 1 resource matches filters')).toBeTruthy();
 
-    selectOption('Status', 'Not Ready');
+    selectStatus('Not Ready');
     expect(screen.getByText('0 of 1 resource matches filters')).toBeTruthy();
   });
 
@@ -670,7 +775,7 @@ describe('Crossplane map context and matching views', () => {
       nodes: filteringGraph().nodes.map(node => ({ ...node, status: 'success' })),
     };
     rerender(<CrossplaneMap />);
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
     expect(mocks.layout).toHaveBeenCalledTimes(1);
     expect(mocks.fitView).not.toHaveBeenCalled();
@@ -770,7 +875,7 @@ describe('Crossplane map context and matching views', () => {
       mocks.layout.mockImplementation(async input => positionedLayout(input, 100));
       if (change === 'category mode') selectOption('Categorize by', 'Flux');
       if (change === 'category selection') selectOption('Common Label', 'red');
-      if (change === 'status') selectOption('Status', 'Not Ready');
+      if (change === 'status') selectStatus('Not Ready');
       if (change === 'label key') selectOption('Label', 'env');
       expect(matchingCheckbox().checked).toBe(true);
       await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
@@ -856,7 +961,7 @@ describe('Crossplane map context and matching views', () => {
 
   it('preserves matching mode on live status changes and updates membership without fitting', async () => {
     const { rerender } = await renderFilteringGraph();
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     fireEvent.click(matchingCheckbox());
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
@@ -896,7 +1001,7 @@ describe('Crossplane map context and matching views', () => {
     expect(mocks.layout).toHaveBeenCalledTimes(3);
     mocks.layout.mockImplementation(async input => positionedLayout(input, 150));
 
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     expect(matchingCheckbox().checked).toBe(true);
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
     expect(mocks.layout).toHaveBeenCalledTimes(4);
@@ -917,7 +1022,7 @@ describe('Crossplane map context and matching views', () => {
       expect(mocks.nodes).toHaveLength(4);
       expect(matchingCheckbox().checked).toBe(true);
 
-      selectOption('Status', 'Ready');
+      selectStatus('Ready');
       await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(3));
       expect(mocks.nodes.map(resource => resource.id)).toEqual(['parent', 'grandchild', 'leaf']);
       expect(matchingCheckbox().checked).toBe(true);
@@ -932,14 +1037,14 @@ describe('Crossplane map context and matching views', () => {
     await renderBlueFilter();
     fireEvent.click(matchingCheckbox());
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
-    selectOption('Status', 'Not Ready');
+    selectStatus('Not Ready');
     expect(matchingCheckbox().checked).toBe(true);
     await waitFor(() => expect(mocks.nodes).toHaveLength(0));
     expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
     expect(mocks.fitView).toHaveBeenCalledTimes(1);
     expect(mocks.layout).toHaveBeenCalledTimes(2);
 
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(2));
     expect(mocks.nodes.map(resource => resource.id)).toEqual(['parent', 'grandchild', 'leaf']);
     expect(matchingCheckbox().checked).toBe(true);
@@ -1215,7 +1320,7 @@ describe('Crossplane map layout transitions', () => {
       node('parent').data.onOpenDetails();
       node('parent').data.onToggleCollapse('parent');
     });
-    selectOption('Status', 'Not Ready');
+    selectStatus('Not Ready');
     expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
     expect(node('parent').selected).toBe(true);
     expect(node('parent').data.collapsed).toBe(true);
@@ -1237,7 +1342,7 @@ describe('Crossplane map layout transitions', () => {
     expect(screen.getByTestId('nodes').textContent).toBe('parent');
     expect(mocks.fitView).not.toHaveBeenCalled();
     expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
-    selectOption('Status', 'All');
+    selectStatus('All');
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
     expect(matchingCheckbox().checked).toBe(true);
     expect(mocks.nodes).toHaveLength(3);
@@ -1288,7 +1393,7 @@ describe('Crossplane map layout transitions', () => {
     const fullPositions = positions();
     const pending = delayedLayouts();
     fireEvent.click(matchingCheckbox());
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     expect(matchingCheckbox().checked).toBe(true);
     expect(pending).toHaveLength(2);
     expect(pending[1].input.children.map((resource: any) => resource.id)).toEqual([
@@ -1314,7 +1419,7 @@ describe('Crossplane map layout transitions', () => {
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
     const pending = delayedLayouts();
 
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     expect(matchingCheckbox().checked).toBe(true);
     expect(pending).toHaveLength(1);
     await act(async () => finishOldFit(true));
@@ -1331,7 +1436,7 @@ describe('Crossplane map layout transitions', () => {
 
   it('continues an unfinished fit across live layouts without letting obsolete completion consume it', async () => {
     const { rerender } = await renderBlueFilter();
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     const fits: Array<(value: boolean) => void> = [];
     mocks.fitView.mockImplementation(() => new Promise(resolve => fits.push(resolve)));
     fireEvent.click(matchingCheckbox());
@@ -1599,7 +1704,7 @@ describe('Crossplane map layout transitions', () => {
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     await waitFor(() => expect(mocks.fitView).toHaveBeenCalledTimes(1));
     const pending = delayedLayouts();
-    selectOption('Status', 'Ready');
+    selectStatus('Ready');
     expect(matchingCheckbox().checked).toBe(true);
     expect(pending).toHaveLength(1);
     await act(async () => pending[0].fail());

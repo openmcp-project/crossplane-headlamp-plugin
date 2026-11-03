@@ -12,10 +12,11 @@ import {
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import type { GraphNode } from '../common/types';
 import { CategoryKey, categoryLabelOf, CategoryMode } from './graphCategories';
 import { CATEGORY_SWATCH_SX, PANEL_ELEVATION, PANEL_SX, TRIMMED_TEXT_SX } from './styles';
 
-export type StatusFilter = 'all' | 'success' | 'error';
+export type StatusFilter = GraphNode['status'][] | null;
 
 // UI labels for the category-mode switch (internal names are the clear ones).
 const CATEGORY_MODE_OPTIONS: ReadonlyArray<{ value: CategoryMode; label: string }> = [
@@ -55,7 +56,7 @@ export function GraphControls({
   selectedCategories: CategoryKey[];
   onCategorySelectionChange: (values: CategoryKey[] | null) => void;
   statusFilter: StatusFilter;
-  onStatusFilterChange: (status: StatusFilter) => void;
+  onStatusFilterChange: (statuses: StatusFilter) => void;
   hasActiveFilters: boolean;
   matchingCount: number;
   totalCount: number;
@@ -64,6 +65,29 @@ export function GraphControls({
 }) {
   const theme = useTheme();
   const errorColor = theme.palette.mode === 'dark' ? colors.red[200] : theme.palette.error.main;
+  const statusOptions = (['success', 'error'] as const).map(status => ({
+    value: status,
+    label: (
+      <Box
+        component="span"
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: '1lh' }}
+      >
+        <Icon
+          icon={status === 'success' ? 'mdi:check-circle' : 'mdi:alert-circle'}
+          width={16}
+          height={16}
+          aria-hidden="true"
+          style={{
+            flexShrink: 0,
+            color: status === 'success' ? theme.palette.success.main : errorColor,
+          }}
+        />
+        {status === 'success' ? 'Ready' : 'Not Ready'}
+      </Box>
+    ),
+  }));
+  const allStatusesSelected = statusFilter === null;
+  const selectedStatuses = statusFilter ?? statusOptions.map(option => option.value);
 
   return (
     <Paper
@@ -129,31 +153,78 @@ export function GraphControls({
             size="small"
             fullWidth
             label="Status"
-            value={statusFilter}
-            onChange={(event: any) => onStatusFilterChange(event.target.value as StatusFilter)}
+            value={allStatusesSelected ? ['', ...selectedStatuses] : selectedStatuses}
+            InputLabelProps={{ shrink: true }}
+            SelectProps={{
+              multiple: true,
+              displayEmpty: true,
+              renderValue: () =>
+                allStatusesSelected
+                  ? 'All'
+                  : selectedStatuses.length === 0
+                  ? 'None'
+                  : statusOptions.find(option => option.value === selectedStatuses[0])?.label,
+              MenuProps: {
+                MenuListProps: {
+                  sx: {
+                    '& .MuiMenuItem-root.Mui-selected': {
+                      backgroundColor: 'transparent',
+                      '&:hover': { backgroundColor: 'action.hover' },
+                      '&.Mui-focusVisible': { backgroundColor: 'action.focus' },
+                    },
+                  },
+                },
+              },
+            }}
+            onChange={(event: any) => {
+              const next: string[] =
+                typeof event.target.value === 'string'
+                  ? event.target.value.split(',')
+                  : event.target.value;
+              if (next.includes('') !== allStatusesSelected) {
+                onStatusFilterChange(allStatusesSelected ? [] : null);
+              } else {
+                const values = statusOptions
+                  .filter(option => next.includes(option.value))
+                  .map(option => option.value);
+                onStatusFilterChange(values.length === statusOptions.length ? null : values);
+              }
+            }}
             sx={{ mt: 1.5 }}
           >
-            <MenuItem value="all">All</MenuItem>
-            {(['success', 'error'] as const).map(status => (
-              <MenuItem key={status} value={status}>
-                <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Icon
-                    icon={status === 'success' ? 'mdi:check-circle' : 'mdi:alert-circle'}
-                    width={16}
-                    height={16}
-                    aria-hidden="true"
-                    style={{
-                      flexShrink: 0,
-                      color: status === 'success' ? theme.palette.success.main : errorColor,
-                    }}
-                  />
-                  {status === 'success' ? 'Ready' : 'Not Ready'}
-                </Box>
+            <MenuItem value="" sx={{ borderBottom: 1, borderColor: 'divider', mb: 0.5 }}>
+              <Checkbox
+                size="small"
+                checked={allStatusesSelected}
+                indeterminate={!allStatusesSelected && selectedStatuses.length > 0}
+                disableRipple
+                tabIndex={-1}
+                inputProps={{ 'aria-hidden': true }}
+                sx={{ pointerEvents: 'none' }}
+              />
+              All
+            </MenuItem>
+            {statusOptions.map(({ value, label }) => (
+              <MenuItem key={value} value={value}>
+                <Checkbox
+                  size="small"
+                  checked={selectedStatuses.includes(value)}
+                  disableRipple
+                  tabIndex={-1}
+                  inputProps={{ 'aria-hidden': true }}
+                  sx={{ pointerEvents: 'none' }}
+                />
+                {label}
               </MenuItem>
             ))}
           </TextField>
           {hasActiveFilters && (
-            <Typography variant="caption" color="text.secondary" component="p" sx={{ m: 0, mt: 1.5 }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              component="p"
+              sx={{ m: 0, mt: 1.5 }}
+            >
               {matchingCount} of {totalCount} {totalCount === 1 ? 'resource' : 'resources'}{' '}
               {totalCount === 1 ? 'matches' : 'match'} filters
             </Typography>
