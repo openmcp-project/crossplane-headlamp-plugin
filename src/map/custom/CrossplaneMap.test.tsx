@@ -36,6 +36,11 @@ vi.mock('../../managed/ManagedDetail', () => ({ openManagedDetail: mocks.openDet
 vi.mock('../common/useManagedGraph', () => ({
   useManagedGraph: () => mocks.source.current,
 }));
+vi.mock('./placeEdgeLabels', async () => ({
+  ...(await vi.importActual<typeof import('./placeEdgeLabels')>('./placeEdgeLabels')),
+  // These viewport/state fixtures deliberately overlap nodes and routes; geometry has its own tests.
+  placeEdgeLabels: () => new Map(),
+}));
 vi.mock('elkjs/lib/elk.bundled.js', () => ({
   default: class {
     async layout(input: any) {

@@ -3,6 +3,7 @@ import { Edge, EdgeProps, Position, XYPosition } from '@xyflow/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { EdgeRoute } from './layoutGraph';
 import { RoutedEdge } from './RoutedEdge';
+import { EDGE_LABEL_BG_PADDING } from './styles';
 
 const originalBBox = Object.getOwnPropertyDescriptor(SVGElement.prototype, 'getBBox');
 beforeAll(() => {
@@ -111,7 +112,7 @@ describe('routed edge rendering', () => {
           sourceY={138}
           label="infers"
           labelShowBg
-          labelBgPadding={[8, 4]}
+          labelBgPadding={EDGE_LABEL_BG_PADDING}
           labelBgBorderRadius={6}
           markerStart="url(#arrow)"
           style={{ stroke: '#888', strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }}
@@ -126,6 +127,7 @@ describe('routed edge rendering', () => {
     expect(label.getAttribute('transform')).toBe('translate(175 272)');
     expect(label.getAttribute('visibility')).toBe('visible');
     const background = label.querySelector('rect')!;
+    // These dimensions use the mocked 30 × 12 text box, not browser font metrics.
     expect(background.getAttribute('width')).toBe('46');
     expect(background.getAttribute('height')).toBe('20');
     expect(background.getAttribute('rx')).toBe('6');

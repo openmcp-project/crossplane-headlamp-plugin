@@ -49,6 +49,7 @@ import type { ResourceNodeData } from './ResourceNode';
 import { ResourceNode } from './ResourceNode';
 import { RoutedEdge } from './RoutedEdge';
 import {
+  EDGE_LABEL_BG_PADDING,
   NAMESPACE_LINE_HEIGHT,
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -506,7 +507,7 @@ function CrossplaneMapView() {
             // Parent direction is implicit; dashed additional references need a label.
             label: edge.aux ? 'infers' : undefined,
             labelShowBg: true,
-            labelBgPadding: [8, 4],
+            labelBgPadding: EDGE_LABEL_BG_PADDING,
             labelBgBorderRadius: 6,
             // The referenced resource is the source, so arrows point against the layout direction.
             markerStart: {

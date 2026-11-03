@@ -5,6 +5,7 @@ export const NODE_WIDTH = 264;
 export const NODE_HEIGHT = 156;
 export const NAMESPACE_LINE_HEIGHT = 20;
 export const AUX_HANDLE_OFFSET = 32;
+export const EDGE_LABEL_BG_PADDING: [number, number] = [8, 4];
 export const PANEL_ELEVATION = 2;
 export const PANEL_SX = {
   border: (theme: Theme) => (theme.palette.mode === 'dark' ? 1 : 0),

@@ -2,6 +2,7 @@ import type { XYPosition } from '@xyflow/react';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode } from 'elkjs/lib/elk-api';
 import type { GraphEdge } from '../common/types';
+import { EDGE_LABEL_SIZE, placeEdgeLabels } from './placeEdgeLabels';
 import { AUX_HANDLE_OFFSET } from './styles';
 
 export type GraphLayoutInput = {
@@ -21,8 +22,23 @@ export type GraphLayout = {
   routes: Map<string, EdgeRoute>;
 };
 
-/** Routes both relationship types around the reserved card and label bounds. */
-export async function layoutGraph({ nodes, edges }: GraphLayoutInput): Promise<GraphLayout> {
+/** Routes relationships around cards and fits labels into the available space when possible. */
+export async function layoutGraph(input: GraphLayoutInput): Promise<GraphLayout> {
+  const layout = await routeGraph(input, false);
+  const labels = placeEdgeLabels(
+    input.nodes.map(node => ({ ...node, ...layout.positions.get(node.id)! })),
+    [...layout.routes.values()]
+  );
+  // Dense routes may leave no free label position; let ELK reserve space for every label instead.
+  if (!labels) return routeGraph(input, true);
+  for (const [id, position] of labels) layout.routes.get(id)!.labelPosition = position;
+  return layout;
+}
+
+async function routeGraph(
+  { nodes, edges }: GraphLayoutInput,
+  includeLabels: boolean
+): Promise<GraphLayout> {
   const layout = await elk.layout<ElkNode>({
     id: 'root',
     layoutOptions: {
@@ -62,7 +78,7 @@ export async function layoutGraph({ nodes, edges }: GraphLayoutInput): Promise<G
       sources: [`${edge.source}:${edge.aux ? 'aux-source' : 'source'}`],
       targets: [`${edge.target}:${edge.aux ? 'aux-target' : 'target'}`],
       layoutOptions: { 'elk.priority': edge.aux ? '0' : '10' },
-      labels: edge.aux ? [{ text: 'infers', width: 48, height: 24 }] : undefined,
+      labels: includeLabels && edge.aux ? [{ text: 'infers', ...EDGE_LABEL_SIZE }] : undefined,
     })),
   });
 
