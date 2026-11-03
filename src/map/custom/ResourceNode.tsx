@@ -6,7 +6,7 @@ import {
   CardActionArea,
   CardActions,
   CardContent,
-  colors,
+  Chip,
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -135,8 +135,9 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
               display: 'flex',
               flexDirection: 'column',
               px: 2,
-              py: 1.5,
-              '&:last-child': { pb: 1.5 },
+              pt: 1.5,
+              pb: 0.75,
+              '&:last-child': { pb: 0.75 },
             }}
           >
             {data.categoryLabel && (
@@ -146,7 +147,7 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
                   display: 'flex',
                   alignItems: 'center',
                   gap: 0.5,
-                  mb: 0.5,
+                  mb: 0.75,
                   minWidth: 0,
                   typography: 'caption',
                   minHeight: '1.4em',
@@ -231,8 +232,8 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
             disableSpacing
             sx={{
               px: 2,
-              py: 0.75,
-              minHeight: 44,
+              py: 0.25,
+              minHeight: 40,
               gap: 1,
               borderTop: 1,
               borderColor: 'divider',
@@ -256,7 +257,7 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
                   height: 32,
                   gap: 0.25,
                   flexShrink: 0,
-                  borderRadius: 0.5,
+                  borderRadius: 1,
                   backgroundColor: 'action.hover',
                   color: 'text.secondary',
                   fontSize: 12,
@@ -305,32 +306,33 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
   );
 }
 
-/**
- * Health indicator inside a node: binary Ready / Not Ready from the
- * upstream-derived status, as bare icon + text (no chip shell). A failure is
- * important information, so "Not Ready" carries the error color on both icon and
- * text to catch the eye; "Ready" stays calm in secondary text so a healthy graph
- * reads quiet (Refactoring UI, "Size isn't everything" — emphasize by weight and
- * color, de-emphasize the resting state).
- */
+// A filled error chip makes unhealthy resources stand out in the graph.
 function HealthIndicator({ status }: { status?: 'success' | 'error' }) {
   const theme = useTheme();
   if (!status) return null;
-  const ok = status === 'success';
-  const errorColor = theme.palette.mode === 'dark' ? colors.red[200] : theme.palette.error.main;
-  const textColor = ok ? theme.palette.text.secondary : errorColor;
+  if (status === 'error') {
+    return (
+      <Chip
+        color="error"
+        size="small"
+        icon={<Icon icon="mdi:alert-circle" width={14} height={14} />}
+        label="Not Ready"
+        sx={{ borderRadius: 1, fontSize: 12, fontWeight: 600 }}
+      />
+    );
+  }
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
       <Icon
-        icon={ok ? 'mdi:check-circle' : 'mdi:alert-circle'}
+        icon="mdi:check-circle"
         width={14}
         height={14}
         // Iconify 3's color prop mutates React-frozen styles when the icon updates.
         style={{
           display: 'block',
           flexShrink: 0,
-          color: ok ? theme.palette.success.main : errorColor,
+          color: theme.palette.success.main,
         }}
       />
       <Typography
@@ -339,10 +341,10 @@ function HealthIndicator({ status }: { status?: 'success' | 'error' }) {
         sx={{
           ...TRIMMED_TEXT_SX,
           fontWeight: 600,
-          color: textColor,
+          color: 'text.secondary',
         }}
       >
-        {ok ? 'Ready' : 'Not Ready'}
+        Ready
       </Typography>
     </Box>
   );
