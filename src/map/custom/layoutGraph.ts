@@ -2,6 +2,7 @@ import type { XYPosition } from '@xyflow/react';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkNode } from 'elkjs/lib/elk-api';
 import type { GraphEdge } from '../common/types';
+import { compactComponents, COMPONENT_SPACING } from './compactComponents';
 import { EDGE_LABEL_SIZE, placeEdgeLabels } from './placeEdgeLabels';
 import { AUX_HANDLE_OFFSET } from './styles';
 
@@ -24,14 +25,15 @@ export type GraphLayout = {
 
 /** Routes relationships around cards and fits labels into the available space when possible. */
 export async function layoutGraph(input: GraphLayoutInput): Promise<GraphLayout> {
-  const layout = await routeGraph(input, false);
+  let layout = await routeGraph(input, false);
   const labels = placeEdgeLabels(
     input.nodes.map(node => ({ ...node, ...layout.positions.get(node.id)! })),
     [...layout.routes.values()]
   );
   // Dense routes may leave no free label position; let ELK reserve space for every label instead.
-  if (!labels) return routeGraph(input, true);
-  for (const [id, position] of labels) layout.routes.get(id)!.labelPosition = position;
+  if (!labels) layout = await routeGraph(input, true);
+  else for (const [id, position] of labels) layout.routes.get(id)!.labelPosition = position;
+  compactComponents(input, layout);
   return layout;
 }
 
@@ -47,7 +49,7 @@ async function routeGraph(
       'elk.edgeRouting': 'ORTHOGONAL',
       'elk.layered.spacing.nodeNodeBetweenLayers': '160',
       'elk.spacing.nodeNode': '120',
-      'elk.spacing.componentComponent': '160',
+      'elk.spacing.componentComponent': String(COMPONENT_SPACING),
       'elk.spacing.edgeNode': '24',
       'elk.spacing.edgeEdge': '16',
       'elk.layered.spacing.edgeNodeBetweenLayers': '24',
