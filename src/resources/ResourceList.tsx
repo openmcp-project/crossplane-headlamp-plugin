@@ -1,8 +1,11 @@
+import { useTheme } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { DOT, xpColors } from '../common/colors';
+import { ScopeBadge } from '../common/ScopeBadge';
 import { clusterPrefix, getApiProxy, NON_MANAGED_PLURALS, useCRDsForProvider } from '../helpers';
 import { Provider } from '../providers/provider';
+import styles from './ResourceList.module.css';
 
 const {
   Typography,
@@ -221,6 +224,7 @@ function InstancesSubTable({
   labelFilter: string;
 }) {
   const history = useHistory();
+  const dark = useTheme().palette.mode === 'dark';
   const { instances, loading } = useInstancesForCRD(crd, true, statusFilter);
   const group: string = crd.jsonData?.spec?.group ?? '';
   const plural: string = crd.jsonData?.spec?.names?.plural ?? '';
@@ -238,7 +242,7 @@ function InstancesSubTable({
   if (loading) {
     return (
       <tr>
-        <td colSpan={8} style={{ padding: '6px 12px 6px 36px' }}>
+        <td colSpan={7} className={styles.loadingCell}>
           <Box display="flex" alignItems="center" gap={1}>
             <CircularProgress size={14} />
             <Typography variant="body2" color="textSecondary">
@@ -252,7 +256,7 @@ function InstancesSubTable({
   if (!visibleInstances || visibleInstances.length === 0) {
     return (
       <tr>
-        <td colSpan={8} style={{ padding: '6px 12px 6px 36px' }}>
+        <td colSpan={7} className={styles.emptyCell}>
           <Typography variant="body2" color="textSecondary">
             {parsedLabel
               ? 'No instances match the label filter.'
@@ -272,89 +276,57 @@ function InstancesSubTable({
         const ns: string = inst.metadata?.namespace ?? '';
         const conditions: any[] = inst.status?.conditions ?? [];
         const labels: Record<string, string> = inst.metadata?.labels ?? {};
-        const created = inst.metadata?.creationTimestamp
-          ? new Date(inst.metadata.creationTimestamp).toLocaleDateString()
-          : '—';
         const isReady = conditions.find((c: any) => c.type === 'Ready')?.status === 'True';
         const isSynced = conditions.find((c: any) => c.type === 'Synced')?.status === 'True';
         const detailUrl = isNamespaced
           ? `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${ns}/${instName}`
           : `${clusterPrefix()}/crossplane/providers/${providerName}/resources/${group}/${plural}/${instName}`;
+        const rowBg = !isReady || !isSynced ? 'rgba(244,67,54,0.04)' : 'transparent';
         return (
           <tr
             key={`${ns}/${instName}`}
             style={{
-              borderBottom: '1px solid #ebebeb',
+              borderBottom: `1px solid ${dark ? '#333' : '#ebebeb'}`,
               cursor: 'pointer',
-              background: !isReady || !isSynced ? 'rgba(244,67,54,0.04)' : '#fafffe',
+              background: rowBg,
             }}
             onClick={() => history.push(detailUrl)}
           >
-            {/* col 1: chevron spacer */}
-            <td style={{ padding: '6px 4px 6px 12px', width: 24 }} />
-            {/* col 2: name + labels */}
-            <td style={{ padding: '6px 12px 6px 28px' }}>
+            <td className={styles.instanceChevronCell} />
+            <td className={styles.instanceNameCell}>
               <div>
-                <span style={{ color: xpColors.link, textDecoration: 'underline', fontSize: 13 }}>
+                <span className={styles.instanceName} style={{ color: xpColors.link }}>
                   {instName}
                 </span>
-                {isNamespaced && ns && (
-                  <span style={{ color: '#888', fontSize: 11, marginLeft: 6 }}>{ns}</span>
-                )}
               </div>
               {Object.keys(labels).length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 3, marginTop: 3 }}>
-                  {Object.entries(labels).map(([k, v]) => (
-                    <span
-                      key={k}
-                      style={{
-                        fontSize: 10,
-                        background:
-                          parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel)
-                            ? '#e3f2fd'
-                            : '#f0f0f0',
-                        color:
-                          parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel)
-                            ? '#1565c0'
-                            : '#555',
-                        border:
-                          parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel)
-                            ? '1px solid #90caf9'
-                            : '1px solid #ddd',
-                        borderRadius: 3,
-                        padding: '1px 5px',
-                        whiteSpace: 'nowrap' as const,
-                      }}
-                    >
-                      {k}: {v}
-                    </span>
-                  ))}
+                <div className={styles.labelList}>
+                  {Object.entries(labels).map(([k, v]) => {
+                    const matched = parsedLabel && matchesLabelFilter({ [k]: v }, parsedLabel);
+                    return (
+                      <span
+                        key={k}
+                        className={styles.labelChip}
+                        style={{
+                          background: matched ? '#e3f2fd' : dark ? '#333' : '#f0f0f0',
+                          color: matched ? '#1565c0' : dark ? '#bbb' : '#555',
+                          border: `1px solid ${matched ? '#90caf9' : dark ? '#555' : '#ddd'}`,
+                        }}
+                      >
+                        {k}: {v}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </td>
-            {/* col 3+4+5: group/version/scope — empty */}
-            <td style={{ padding: '6px 12px' }} />
-            <td style={{ padding: '6px 12px' }} />
-            <td style={{ padding: '6px 12px' }} />
-            {/* col 6: Ready */}
-            <td style={{ padding: '6px 12px', textAlign: 'center' as const }}>
-              {readyChip(conditions)}
+            <td className={styles.instanceEmptyCell} />
+            <td className={styles.instanceEmptyCell} />
+            <td className={styles.scopeCell}>
+              <ScopeBadge scope={scope} namespace={ns} />
             </td>
-            {/* col 7: Synced */}
-            <td style={{ padding: '6px 12px', textAlign: 'center' as const }}>
-              {syncedChip(conditions)}
-            </td>
-            {/* col 8: Age */}
-            <td
-              style={{
-                padding: '6px 12px',
-                fontSize: 12,
-                color: '#888',
-                whiteSpace: 'nowrap' as const,
-              }}
-            >
-              {created}
-            </td>
+            <td className={styles.instanceStatusCell}>{readyChip(conditions)}</td>
+            <td className={styles.instanceStatusCell}>{syncedChip(conditions)}</td>
           </tr>
         );
       })}
@@ -364,7 +336,7 @@ function InstancesSubTable({
 
 // ── Sort types ────────────────────────────────────────────────────────────────
 
-type SortKey = 'kind' | 'group' | 'version' | 'scope' | 'instances';
+type SortKey = 'kind' | 'group' | 'version' | 'scope';
 type SortDir = 'asc' | 'desc';
 
 // ── CRD row ───────────────────────────────────────────────────────────────────
@@ -383,6 +355,7 @@ function CRDRow({
   labelFilter: string;
 }) {
   const history = useHistory();
+  const dark = useTheme().palette.mode === 'dark';
   const [expanded, setExpanded] = useState(false);
 
   const group: string = crd.jsonData?.spec?.group ?? '';
@@ -399,7 +372,8 @@ function CRDRow({
   return (
     <>
       <tr
-        style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+        className={styles.crdRow}
+        style={{ borderBottom: `1px solid ${dark ? '#333' : '#f0f0f0'}` }}
         onClick={() => {
           if (hasInstances) setExpanded(v => !v);
           else
@@ -408,38 +382,22 @@ function CRDRow({
             );
         }}
       >
-        {/* col 1: chevron */}
-        <td style={{ padding: '8px 4px 8px 12px', width: 24 }}>
+        <td className={styles.chevronCell}>
           {hasInstances ? (
-            <span style={{ fontSize: 11, color: '#888', userSelect: 'none' as const }}>
-              {expanded ? '▾' : '▸'}
-            </span>
+            <span className={styles.chevron}>{expanded ? '▾' : '▸'}</span>
           ) : (
-            <span style={{ display: 'inline-block', width: 12 }} />
+            <span className={styles.chevronSpacer} />
           )}
         </td>
-        {/* col 2: Kind */}
-        <td style={{ padding: '8px 12px' }}>
+        <td className={styles.kindCell}>
           <span style={{ color: xpColors.link, textDecoration: 'underline' }}>{kind}</span>
         </td>
-        {/* col 3: Group */}
-        <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{group}</td>
-        {/* col 4: Version */}
-        <td style={{ padding: '8px 12px', fontSize: 12 }}>{topVersion}</td>
-        {/* col 5: Scope */}
-        <td style={{ padding: '8px 12px' }}>
-          <Chip
-            label={scope}
-            size="small"
-            style={{
-              background: scope === 'Cluster' ? xpColors.cluster.bg : xpColors.namespaced.bg,
-              color: '#fff',
-              fontWeight: 600,
-            }}
-          />
+        <td className={styles.groupCell}>{group}</td>
+        <td className={styles.versionCell}>{topVersion}</td>
+        <td className={styles.scopeCell}>
+          <ScopeBadge scope={scope} />
         </td>
-        {/* col 6: Ready summary */}
-        <td style={{ padding: '8px 12px', textAlign: 'center' as const }}>
+        <td className={styles.statusCell}>
           {hasInstances && count.notReady > 0 ? (
             <Chip
               label={`${count.notReady} not ready`}
@@ -453,11 +411,10 @@ function CRDRow({
               style={{ background: xpColors.ready.bg, color: '#fff', fontWeight: 600 }}
             />
           ) : (
-            <span style={{ color: '#bbb', fontSize: 12 }}>—</span>
+            <span style={{ color: dark ? '#666' : '#bbb', fontSize: 12 }}>—</span>
           )}
         </td>
-        {/* col 7: Synced summary */}
-        <td style={{ padding: '8px 12px', textAlign: 'center' as const }}>
+        <td className={styles.statusCell}>
           {hasInstances && count.notSynced > 0 ? (
             <Chip
               label={`${count.notSynced} not synced`}
@@ -471,20 +428,8 @@ function CRDRow({
               style={{ background: xpColors.synced.bg, color: '#fff', fontWeight: 600 }}
             />
           ) : (
-            <span style={{ color: '#bbb', fontSize: 12 }}>—</span>
+            <span style={{ color: dark ? '#666' : '#bbb', fontSize: 12 }}>—</span>
           )}
-        </td>
-        {/* col 8: Age — instance count */}
-        <td
-          style={{
-            padding: '8px 12px',
-            textAlign: 'right' as const,
-            paddingRight: 20,
-            fontSize: 12,
-            color: '#555',
-          }}
-        >
-          {hasInstances ? count.total : '—'}
         </td>
       </tr>
       {expanded && (
@@ -520,6 +465,7 @@ function ProviderSection({
   statusFilter: StatusFilter;
   labelFilter: string;
 }) {
+  const dark = useTheme().palette.mode === 'dark';
   const currentRevision: string = provider.jsonData?.status?.currentRevision ?? '';
   const [crds, crdErr] = useCRDsForProvider(provider.metadata.name, currentRevision);
   const counts = useCRDInstanceCounts(
@@ -562,9 +508,6 @@ function ProviderSection({
       } else if (sortKey === 'scope') {
         va = a.jsonData?.spec?.scope ?? '';
         vb = b.jsonData?.spec?.scope ?? '';
-      } else if (sortKey === 'instances') {
-        va = counts?.get(a.metadata.name)?.total ?? 0;
-        vb = counts?.get(b.metadata.name)?.total ?? 0;
       }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
@@ -573,23 +516,9 @@ function ProviderSection({
   })();
 
   const SortHeader = ({ label, sk }: { label: string; sk: SortKey }) => (
-    <th
-      onClick={() => onSort(sk)}
-      style={{
-        padding: '8px 12px',
-        fontWeight: 600,
-        fontSize: 13,
-        cursor: 'pointer',
-        userSelect: 'none' as const,
-        whiteSpace: 'nowrap' as const,
-      }}
-    >
+    <th className={styles.sortHeader} onClick={() => onSort(sk)}>
       {label}
-      {sortKey === sk && (
-        <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>
-          {sortDir === 'asc' ? '▲' : '▼'}
-        </span>
-      )}
+      {sortKey === sk && <span className={styles.sortIcon}>{sortDir === 'asc' ? '▲' : '▼'}</span>}
     </th>
   );
 
@@ -598,7 +527,7 @@ function ProviderSection({
       <Box
         px={2}
         py={1.5}
-        borderBottom="1px solid #e0e0e0"
+        borderBottom={`1px solid ${dark ? '#424242' : '#e0e0e0'}`}
         display="flex"
         alignItems="center"
         gap={1}
@@ -630,41 +559,22 @@ function ProviderSection({
           </Typography>
         </Box>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className={styles.table}>
           <thead>
             <tr
               style={{
-                borderBottom: '2px solid #e0e0e0',
+                borderBottom: `2px solid ${dark ? '#424242' : '#e0e0e0'}`,
                 textAlign: 'left',
-                background: '#fafafa',
+                background: dark ? '#2a2a2a' : '#fafafa',
               }}
             >
-              <th style={{ padding: '8px 4px 8px 12px', width: 24 }} />
+              <th className={styles.theadChevron} />
               <SortHeader label="Kind" sk="kind" />
               <SortHeader label="Group" sk="group" />
               <SortHeader label="Version" sk="version" />
               <SortHeader label="Scope" sk="scope" />
-              <th
-                style={{
-                  padding: '8px 12px',
-                  fontWeight: 600,
-                  fontSize: 13,
-                  textAlign: 'center' as const,
-                }}
-              >
-                Ready
-              </th>
-              <th
-                style={{
-                  padding: '8px 12px',
-                  fontWeight: 600,
-                  fontSize: 13,
-                  textAlign: 'center' as const,
-                }}
-              >
-                Synced
-              </th>
-              <SortHeader label="Age / Count" sk="instances" />
+              <th className={styles.staticHeader}>Ready</th>
+              <th className={styles.staticHeader}>Synced</th>
             </tr>
           </thead>
           <tbody>
@@ -714,14 +624,12 @@ export default function ResourceList() {
   const [sortKey, setSortKey] = useState<SortKey>('kind');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  // Read initial filter state from URL
   const qp = parseSearch(location.search);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(
     (qp.get('status') as StatusFilter) ?? 'all'
   );
   const [providerFilter, setProviderFilter] = useState<string>(qp.get('provider') ?? 'all');
 
-  // Sync state → URL whenever filters change
   useEffect(() => {
     const params = new URLSearchParams();
     if (statusFilter !== 'all') params.set('status', statusFilter);
@@ -731,8 +639,6 @@ export default function ResourceList() {
       history.replace({ ...location, search: newSearch });
     }
   }, [statusFilter, providerFilter]);
-
-  // When status filter is active, also expand rows with instances — handled inside CRDRow
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
@@ -764,12 +670,10 @@ export default function ResourceList() {
       ? providers ?? []
       : (providers ?? []).filter((p: any) => p.metadata.name === providerFilter);
 
-  // Active filter banner
   const hasActiveFilter = statusFilter !== 'all' || providerFilter !== 'all' || labelFilter !== '';
 
   return (
     <Box p={3}>
-      {/* Active filter banner */}
       {hasActiveFilter && (
         <Box mb={2} display="flex" alignItems="center" gap={1} flexWrap="wrap">
           <Typography variant="caption" color="textSecondary">
@@ -777,31 +681,13 @@ export default function ResourceList() {
           </Typography>
           {statusFilter !== 'all' && (
             <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                background: DOT[statusFilter] ?? '#9e9e9e',
-                color: '#fff',
-                borderRadius: 10,
-                padding: '2px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-              }}
+              className={styles.filterTag}
+              style={{ background: DOT[statusFilter] ?? '#9e9e9e' }}
             >
               {STATUS_OPTIONS.find(o => o.value === statusFilter)?.label}
               <button
                 type="button"
-                style={{
-                  cursor: 'pointer',
-                  opacity: 0.8,
-                  marginLeft: 2,
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  color: 'inherit',
-                  fontSize: 'inherit',
-                }}
+                className={styles.filterTagDismiss}
                 onClick={() => setStatusFilter('all')}
               >
                 ×
@@ -809,32 +695,11 @@ export default function ResourceList() {
             </span>
           )}
           {providerFilter !== 'all' && (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                background: '#616161',
-                color: '#fff',
-                borderRadius: 10,
-                padding: '2px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-              }}
-            >
+            <span className={styles.filterTag} style={{ background: '#616161' }}>
               {providerFilter}
               <button
                 type="button"
-                style={{
-                  cursor: 'pointer',
-                  opacity: 0.8,
-                  marginLeft: 2,
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  color: 'inherit',
-                  fontSize: 'inherit',
-                }}
+                className={styles.filterTagDismiss}
                 onClick={() => setProviderFilter('all')}
               >
                 ×
@@ -842,32 +707,11 @@ export default function ResourceList() {
             </span>
           )}
           {labelFilter !== '' && (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                background: '#1565c0',
-                color: '#fff',
-                borderRadius: 10,
-                padding: '2px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-              }}
-            >
+            <span className={styles.filterTag} style={{ background: '#1565c0' }}>
               🏷 {labelFilter}
               <button
                 type="button"
-                style={{
-                  cursor: 'pointer',
-                  opacity: 0.8,
-                  marginLeft: 2,
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  color: 'inherit',
-                  fontSize: 'inherit',
-                }}
+                className={styles.filterTagDismiss}
                 onClick={() => setLabelFilter('')}
               >
                 ×
@@ -877,7 +721,6 @@ export default function ResourceList() {
         </Box>
       )}
 
-      {/* Toolbar */}
       <Box
         display="flex"
         alignItems="center"
@@ -924,14 +767,7 @@ export default function ResourceList() {
                 <InputAdornment position="end">
                   <button
                     type="button"
-                    style={{
-                      cursor: 'pointer',
-                      fontSize: 13,
-                      opacity: 0.5,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                    }}
+                    className={styles.clearFilterBtn}
                     onClick={() => setLabelFilter('')}
                   >
                     ×

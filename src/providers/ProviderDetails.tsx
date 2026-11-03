@@ -5,6 +5,7 @@ import {
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { useParams } from 'react-router-dom';
 import { ConditionBadge } from '../common/ConditionBadge';
+import { ViewYamlButton, YamlSection } from '../common/YamlView';
 import { AllInstancesSection } from './details/AllInstancesSection';
 import { ManagedResourceTypesSection } from './details/ManagedResourceTypesSection';
 import { ProviderConfigsSection } from './details/ProviderConfigsSection';
@@ -39,6 +40,17 @@ export function ProviderDetails() {
       extraSections={provider =>
         provider
           ? [
+              {
+                id: 'crossplane-provider-yaml',
+                section: (
+                  <SectionBox title="YAML">
+                    <div style={{ marginBottom: 8 }}>
+                      <ViewYamlButton item={provider.jsonData} />
+                    </div>
+                    <YamlSection item={provider.jsonData} />
+                  </SectionBox>
+                ),
+              },
               {
                 id: 'crossplane-provider-conditions',
                 section: (
