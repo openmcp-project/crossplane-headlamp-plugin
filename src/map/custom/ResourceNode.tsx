@@ -6,7 +6,6 @@ import {
   CardActionArea,
   CardActions,
   CardContent,
-  Chip,
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -58,6 +57,7 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
   const color = data.color;
   const accent = color ?? theme.palette.primary.main;
   const interactive = Boolean(data.onOpenDetails);
+  const isError = data.status === 'error';
   const resourceName = data.namespace ? `${data.namespace}/${data.name}` : data.name;
 
   function handleFocus(event: React.FocusEvent<HTMLElement>) {
@@ -236,7 +236,9 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
               minHeight: 40,
               gap: 1,
               borderTop: 1,
-              borderColor: 'divider',
+              borderColor: isError ? 'error.main' : 'divider',
+              backgroundColor: isError ? 'error.main' : undefined,
+              color: isError ? 'error.contrastText' : 'text.secondary',
             }}
           >
             <HealthIndicator status={data.status} />
@@ -258,12 +260,14 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
                   gap: 0.25,
                   flexShrink: 0,
                   borderRadius: 1,
-                  backgroundColor: 'action.hover',
-                  color: 'text.secondary',
+                  backgroundColor: isError ? 'transparent' : 'action.hover',
+                  color: 'inherit',
                   fontSize: 12,
-                  '&:hover': { backgroundColor: 'action.selected' },
+                  '&:hover': { backgroundColor: isError ? 'error.dark' : 'action.selected' },
                   '&.Mui-focusVisible': {
-                    outline: `2px solid ${theme.palette.primary.main}`,
+                    outline: `2px solid ${
+                      isError ? theme.palette.error.contrastText : theme.palette.primary.main
+                    }`,
                     outlineOffset: 2,
                   },
                 }}
@@ -306,33 +310,22 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
   );
 }
 
-// A filled error chip makes unhealthy resources stand out in the graph.
 function HealthIndicator({ status }: { status?: 'success' | 'error' }) {
   const theme = useTheme();
   if (!status) return null;
-  if (status === 'error') {
-    return (
-      <Chip
-        color="error"
-        size="small"
-        icon={<Icon icon="mdi:alert-circle" width={14} height={14} />}
-        label="Not Ready"
-        sx={{ borderRadius: 1, fontSize: 12, fontWeight: 600 }}
-      />
-    );
-  }
+  const ok = status === 'success';
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
       <Icon
-        icon="mdi:check-circle"
+        icon={ok ? 'mdi:check-circle' : 'mdi:alert-circle'}
         width={14}
         height={14}
         // Iconify 3's color prop mutates React-frozen styles when the icon updates.
         style={{
           display: 'block',
           flexShrink: 0,
-          color: theme.palette.success.main,
+          color: ok ? theme.palette.success.main : 'inherit',
         }}
       />
       <Typography
@@ -341,10 +334,10 @@ function HealthIndicator({ status }: { status?: 'success' | 'error' }) {
         sx={{
           ...TRIMMED_TEXT_SX,
           fontWeight: 600,
-          color: 'text.secondary',
+          color: 'inherit',
         }}
       >
-        Ready
+        {ok ? 'Ready' : 'Not Ready'}
       </Typography>
     </Box>
   );
