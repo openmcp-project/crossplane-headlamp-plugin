@@ -54,7 +54,8 @@ export class Provider extends KubeObject {
   }
 
   private parseCondition(type: string, trueText: string, falseText: string) {
-    switch (this.getCondition(type)?.status) {
+    const conditions: any[] = this.jsonData?.status?.conditions ?? [];
+    switch (conditions.find((c: any) => c.type === type)?.status) {
       case 'True':
         return { isTrue: true, text: trueText };
       case 'False':
