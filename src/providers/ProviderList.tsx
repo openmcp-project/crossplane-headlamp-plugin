@@ -5,13 +5,12 @@ import { Provider } from './provider';
 function conditionFromJsonData(
   p: Provider,
   type: string,
-  trueText: string,
   falseText: string
 ): { isTrue: boolean | undefined; text: string } {
   const conditions: any[] = p?.jsonData?.status?.conditions ?? [];
   switch (conditions.find((c: any) => c.type === type)?.status) {
     case 'True':
-      return { isTrue: true, text: trueText };
+      return { isTrue: true, text: type };
     case 'False':
       return { isTrue: false, text: falseText };
     default:
@@ -49,21 +48,17 @@ export function ProviderList() {
         {
           id: 'installed',
           label: 'Installed',
-          getValue: (p: Provider) =>
-            conditionFromJsonData(p, 'Installed', 'Installed', 'Not Installed').text,
+          getValue: (p: Provider) => conditionFromJsonData(p, 'Installed', 'Not Installed').text,
           render: (p: Provider) => (
-            <ConditionBadge
-              {...conditionFromJsonData(p, 'Installed', 'Installed', 'Not Installed')}
-            />
+            <ConditionBadge {...conditionFromJsonData(p, 'Installed', 'Not Installed')} />
           ),
         },
         {
           id: 'healthy',
           label: 'Healthy',
-          getValue: (p: Provider) =>
-            conditionFromJsonData(p, 'Healthy', 'Healthy', 'Unhealthy').text,
+          getValue: (p: Provider) => conditionFromJsonData(p, 'Healthy', 'Unhealthy').text,
           render: (p: Provider) => (
-            <ConditionBadge {...conditionFromJsonData(p, 'Healthy', 'Healthy', 'Unhealthy')} />
+            <ConditionBadge {...conditionFromJsonData(p, 'Healthy', 'Unhealthy')} />
           ),
         },
         'age',
