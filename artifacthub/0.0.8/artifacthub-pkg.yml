@@ -1,0 +1,15 @@
+version: 0.0.8
+name: headlamp_crossplane
+displayName: Crossplane
+createdAt: "2026-05-28T00:00:00Z"
+description: Adds a Crossplane section to the sidebar with views for Providers, Managed Resources, and Compositions.
+logoURL: "https://avatars.githubusercontent.com/u/45158470?s=200&v=4"
+changes:
+  - kind: added
+    description: "Initial release"
+annotations:
+  headlamp/plugin/archive-url: >-
+    https://github.com/openmcp-project/crossplane-headlamp-plugin/releases/download/v0.0.8/headlamp-crossplane-0.0.8.tar.gz
+  headlamp/plugin/archive-checksum: sha256:b8fb58a243b5856b1d3a6e27e60a914caec3047acaa9eec90324c36fa873a9eb
+  headlamp/plugin/version-compat: ">=0.22"
+  headlamp/plugin/distro-compat: in-cluster,web
