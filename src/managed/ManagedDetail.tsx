@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useHistory, useParams } from 'react-router-dom';
 import { xpColors } from '../common/colors';
 import { ViewYamlButton, YamlSection } from '../common/YamlView';
 import { openCRDDetailByGroupPlural } from '../crds/CRDList';
-import { clusterPrefix, detectExternalManager, getApiProxy } from '../helpers';
+import { clusterPrefix, detectExternalManager } from '../helpers';
+import { useCustomResourceList } from '../helpers/useCustomResources';
 
 const {
   Typography,
@@ -24,42 +25,42 @@ function useCustomResource(
   namespace?: string,
   version?: string
 ) {
-  const [item, setItem] = useState<any>(null);
-  const [error, setError] = useState<any>(null);
-
-  useEffect(() => {
-    if (!group || !plural || !name) return;
-    const nsPath = namespace ? `namespaces/${namespace}/` : '';
-    const tryVersions = version ? [version] : ['v1alpha1', 'v1beta1', 'v1'];
-    let cancelled = false;
-
-    async function tryFetch() {
-      for (const ver of tryVersions) {
-        try {
-          const url = `/apis/${group}/${ver}/${nsPath}${plural}/${name}`;
-          const res = await getApiProxy().request(url, { isJSON: true });
-          if (!cancelled) {
-            setItem(res);
-            return;
-          }
-        } catch (e: any) {
-          if (e?.status === 404) continue;
-          if (!cancelled) {
-            setError(e);
-            return;
-          }
+  const [crds, crdError] = K8s.ResourceClasses.CustomResourceDefinition.useList();
+  const crd = crds?.find(
+    (c: any) => c.jsonData.spec.group === group && c.jsonData.spec.names.plural === plural
+  );
+  // Detail links retain their requested API version instead of using the storage version.
+  const requestedCRD =
+    crd && version
+      ? {
+          metadata: crd.metadata,
+          jsonData: {
+            spec: {
+              ...crd.jsonData.spec,
+              versions: crd.jsonData.spec.versions.filter((v: any) => v.name === version),
+            },
+          },
         }
-      }
-      if (!cancelled) {
-        setError(new Error(`Resource ${name} not found in ${version ?? 'any version'}`));
-      }
-    }
-    tryFetch();
-    return () => {
-      cancelled = true;
-    };
-  }, [group, plural, name, namespace, version]);
-
+      : crd;
+  const {
+    items,
+    error: listError,
+    loading,
+  } = useCustomResourceList(requestedCRD, {
+    name,
+    namespace,
+  });
+  const item = items?.find(
+    item => item.metadata.name === name && (!namespace || item.metadata.namespace === namespace)
+  );
+  const error =
+    crdError ??
+    listError ??
+    (crds && !crd
+      ? new Error(`CRD ${plural}.${group} not found`)
+      : !loading && !item
+      ? new Error(`Resource ${name} not found`)
+      : null);
   return [item, error] as const;
 }
 
