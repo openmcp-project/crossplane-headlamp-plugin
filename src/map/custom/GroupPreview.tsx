@@ -81,7 +81,9 @@ export function GroupPreview({
               <path
                 key={`${source.id}:${target.id}`}
                 d={
-                  `M ${source.x + dx * sourceInsetFraction} ${source.y + dy * sourceInsetFraction} ` +
+                  `M ${source.x + dx * sourceInsetFraction} ${
+                    source.y + dy * sourceInsetFraction
+                  } ` +
                   `L ${target.x - dx * targetInsetFraction} ${target.y - dy * targetInsetFraction}`
                 }
                 // Align dashes at the target so overlapping sibling paths keep their gaps.
