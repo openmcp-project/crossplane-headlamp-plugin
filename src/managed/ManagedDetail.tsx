@@ -18,12 +18,38 @@ const {
   AccordionDetails,
 } = (window as any).pluginLib?.MuiCore ?? {};
 
-function useCustomResource(group: string, plural: string, name: string, namespace?: string) {
+function useCustomResource(
+  group: string,
+  plural: string,
+  name: string,
+  namespace?: string,
+  version?: string
+) {
   const [crds, crdError] = K8s.ResourceClasses.CustomResourceDefinition.useList();
   const crd = crds?.find(
     (c: any) => c.jsonData.spec.group === group && c.jsonData.spec.names.plural === plural
   );
-  const { items, error: listError, loading } = useCustomResourceList(crd, { name, namespace });
+  // Detail links retain their requested API version instead of using the storage version.
+  const requestedCRD =
+    crd && version
+      ? {
+          metadata: crd.metadata,
+          jsonData: {
+            spec: {
+              ...crd.jsonData.spec,
+              versions: crd.jsonData.spec.versions.filter((v: any) => v.name === version),
+            },
+          },
+        }
+      : crd;
+  const {
+    items,
+    error: listError,
+    loading,
+  } = useCustomResourceList(requestedCRD, {
+    name,
+    namespace,
+  });
   const item = items?.find(
     item => item.metadata.name === name && (!namespace || item.metadata.namespace === namespace)
   );
@@ -102,29 +128,38 @@ const managerLabels: Record<string, string> = {
 };
 
 export interface ManagedDetailProps {
-  providerName: string;
+  providerName?: string;
   group: string;
+  version?: string;
   plural: string;
   name: string;
   namespace?: string;
 }
 
-// Opens the full resource detail in a right-hand Activity panel (used from the
-// CRD browser). The routed page renders the same view via ManagedDetail below.
-export function openManagedDetail(props: ManagedDetailProps) {
+// Opens the shared resource detail from the map or CRD browser.
+export function openManagedDetail(
+  props: ManagedDetailProps & { title?: string; hideTitleInHeader?: boolean }
+) {
   const Activity = (window as any).pluginLib?.Activity;
   if (!Activity?.launch) {
     console.warn('Activity.launch not available in this version of Headlamp');
     return;
   }
-  const { name, group, plural, namespace } = props;
+  const { name, group, plural, namespace, version } = props;
+  const id = `managed-detail:${group}/${plural}/${namespace ?? ''}/${name}`;
+  const detail = {
+    title: props.title ?? name,
+    hideTitleInHeader: props.hideTitleInHeader,
+    content: <ManagedDetailView key={version} {...props} />,
+  };
   Activity.launch({
-    id: `managed-detail:${group}/${plural}/${namespace ?? ''}/${name}`,
+    id,
     location: 'split-right',
     temporary: true,
-    title: name,
-    content: <ManagedDetailView {...props} />,
+    ...detail,
   });
+  // Pinned activities retain their content; the version key resets the previous request's state.
+  Activity.update(id, detail);
 }
 
 export default function ManagedDetail() {
@@ -138,10 +173,17 @@ export default function ManagedDetail() {
   return <ManagedDetailView {...params} />;
 }
 
-function ManagedDetailView({ providerName, group, plural, name, namespace }: ManagedDetailProps) {
+function ManagedDetailView({
+  providerName,
+  group,
+  version,
+  plural,
+  name,
+  namespace,
+}: ManagedDetailProps) {
   const history = useHistory();
 
-  const [item, error] = useCustomResource(group, plural, name, namespace);
+  const [item, error] = useCustomResource(group, plural, name, namespace, version);
 
   if (!item && !error) {
     return (
@@ -263,25 +305,31 @@ function ManagedDetailView({ providerName, group, plural, name, namespace }: Man
                 <Typography variant="body2" color="textSecondary" style={{ minWidth: 180 }}>
                   ProviderConfig:
                 </Typography>
-                <button
-                  type="button"
-                  style={{
-                    color: '#1976d2',
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    fontSize: 13,
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                  }}
-                  onClick={() =>
-                    history.push(
-                      `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
-                    )
-                  }
-                >
-                  {providerConfigRef}
-                </button>
+                {providerName ? (
+                  <button
+                    type="button"
+                    style={{
+                      color: '#1976d2',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                    }}
+                    onClick={() =>
+                      history.push(
+                        `${clusterPrefix()}/crossplane/providers/${providerName}/providerconfigs/${providerConfigRef}`
+                      )
+                    }
+                  >
+                    {providerConfigRef}
+                  </button>
+                ) : (
+                  <Typography variant="body2" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                    {providerConfigRef}
+                  </Typography>
+                )}
               </Box>
             )}
             {compositeRef && (
