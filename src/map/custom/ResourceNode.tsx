@@ -6,33 +6,39 @@ import {
   CardActionArea,
   CardActions,
   CardContent,
+  IconButton,
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { Handle, Node, NodeProps, Position, useReactFlow } from '@xyflow/react';
+import { Handle, Node, NodeProps, Position } from '@xyflow/react';
+import { memo } from 'react';
 import {
   AUX_HANDLE_OFFSET,
   CATEGORY_SWATCH_SX,
+  getCardActionSx,
   NAMESPACE_LINE_HEIGHT,
   NODE_WIDTH,
   TRIMMED_TEXT_SX,
 } from './styles';
+import { useCardFocusPan } from './useCardFocusPan';
 
 export type ResourceNodeData = {
   kind: string;
   name: string;
   namespace?: string;
-  kubeObject?: any;
-  customResourceDefinition?: string;
-  providerName?: string;
   // Resolved color for the active category mode; undefined = uncategorized (mode "none").
   color?: string;
   // Display text is separate from the category key so missing values have a readable label.
   categoryLabel?: string;
   // Ready-and-synced health, derived upstream in the graph source.
   status?: 'success' | 'error';
-  childCount?: number;
+  childNodeCount?: number;
   collapsed?: boolean;
+  candidateMemberCount?: number;
+  groupHighlighted?: boolean;
+  onGroup?: () => void;
+  onGroupMouseEnter?: () => void;
+  onGroupMouseLeave?: () => void;
   onOpenDetails?: () => void;
   onToggleCollapse?: (id: string) => void;
 };
@@ -43,8 +49,16 @@ export type ResourceNodeData = {
  * Handles sit top/bottom to match the top-down ELK layout.
  */
 export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNodeData>>) {
+  return <ResourceCard id={id} data={data} selected={selected} />;
+}
+
+const ResourceCard = memo(function ResourceCard({
+  id,
+  data,
+  selected,
+}: Pick<NodeProps<Node<ResourceNodeData>>, 'id' | 'data' | 'selected'>) {
   const theme = useTheme();
-  const { getInternalNode, getViewport, setCenter } = useReactFlow<Node<ResourceNodeData>>();
+  const handleFocus = useCardFocusPan(id);
   const handleStyle = {
     width: 7,
     height: 7,
@@ -59,27 +73,10 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
   const interactive = Boolean(data.onOpenDetails);
   const isError = data.status === 'error';
   const resourceName = data.namespace ? `${data.namespace}/${data.name}` : data.name;
-
-  function handleFocus(event: React.FocusEvent<HTMLElement>) {
-    if (!event.target.matches(':focus-visible')) return;
-    const node = getInternalNode(id);
-    const viewport = event.currentTarget.closest('.react-flow');
-    if (!node || !viewport) return;
-    const { x, y, zoom } = getViewport();
-    const position = node.internals.positionAbsolute;
-    const width = event.currentTarget.offsetWidth;
-    const height = event.currentTarget.offsetHeight;
-    if (
-      position.x * zoom + x >= 0 &&
-      (position.x + width) * zoom + x <= viewport.clientWidth &&
-      position.y * zoom + y >= 0 &&
-      (position.y + height) * zoom + y <= viewport.clientHeight
-    ) {
-      return;
-    }
-    // Native button focus must pan the graph just as node focus did.
-    setCenter(position.x + width / 2, position.y + height / 2, { zoom });
-  }
+  const collapseLabel = `${data.collapsed ? 'Expand' : 'Collapse'} children of ${resourceName}`;
+  const groupLabel = `Group ${data.candidateMemberCount ? `${data.candidateMemberCount} ` : ''}${
+    data.kind
+  } resources with ${resourceName}`;
 
   return (
     <>
@@ -113,6 +110,8 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
           // React Flow leaves the node container inert; the card owns its controls.
           pointerEvents: 'auto',
           boxShadow: selected ? `0 0 0 1.5px ${accent}, ${theme.shadows[2]}` : undefined,
+          outline: data.groupHighlighted ? `2px dashed ${theme.palette.primary.main}` : undefined,
+          outlineOffset: 3,
           transition: 'box-shadow 120ms',
         }}
       >
@@ -227,14 +226,14 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
             )}
           </CardContent>
         </Box>
-        {(data.status || !!data.childCount) && (
+        {(data.status || data.onToggleCollapse || data.onGroup) && (
           <CardActions
             disableSpacing
             sx={{
               px: 2,
               py: 0.25,
               minHeight: 40,
-              gap: 1,
+              gap: 0.5,
               borderTop: 1,
               borderColor: isError ? 'error.main' : 'divider',
               backgroundColor: isError ? 'error.main' : undefined,
@@ -242,34 +241,51 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
             }}
           >
             <HealthIndicator status={data.status} />
-            {!!data.childCount && (
+            {data.onGroup && (
+              <IconButton
+                type="button"
+                size="small"
+                color="inherit"
+                aria-label={groupLabel}
+                title={groupLabel}
+                onClick={data.onGroup}
+                onMouseEnter={data.onGroupMouseEnter}
+                onMouseLeave={data.onGroupMouseLeave}
+                sx={{
+                  ...getCardActionSx(theme, isError ? theme.palette.error : undefined),
+                  ml: 'auto',
+                  p: 0.5,
+                  width: 32,
+                  height: 32,
+                }}
+              >
+                <Icon icon="mdi:group" width={16} height={16} aria-hidden="true" />
+              </IconButton>
+            )}
+            {data.onToggleCollapse && (
               <Button
                 type="button"
                 size="small"
-                aria-label={`${data.collapsed ? 'Expand' : 'Collapse'} children of ${resourceName}`}
+                variant="text"
+                color="inherit"
+                aria-label={collapseLabel}
                 aria-expanded={!data.collapsed}
-                title={`${data.collapsed ? 'Expand' : 'Collapse'} ${data.childCount} child ${
-                  data.childCount === 1 ? 'resource' : 'resources'
-                } of ${resourceName}`}
+                title={
+                  data.childNodeCount
+                    ? `${data.collapsed ? 'Expand' : 'Collapse'} ${data.childNodeCount} child ${
+                        data.childNodeCount === 1 ? 'node' : 'nodes'
+                      } of ${resourceName}`
+                    : collapseLabel
+                }
                 onClick={() => data.onToggleCollapse?.(id)}
                 sx={{
-                  ml: 'auto',
+                  ...getCardActionSx(theme, isError ? theme.palette.error : undefined),
+                  ml: data.onGroup ? 0 : 'auto',
                   p: 0.5,
-                  minWidth: 40,
+                  minWidth: 32,
                   height: 32,
                   gap: 0.25,
-                  flexShrink: 0,
-                  borderRadius: 1,
-                  backgroundColor: isError ? 'transparent' : 'action.hover',
-                  color: 'inherit',
                   fontSize: 12,
-                  '&:hover': { backgroundColor: isError ? 'error.dark' : 'action.selected' },
-                  '&.Mui-focusVisible': {
-                    outline: `2px solid ${
-                      isError ? theme.palette.error.contrastText : theme.palette.primary.main
-                    }`,
-                    outlineOffset: 2,
-                  },
                 }}
               >
                 <Box
@@ -286,7 +302,7 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
                 >
                   <Icon icon="mdi:chevron-right" width={16} height={16} />
                 </Box>
-                {data.childCount}
+                {data.childNodeCount}
               </Button>
             )}
           </CardActions>
@@ -308,36 +324,43 @@ export function ResourceNode({ id, data, selected }: NodeProps<Node<ResourceNode
       />
     </>
   );
-}
+});
 
 function HealthIndicator({ status }: { status?: 'success' | 'error' }) {
   const theme = useTheme();
   if (!status) return null;
-  const ok = status === 'success';
+  const isHealthy = status === 'success';
+  const label = isHealthy ? 'Healthy' : 'Needs Attention';
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
       <Icon
-        icon={ok ? 'mdi:check-circle' : 'mdi:alert-circle'}
+        icon={isHealthy ? 'mdi:check-circle' : 'mdi:alert-circle'}
         width={14}
         height={14}
         // Iconify 3's color prop mutates React-frozen styles when the icon updates.
         style={{
           display: 'block',
           flexShrink: 0,
-          color: ok ? theme.palette.success.main : 'inherit',
+          color: isHealthy ? theme.palette.success.main : 'inherit',
         }}
       />
       <Typography
         variant="caption"
         component="span"
+        title={label}
         sx={{
           ...TRIMMED_TEXT_SX,
           fontWeight: 600,
           color: 'inherit',
+          minWidth: 0,
+          whiteSpace: 'nowrap',
+          // Clip horizontally without cutting off trimmed glyphs above or below the box.
+          overflowX: 'clip',
+          textOverflow: 'ellipsis',
         }}
       >
-        {ok ? 'Ready' : 'Not Ready'}
+        {label}
       </Typography>
     </Box>
   );

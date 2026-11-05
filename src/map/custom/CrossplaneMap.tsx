@@ -23,16 +23,13 @@ import {
   Panel,
   ReactFlow,
   ReactFlowProvider,
-  useNodesState,
-  useReactFlow,
-  useStoreApi,
-  Viewport,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openManagedDetail } from '../../managed/ManagedDetail';
 import { ManagedGraphErrors } from '../common/ManagedGraphErrors';
 import type { GraphNode } from '../common/types';
 import { useManagedGraph } from '../common/useManagedGraph';
+import { AggregatedNode, AggregatedNodeData } from './AggregatedNode';
 import {
   categoryFieldsFromKubeObject,
   CategoryKey,
@@ -42,31 +39,15 @@ import {
   collectLabelKeys,
   generateCategoryColorMap,
 } from './graphCategories';
-import { getGraphCollapseState } from './graphCollapse';
 import { GraphControls, StatusFilter } from './GraphControls';
-import { GraphLayout, GraphLayoutInput, layoutGraph } from './layoutGraph';
+import { collectAllGroups, groupGraph, GroupingCandidate, ResourceGroup } from './groupGraph';
+import { GroupPreview } from './GroupPreview';
 import type { ResourceNodeData } from './ResourceNode';
 import { ResourceNode } from './ResourceNode';
 import { RoutedEdge } from './RoutedEdge';
-import {
-  EDGE_LABEL_BG_PADDING,
-  NAMESPACE_LINE_HEIGHT,
-  NODE_HEIGHT,
-  NODE_WIDTH,
-  PANEL_ELEVATION,
-  PANEL_SX,
-} from './styles';
+import { EDGE_LABEL_BG_PADDING, PANEL_ELEVATION, PANEL_SX } from './styles';
 import { useAnimatedGraphVisibility } from './useAnimatedGraphVisibility';
-
-type ViewportAction = { type: 'fit' } | { type: 'restore'; viewport: Viewport };
-type LayoutResult = GraphLayout & {
-  input: GraphLayoutInput;
-};
-type LayoutCommit = LayoutResult & {
-  revision: number;
-  showMatchesOnly: boolean;
-  viewportAction: ViewportAction | null;
-};
+import { useGraphLayout } from './useGraphLayout';
 
 function CrossplaneMapView() {
   const theme = useTheme();
@@ -79,45 +60,6 @@ function CrossplaneMapView() {
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const fadeDuration = theme.transitions.duration.shortest;
   const graph = useManagedGraph();
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const { fitView, getViewport, setViewport, viewportInitialized } = useReactFlow();
-  const flowStore = useStoreApi();
-  const nodeTypes = useMemo(() => ({ resource: ResourceNode }), []);
-  const edgeTypes = useMemo(() => ({ routed: RoutedEdge }), []);
-  const resourcesById = useMemo(
-    () => new Map((graph?.nodes ?? []).map(resource => [resource.id, resource])),
-    [graph?.nodes]
-  );
-  const fullLayoutInput = useMemo<GraphLayoutInput | null>(
-    () =>
-      graph
-        ? {
-            nodes: graph.nodes.map(node => {
-              const namespace =
-                node.kubeObject?.metadata?.namespace ??
-                node.kubeObject?.jsonData?.metadata?.namespace;
-              return {
-                id: node.id,
-                width: NODE_WIDTH,
-                height: NODE_HEIGHT + (namespace ? NAMESPACE_LINE_HEIGHT : 0),
-              };
-            }),
-            edges: graph.edges,
-          }
-        : null,
-    [graph]
-  );
-  // Selection follows the detail action; a background click clears it.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
-  const toggleCollapse = useCallback((id: string) => {
-    setCollapsedIds(current => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
   // Categorize-by mode + selected label key. State only (no persistence). All
   // hooks below run before the loading early-return to keep hook order stable.
   const [categoryMode, setCategoryMode] = useState<CategoryMode>('provider');
@@ -128,69 +70,6 @@ function CrossplaneMapView() {
     labelKey: string;
     values: CategoryKey[];
   } | null>(null);
-  const [showMatchesOnly, setShowMatchesOnly] = useState(false);
-  const [transitionRevision, setTransitionRevision] = useState(0);
-  const [layoutCommit, setLayoutCommit] = useState<LayoutCommit | null>(null);
-  const layoutCommitRef = useRef<LayoutCommit | null>(null);
-  const [layoutError, setLayoutError] = useState<Error | null>(null);
-  const fullLayoutRef = useRef<LayoutResult | null>(null);
-  const contextViewportRef = useRef<{ input: GraphLayoutInput; viewport: Viewport } | null>(null);
-  const requestRevisionRef = useRef(0);
-  const pendingTransitionRef = useRef<'fit' | 'return' | 'relayout' | null>('fit');
-  const viewportStartedRef = useRef<number | null>(null);
-  const viewportWorkRef = useRef<{ revision: number; action: ViewportAction } | null>(null);
-  const cancelViewportWork = useCallback(
-    (interrupt = true) => {
-      const work = viewportWorkRef.current;
-      if (!work) return;
-      viewportWorkRef.current = null;
-      if (work.action.type === 'fit') {
-        // React Flow 12.12 has no viewport API for cancelling its measurement-owned fit queue.
-        const { fitViewResolver } = flowStore.getState();
-        flowStore.setState({
-          fitViewQueued: false,
-          fitViewOptions: undefined,
-          fitViewResolver: null,
-        });
-        fitViewResolver?.resolve(false);
-      }
-      if (interrupt) void setViewport(getViewport(), { duration: 0 });
-    },
-    [flowStore, getViewport, setViewport]
-  );
-  const interruptViewport = useCallback(
-    (interrupt = true) => {
-      if (!viewportWorkRef.current) return;
-      pendingTransitionRef.current = null;
-      cancelViewportWork(interrupt);
-      if (!layoutCommitRef.current?.showMatchesOnly) contextViewportRef.current = null;
-    },
-    [cancelViewportWork]
-  );
-
-  const changeView = useCallback(
-    (matchesOnly: boolean, relayout = false) => {
-      if (matchesOnly === showMatchesOnly && !relayout) return;
-      // Retain the original context baseline until a return has fully committed.
-      if (
-        matchesOnly &&
-        !contextViewportRef.current &&
-        layoutCommit &&
-        !layoutCommit.showMatchesOnly
-      ) {
-        contextViewportRef.current = { input: layoutCommit.input, viewport: getViewport() };
-      }
-      requestRevisionRef.current += 1;
-      cancelViewportWork();
-      pendingTransitionRef.current = relayout ? 'relayout' : matchesOnly ? 'fit' : 'return';
-      setShowMatchesOnly(matchesOnly);
-      setTransitionRevision(current => current + 1);
-    },
-    [showMatchesOnly, layoutCommit, getViewport, cancelViewportWork]
-  );
-  const relayoutMatchingView = useCallback(() => {
-    if (showMatchesOnly) changeView(true, true);
-  }, [showMatchesOnly, changeView]);
 
   const categoryFields = useMemo(
     () => (graph?.nodes ?? []).map(node => categoryFieldsFromKubeObject(node.kubeObject)),
@@ -229,7 +108,7 @@ function CrossplaneMapView() {
         .map(node => node.id)
     );
   }, [graph, selectedCategories, categoryMode, effectiveLabelKey]);
-  const { matchingNodes, nonMatchingIds } = useMemo(() => {
+  const { matchingNodes, matchingIds } = useMemo(() => {
     const sourceNodes = graph?.nodes ?? [];
     const matchingNodes = sourceNodes.filter(
       node =>
@@ -239,53 +118,173 @@ function CrossplaneMapView() {
     const matchingIds = new Set(matchingNodes.map(node => node.id));
     return {
       matchingNodes,
-      nonMatchingIds: new Set(
-        sourceNodes.filter(node => !matchingIds.has(node.id)).map(node => node.id)
-      ),
+      matchingIds,
     };
   }, [graph, categoryExcludedIds, statusFilter]);
   const hasActiveFilters =
     statusFilter !== null || (categoryMode !== 'none' && selectedCategories !== null);
-  const { childrenById, hiddenIds: collapseHiddenIds } = useMemo(
+  const [groups, setGroups] = useState<ResourceGroup[]>([]);
+  const [regroupHistory, setRegroupHistory] = useState<ResourceGroup[]>([]);
+  const viewGraph = useMemo(
     () =>
-      getGraphCollapseState(
-        graph?.nodes ?? [],
-        graph?.edges ?? [],
-        new Set([...collapsedIds].filter(id => !nonMatchingIds.has(id)))
-      ),
-    [graph, collapsedIds, nonMatchingIds]
+      graph ? groupGraph(graph.nodes, graph.edges, groups, matchingIds, regroupHistory) : null,
+    [graph, groups, matchingIds, regroupHistory]
   );
-  const dimmedIds = useMemo(
-    () => new Set([...nonMatchingIds].filter(id => !collapseHiddenIds.has(id))),
-    [nonMatchingIds, collapseHiddenIds]
-  );
-  const excludedIds = useMemo(
-    () => new Set([...nonMatchingIds, ...collapseHiddenIds]),
-    [nonMatchingIds, collapseHiddenIds]
-  );
+  const hasGroups = !!viewGraph?.nodes.some(node => node.type === 'aggregated');
+  const [hoveredGroupNodeId, setHoveredGroupNodeId] = useState<string | null>(null);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const mapElementRef = useRef<HTMLDivElement>(null);
+  const nodeTypes = useMemo(() => ({ resource: ResourceNode, aggregated: AggregatedNode }), []);
+  const edgeTypes = useMemo(() => ({ routed: RoutedEdge }), []);
+  // Selection follows the detail action; a background click clears it.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const labelFilterInvalidated =
+    categoryMode === 'label' &&
+    categoryFilter?.categoryMode === 'label' &&
+    categoryFilter.labelKey !== effectiveLabelKey;
+  const {
+    nodes: visibleNodes,
+    onNodesChange,
+    displayGraph,
+    collapseState,
+    motionPositions,
+    motionHiddenIds,
+    routes,
+    isAnimating,
+    layoutPending,
+    layoutError,
+    prepareGroupTransition,
+    onFocusCapture,
+    relayout: relayoutMatchingView,
+    interruptViewport,
+  } = useGraphLayout({
+    graph,
+    viewGraph,
+    collapsedIds,
+    reduceMotion,
+    mapElementRef,
+    deferLayout: labelFilterInvalidated,
+  });
+  const { childrenById, resourceChildrenById, hiddenIds: collapseHiddenIds } = collapseState;
   const animatedVisibility = useAnimatedGraphVisibility(
     collapseHiddenIds,
     reduceMotion,
     fadeDuration
   );
-  const nextLayoutInput = useMemo<GraphLayoutInput | null>(() => {
-    if (!fullLayoutInput || !showMatchesOnly) return fullLayoutInput;
-    return {
-      nodes: fullLayoutInput.nodes.filter(node => !nonMatchingIds.has(node.id)),
-      edges: fullLayoutInput.edges.filter(
-        edge => !nonMatchingIds.has(edge.source) && !nonMatchingIds.has(edge.target)
-      ),
-    };
-  }, [fullLayoutInput, showMatchesOnly, nonMatchingIds]);
-  const [layoutInput, setLayoutInput] = useState(nextLayoutInput);
-  // Order and live metadata do not invalidate coordinates or unfinished layout work.
-  if (!hasSameLayoutInput(layoutInput, nextLayoutInput)) setLayoutInput(nextLayoutInput);
+  const visibleHiddenIds = motionHiddenIds ?? animatedVisibility.hiddenIds;
+  const visibleExcludedIds = motionHiddenIds ?? collapseHiddenIds;
+  const visibleTransparentIds = isAnimating ? null : animatedVisibility.transparentIds;
+  const changeGroups = useCallback(
+    (
+      nextGroups: ResourceGroup[],
+      focus?: { memberIds: string[]; grouped: boolean },
+      cameraAnchor?: { nodeId: string; grouped: boolean }
+    ) => {
+      if (hasSameGroups(groups, nextGroups)) return;
+      prepareGroupTransition(focus, cameraAnchor);
+      setHoveredGroupNodeId(null);
+      setFocusedNodeId(null);
+      setGroups(nextGroups);
+    },
+    [groups, prepareGroupTransition]
+  );
+  const group = useCallback(
+    (candidate: GroupingCandidate, anchorNodeId: string) => {
+      const memberIds = candidate.members.map(member => member.id);
+      const members = new Set(memberIds);
+      setRegroupHistory(current => current.filter(group => !group.some(id => members.has(id))));
+      changeGroups(
+        [
+          ...groups
+            .map(existing => existing.filter(id => !members.has(id)))
+            .filter(group => group.length > 1),
+          memberIds,
+        ],
+        focusedNodeId && candidate.viewNodeIds.includes(focusedNodeId)
+          ? { memberIds, grouped: true }
+          : undefined,
+        { nodeId: anchorNodeId, grouped: true }
+      );
+    },
+    [changeGroups, groups, focusedNodeId]
+  );
+  const ungroup = useCallback(
+    (members: GraphNode[], anchorNodeId: string) => {
+      const memberIds = new Set(members.map(member => member.id));
+      setRegroupHistory(current => [
+        ...current.filter(group => !group.some(id => memberIds.has(id))),
+        [...memberIds],
+      ]);
+      changeGroups(
+        groups
+          .map(existing => existing.filter(id => !memberIds.has(id)))
+          .filter(group => group.length > 1),
+        focusedNodeId ? { memberIds: [...memberIds], grouped: false } : undefined,
+        { nodeId: anchorNodeId, grouped: false }
+      );
+    },
+    [changeGroups, groups, focusedNodeId]
+  );
+  const groupAll = () => {
+    if (!graph) return;
+    const next = collectAllGroups(graph.nodes, graph.edges, matchingIds, groups);
+    const affected = new Set(next.flat());
+    setRegroupHistory(current => current.filter(group => !group.some(id => affected.has(id))));
+    changeGroups(next);
+  };
+  const ungroupAll = () => {
+    const visibleGroups =
+      viewGraph?.nodes.flatMap(node =>
+        node.type === 'aggregated' ? [node.members.map(member => member.id)] : []
+      ) ?? [];
+    const affected = new Set(visibleGroups.flat());
+    setRegroupHistory(current => [
+      ...current.filter(group => !group.some(id => affected.has(id))),
+      ...visibleGroups,
+    ]);
+    changeGroups(
+      groups.map(group => group.filter(id => !affected.has(id))).filter(group => group.length > 1)
+    );
+  };
 
-  const labelFilterInvalidated =
-    categoryMode === 'label' &&
-    categoryFilter?.categoryMode === 'label' &&
-    categoryFilter.labelKey !== effectiveLabelKey;
-  const matchingFilterInvalidated = showMatchesOnly && labelFilterInvalidated;
+  const toggleCollapse = useCallback(
+    (id: string) => {
+      const node = displayGraph?.nodes.find(node => node.id === id);
+      const memberIds =
+        node?.type === 'aggregated'
+          ? node.members
+              .filter(member => resourceChildrenById.has(member.id))
+              .map(member => member.id)
+          : [id];
+      setCollapsedIds(current => {
+        const next = new Set(current);
+        const expand = memberIds.every(memberId => current.has(memberId));
+        for (const memberId of memberIds) {
+          if (expand) next.delete(memberId);
+          else next.add(memberId);
+        }
+        return next;
+      });
+    },
+    [displayGraph, resourceChildrenById]
+  );
+  const resourcesById = useMemo(
+    () => new Map((graph?.nodes ?? []).map(node => [node.id, node])),
+    [graph]
+  );
+  const viewNodesById = useMemo(
+    () => new Map((displayGraph?.nodes ?? []).map(node => [node.id, node])),
+    [displayGraph]
+  );
+  const previewCandidate = layoutPending
+    ? undefined
+    : viewGraph?.candidates.get(hoveredGroupNodeId ?? '');
+  const highlightedNodeIds = useMemo(
+    () => new Set(previewCandidate?.viewNodeIds ?? []),
+    [previewCandidate]
+  );
+
   useEffect(() => {
     if (!labelFilterInvalidated) return;
     setCategoryFilter(null);
@@ -297,8 +296,10 @@ function CrossplaneMapView() {
     if (!sourceIsEmpty) return;
     setSelectedId(null);
     setCollapsedIds(new Set());
-    fullLayoutRef.current = null;
-    contextViewportRef.current = null;
+    setGroups([]);
+    setRegroupHistory([]);
+    setHoveredGroupNodeId(null);
+    setFocusedNodeId(null);
   }, [sourceIsEmpty]);
 
   const openDetails = useCallback((node: GraphNode) => {
@@ -328,94 +329,66 @@ function CrossplaneMapView() {
     });
   }, []);
 
-  useEffect(() => {
-    if (!layoutCommitRef.current) pendingTransitionRef.current = 'fit';
-    return () => {
-      pendingTransitionRef.current = null;
-      contextViewportRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const revision = ++requestRevisionRef.current;
-    if (!layoutInput || matchingFilterInvalidated) return;
-    let cancelled = false;
-    setLayoutError(null);
-    const relayout = pendingTransitionRef.current === 'relayout';
-    const cachedFullLayout =
-      !relayout &&
-      !showMatchesOnly &&
-      hasSameLayoutInput(fullLayoutRef.current?.input ?? null, layoutInput)
-        ? fullLayoutRef.current
-        : null;
-    const baseline = contextViewportRef.current;
-    const viewportAction: ViewportAction | null =
-      pendingTransitionRef.current === 'return' &&
-      cachedFullLayout &&
-      baseline &&
-      hasSameLayoutInput(baseline.input, layoutInput)
-        ? { type: 'restore', viewport: baseline.viewport }
-        : pendingTransitionRef.current
-        ? { type: 'fit' }
-        : null;
-    const commit = ({ positions, routes }: GraphLayout) => {
-      if (cancelled || revision !== requestRevisionRef.current) return;
-      if (!showMatchesOnly) fullLayoutRef.current = { input: layoutInput, positions, routes };
-      // An empty transition is complete even before the viewport initializes.
-      if (positions.size === 0) pendingTransitionRef.current = null;
-      setNodes(current => {
-        const currentById = new Map(current.map(node => [node.id, node]));
-        return [...positions].map(([id, position]) => ({
-          ...currentById.get(id),
-          id,
-          position,
-          data: {},
-        }));
-      });
-      const result = {
-        input: layoutInput,
-        positions,
-        routes,
-        revision,
-        showMatchesOnly,
-        viewportAction: positions.size === 0 ? null : viewportAction,
-      };
-      layoutCommitRef.current = result;
-      setLayoutCommit(result);
-    };
-    if (layoutInput.nodes.length === 0) commit({ positions: new Map(), routes: new Map() });
-    else if (cachedFullLayout) commit(cachedFullLayout);
-    else if (!relayout && hasSameLayoutInput(layoutCommitRef.current?.input ?? null, layoutInput))
-      commit(layoutCommitRef.current!);
-    else
-      layoutGraph(layoutInput)
-        .then(commit)
-        .catch(error => {
-          if (cancelled || revision !== requestRevisionRef.current) return;
-          pendingTransitionRef.current = null;
-          setLayoutError(error instanceof Error ? error : new Error(String(error)));
-        });
-
-    return () => {
-      cancelled = true;
-      if (revision === requestRevisionRef.current) requestRevisionRef.current += 1;
-      cancelViewportWork();
-    };
-  }, [
-    layoutInput,
-    showMatchesOnly,
-    transitionRevision,
-    matchingFilterInvalidated,
-    setNodes,
-    cancelViewportWork,
-  ]);
-
-  // Current resource data is independent of the last completed layout.
-  const displayNodes = useMemo<Node<ResourceNodeData>[]>(
+  // Current node data is independent of the last completed layout.
+  const displayNodes = useMemo<Node<ResourceNodeData | AggregatedNodeData>[]>(
     () =>
-      nodes.flatMap(node => {
-        const resource = resourcesById.get(node.id);
-        if (!resource) return [];
+      visibleNodes.flatMap<Node<ResourceNodeData | AggregatedNodeData>>(node => {
+        const viewNode = viewNodesById.get(node.id);
+        if (!viewNode) return [];
+        const candidate = layoutPending ? undefined : viewGraph?.candidates.get(node.id);
+        const grouping = {
+          candidateMemberCount: candidate?.members.length,
+          onGroup: candidate ? () => group(candidate, node.id) : undefined,
+          onGroupMouseEnter: () => setHoveredGroupNodeId(node.id),
+          onGroupMouseLeave: () =>
+            setHoveredGroupNodeId(current => (current === node.id ? null : current)),
+          groupHighlighted: highlightedNodeIds.has(node.id),
+        };
+        const presentation = {
+          ...node,
+          // The card's native buttons own focus and selection.
+          selectable: false,
+          focusable: false,
+          ariaRole: 'group',
+          hidden: visibleHiddenIds.has(node.id),
+          className: visibleTransparentIds?.has(node.id) ? 'crossplane-map-fading' : undefined,
+          domAttributes: {
+            ...node.domAttributes,
+            'aria-describedby': undefined,
+            'aria-hidden': visibleExcludedIds.has(node.id) || undefined,
+            // Inert also excludes the card's native buttons during their exit fade.
+            inert: visibleExcludedIds.has(node.id) || isAnimating ? '' : undefined,
+          },
+          selected: node.id === selectedId,
+        };
+        if (viewNode.type === 'aggregated') {
+          const members = viewNode.members.map(member => resourcesById.get(member.id) ?? member);
+          const ko = members[0].kubeObject;
+          const apiVersion: string = ko?.jsonData?.apiVersion ?? ko?.apiVersion ?? '';
+          const collapseMembers = viewNode.members.filter(member =>
+            resourceChildrenById.has(member.id)
+          );
+          return [
+            {
+              ...presentation,
+              type: 'aggregated',
+              data: {
+                ...grouping,
+                kind: viewNode.kind,
+                apiGroup: apiVersion.includes('/') ? apiVersion.split('/')[0] : '',
+                memberCount: viewNode.members.length,
+                healthyMemberCount: members.filter(member => member.status === 'success').length,
+                childNodeCount: childrenById.get(node.id)?.size ?? 0,
+                collapsed:
+                  collapseMembers.length > 0 &&
+                  collapseMembers.every(member => collapsedIds.has(member.id)),
+                onToggleCollapse: collapseMembers.length > 0 ? toggleCollapse : undefined,
+                onUngroup: () => ungroup(viewNode.members, node.id),
+              },
+            },
+          ];
+        }
+        const resource = resourcesById.get(viewNode.id) ?? viewNode.resource;
         const ko = resource.kubeObject ?? {};
         const key = categoryKeyOf(
           categoryFieldsFromKubeObject(ko),
@@ -425,68 +398,67 @@ function CrossplaneMapView() {
         const categorized = categoryMode !== 'none';
         return [
           {
-            ...node,
+            ...presentation,
             type: 'resource',
-            // The card's native buttons own focus and selection.
-            selectable: false,
-            focusable: false,
-            ariaRole: 'group',
-            hidden: animatedVisibility.hiddenIds.has(node.id),
-            className: animatedVisibility.transparentIds.has(node.id)
-              ? 'crossplane-map-fading'
-              : dimmedIds.has(node.id)
-              ? 'crossplane-map-dimmed'
-              : undefined,
-            domAttributes: {
-              ...node.domAttributes,
-              'aria-describedby': undefined,
-              'aria-hidden': excludedIds.has(node.id) || undefined,
-              // Inert also excludes the card's native buttons during their exit fade.
-              inert: excludedIds.has(node.id) ? '' : undefined,
-            },
-            selected: node.id === selectedId,
             data: {
+              ...grouping,
               kind: ko.kind ?? ko.jsonData?.kind ?? 'Resource',
               name: ko.metadata?.name ?? ko.jsonData?.metadata?.name ?? node.id,
               namespace: ko.metadata?.namespace ?? ko.jsonData?.metadata?.namespace,
-              kubeObject: resource.kubeObject,
-              customResourceDefinition: resource.customResourceDefinition,
-              providerName: resource.providerName,
               status: resource.status,
               color: categorized ? categoryColorMap.get(key) : undefined,
               categoryLabel: categorized ? categoryLabelOf(key) : undefined,
-              childCount: childrenById.get(node.id)?.size ?? 0,
+              childNodeCount: childrenById.get(node.id)?.size ?? 0,
               collapsed: collapsedIds.has(node.id),
               onOpenDetails: resource.customResourceDefinition
                 ? () => openDetails(resource)
                 : undefined,
-              onToggleCollapse: toggleCollapse,
+              onToggleCollapse: resourceChildrenById.has(node.id) ? toggleCollapse : undefined,
             },
           },
         ];
       }),
     [
-      nodes,
+      visibleNodes,
+      viewNodesById,
       resourcesById,
+      viewGraph,
+      group,
+      highlightedNodeIds,
+      layoutPending,
       selectedId,
       categoryMode,
       categoryColorMap,
       effectiveLabelKey,
       childrenById,
-      dimmedIds,
-      excludedIds,
-      animatedVisibility,
+      resourceChildrenById,
+      visibleExcludedIds,
+      visibleHiddenIds,
+      visibleTransparentIds,
+      isAnimating,
       collapsedIds,
       openDetails,
       toggleCollapse,
+      ungroup,
     ]
+  );
+  // Position updates must not rebuild every card's data and callbacks on each frame.
+  const positionedNodes = useMemo(
+    () =>
+      motionPositions
+        ? displayNodes.map(node => ({
+            ...node,
+            position: motionPositions.get(node.id) ?? node.position,
+          }))
+        : displayNodes,
+    [displayNodes, motionPositions]
   );
   const displayEdges = useMemo<Edge[]>(() => {
     const positionedIds = new Set(displayNodes.map(node => node.id));
-    return (graph?.edges ?? [])
+    return (displayGraph?.edges ?? [])
       .filter(edge => positionedIds.has(edge.source) && positionedIds.has(edge.target))
       .flatMap(edge => {
-        const route = layoutCommit?.routes.get(edge.id);
+        const route = routes?.get(edge.id);
         if (
           !route ||
           route.source !== edge.source ||
@@ -520,85 +492,34 @@ function CrossplaneMapView() {
             style: edge.aux
               ? { stroke: edgeStroke, strokeWidth: 1.5, strokeDasharray: '6 4', opacity: 0.6 }
               : { stroke: edgeStroke, strokeWidth: 1.5 },
-            hidden:
-              animatedVisibility.hiddenIds.has(edge.source) ||
-              animatedVisibility.hiddenIds.has(edge.target),
+            hidden: visibleHiddenIds.has(edge.source) || visibleHiddenIds.has(edge.target),
             className:
-              animatedVisibility.transparentIds.has(edge.source) ||
-              animatedVisibility.transparentIds.has(edge.target)
+              visibleTransparentIds?.has(edge.source) || visibleTransparentIds?.has(edge.target)
                 ? 'crossplane-map-fading'
-                : dimmedIds.has(edge.source) || dimmedIds.has(edge.target)
-                ? 'crossplane-map-dimmed'
                 : undefined,
             selectable: false,
             focusable: false,
             domAttributes: {
               'aria-hidden':
-                excludedIds.has(edge.source) || excludedIds.has(edge.target) || undefined,
-              inert: excludedIds.has(edge.source) || excludedIds.has(edge.target) ? '' : undefined,
+                visibleExcludedIds.has(edge.source) ||
+                visibleExcludedIds.has(edge.target) ||
+                undefined,
+              inert:
+                visibleExcludedIds.has(edge.source) || visibleExcludedIds.has(edge.target)
+                  ? ''
+                  : undefined,
             },
           },
         ];
       });
   }, [
-    graph?.edges,
-    layoutCommit,
+    displayGraph?.edges,
+    routes,
     displayNodes,
     edgeStroke,
-    excludedIds,
-    dimmedIds,
-    animatedVisibility,
-  ]);
-
-  useEffect(() => {
-    if (
-      !layoutCommit ||
-      !viewportInitialized ||
-      layoutCommit.revision !== requestRevisionRef.current ||
-      viewportStartedRef.current === layoutCommit.revision
-    )
-      return;
-    viewportStartedRef.current = layoutCommit.revision;
-    const action = layoutCommit.viewportAction;
-    const complete = () => {
-      if (viewportWorkRef.current?.revision === layoutCommit.revision)
-        viewportWorkRef.current = null;
-      if (layoutCommit.revision !== requestRevisionRef.current) return;
-      // Live replacement layouts retain the action until its viewport work completes.
-      pendingTransitionRef.current = null;
-      if (!layoutCommit.showMatchesOnly) contextViewportRef.current = null;
-    };
-    if (!action) {
-      complete();
-      return;
-    }
-    const duration = reduceMotion ? 0 : 400;
-    if (action.type === 'restore') {
-      viewportWorkRef.current = { revision: layoutCommit.revision, action };
-      void setViewport(action.viewport, { duration }).then(complete);
-      return;
-    }
-    const visibleNodes = displayNodes.filter(
-      node =>
-        !collapseHiddenIds.has(node.id) &&
-        (!layoutCommit.showMatchesOnly || !nonMatchingIds.has(node.id))
-    );
-    if (visibleNodes.length === 0) {
-      complete();
-      return;
-    }
-    // React Flow 12.12 queues fitting through node updates and measurement.
-    viewportWorkRef.current = { revision: layoutCommit.revision, action };
-    void fitView({ nodes: visibleNodes, padding: 0.2, duration }).then(complete);
-  }, [
-    layoutCommit,
-    viewportInitialized,
-    displayNodes,
-    collapseHiddenIds,
-    nonMatchingIds,
-    reduceMotion,
-    fitView,
-    setViewport,
+    visibleExcludedIds,
+    visibleHiddenIds,
+    visibleTransparentIds,
   ]);
 
   if (graph?.error) {
@@ -620,10 +541,21 @@ function CrossplaneMapView() {
 
   return (
     <Box
+      ref={mapElementRef}
       onFocusCapture={event => {
-        if (!(event.target as HTMLElement).closest('.react-flow__node')) return;
-        // Cancel before the card's focus handler pans through setCenter.
-        interruptViewport();
+        onFocusCapture(event);
+        const target = event.target as HTMLElement;
+        const node = target.closest<HTMLElement>('.react-flow__node');
+        if (!node) return;
+        const keyboardFocus = target.matches(':focus-visible');
+        if (keyboardFocus) setHoveredGroupNodeId(null);
+        setFocusedNodeId(keyboardFocus ? node.dataset.id ?? null : null);
+      }}
+      onBlurCapture={event => {
+        const next = event.relatedTarget as HTMLElement | null;
+        if (next?.closest('.react-flow__node') === event.target.closest('.react-flow__node'))
+          return;
+        setFocusedNodeId(null);
       }}
       sx={{
         width: '100%',
@@ -638,13 +570,10 @@ function CrossplaneMapView() {
         // React Flow labels capture pointer events even when their edge is inactive.
         '& .react-flow__edge-textwrapper': { pointerEvents: 'none' },
         '& .react-flow__node, & .react-flow__edge, & .react-flow__minimap-node': {
-          transition: theme.transitions.create('opacity', { duration: fadeDuration }),
+          transition: isAnimating
+            ? 'none'
+            : theme.transitions.create('opacity', { duration: fadeDuration }),
           '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
-        },
-        '& .crossplane-map-dimmed': {
-          opacity: 0.25,
-          pointerEvents: 'none',
-          '& *': { pointerEvents: 'none' },
         },
         '& .crossplane-map-fading': {
           opacity: 0,
@@ -659,7 +588,7 @@ function CrossplaneMapView() {
         </Box>
       )}
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        <ReactFlow<Node<ResourceNodeData>>
+        <ReactFlow<Node<ResourceNodeData | AggregatedNodeData>>
           colorMode={theme.palette.mode}
           // Color the canvas itself; an opaque interaction pane would cover the dot grid.
           style={
@@ -669,7 +598,7 @@ function CrossplaneMapView() {
               '--xy-edge-label-color': theme.palette.text.primary,
             } as React.CSSProperties
           }
-          nodes={displayNodes}
+          nodes={positionedNodes}
           edges={displayEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -688,6 +617,15 @@ function CrossplaneMapView() {
           maxZoom={4}
           proOptions={{ hideAttribution: true }}
         >
+          {!isAnimating && hoveredGroupNodeId && highlightedNodeIds.size > 1 && (
+            <GroupPreview
+              nodes={positionedNodes.filter(
+                node => highlightedNodeIds.has(node.id) && !visibleExcludedIds.has(node.id)
+              )}
+              targetId={hoveredGroupNodeId}
+              reduceMotion={reduceMotion}
+            />
+          )}
           {/* Dots shrink with zoom; divider-colored 1px dots disappear in the fitted view. */}
           <Background
             variant={BackgroundVariant.Dots}
@@ -717,6 +655,10 @@ function CrossplaneMapView() {
           </Panel>
           <Panel position="top-right">
             <GraphControls
+              hasGroups={hasGroups}
+              canGroup={!!viewGraph?.candidates.size}
+              onGroupAll={groupAll}
+              onUngroupAll={ungroupAll}
               categoryMode={categoryMode}
               onCategoryModeChange={mode => {
                 relayoutMatchingView();
@@ -732,9 +674,7 @@ function CrossplaneMapView() {
               }}
               categoryColorMap={categoryColorMap}
               categoryOptions={categoryOptions}
-              selectedCategories={categoryOptions.filter(
-                value => selectedCategories === null || selectedCategories.includes(value)
-              )}
+              selectedCategories={selectedCategories}
               onCategorySelectionChange={values => {
                 relayoutMatchingView();
                 setCategoryFilter(
@@ -749,8 +689,6 @@ function CrossplaneMapView() {
               hasActiveFilters={hasActiveFilters}
               matchingCount={matchingNodes.length}
               totalCount={graph.nodes.length}
-              showMatchesOnly={showMatchesOnly}
-              onShowMatchesOnlyChange={changeView}
             />
           </Panel>
           {graph.nodes.length === 0 && !graph.resourceErrors?.length && (
@@ -767,7 +705,7 @@ function CrossplaneMapView() {
               <Typography color="text.secondary">No Crossplane resources found.</Typography>
             </Box>
           )}
-          {showMatchesOnly && graph.nodes.length > 0 && matchingNodes.length === 0 && (
+          {graph.nodes.length > 0 && matchingNodes.length === 0 && (
             <Box
               role="status"
               sx={{
@@ -788,7 +726,7 @@ function CrossplaneMapView() {
               <Alert
                 severity="error"
                 action={
-                  <Button color="inherit" onClick={() => changeView(showMatchesOnly, true)}>
+                  <Button color="inherit" onClick={relayoutMatchingView}>
                     Retry
                   </Button>
                 }
@@ -824,7 +762,11 @@ function CrossplaneMapView() {
             variant="elevation"
             elevation={PANEL_ELEVATION}
             nodeClassName={(node: Node) => node.className ?? ''}
-            nodeColor={theme.palette.action.disabled}
+            nodeColor={(node: Node) =>
+              highlightedNodeIds.has(node.id)
+                ? theme.palette.primary.main
+                : theme.palette.action.disabled
+            }
             maskColor={theme.palette.action.hover}
             sx={PANEL_SX}
           />
@@ -834,28 +776,10 @@ function CrossplaneMapView() {
   );
 }
 
-function hasSameLayoutInput(current: GraphLayoutInput | null, next: GraphLayoutInput | null) {
-  if (current === next) return true;
-  if (!current || !next) return false;
-  if (current.nodes.length !== next.nodes.length || current.edges.length !== next.edges.length) {
-    return false;
-  }
-  const nextNodes = new Map(next.nodes.map(node => [node.id, node]));
-  const nextEdges = new Map(next.edges.map(edge => [edge.id, edge]));
-  return (
-    current.nodes.every(node => {
-      const other = nextNodes.get(node.id);
-      return other?.width === node.width && other?.height === node.height;
-    }) &&
-    current.edges.every(edge => {
-      const other = nextEdges.get(edge.id);
-      return (
-        other?.source === edge.source &&
-        other?.target === edge.target &&
-        Boolean(other?.aux) === Boolean(edge.aux)
-      );
-    })
-  );
+function hasSameGroups(current: ResourceGroup[], next: ResourceGroup[]) {
+  if (current.length !== next.length) return false;
+  const keys = new Set(current.map(members => JSON.stringify([...members].sort())));
+  return next.every(members => keys.has(JSON.stringify([...members].sort())));
 }
 
 export default function CrossplaneMap() {

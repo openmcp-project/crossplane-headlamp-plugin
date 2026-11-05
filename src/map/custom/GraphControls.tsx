@@ -1,13 +1,12 @@
 import { Icon } from '@iconify/react';
 import {
   Box,
+  Button,
   Checkbox,
   colors,
-  FormControlLabel,
   FormLabel,
   MenuItem,
   Paper,
-  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -43,8 +42,10 @@ export function GraphControls({
   hasActiveFilters,
   matchingCount,
   totalCount,
-  showMatchesOnly,
-  onShowMatchesOnlyChange,
+  hasGroups,
+  canGroup,
+  onGroupAll,
+  onUngroupAll,
 }: {
   categoryMode: CategoryMode;
   onCategoryModeChange: (m: CategoryMode) => void;
@@ -53,42 +54,18 @@ export function GraphControls({
   onLabelKeyChange: (k: string) => void;
   categoryColorMap: ReadonlyMap<CategoryKey, string>;
   categoryOptions: CategoryKey[];
-  selectedCategories: CategoryKey[];
+  selectedCategories: CategoryKey[] | null;
   onCategorySelectionChange: (values: CategoryKey[] | null) => void;
   statusFilter: StatusFilter;
   onStatusFilterChange: (statuses: StatusFilter) => void;
   hasActiveFilters: boolean;
   matchingCount: number;
   totalCount: number;
-  showMatchesOnly: boolean;
-  onShowMatchesOnlyChange: (checked: boolean) => void;
+  hasGroups: boolean;
+  canGroup: boolean;
+  onGroupAll: () => void;
+  onUngroupAll: () => void;
 }) {
-  const theme = useTheme();
-  const errorColor = theme.palette.mode === 'dark' ? colors.red[200] : theme.palette.error.main;
-  const statusOptions = (['success', 'error'] as const).map(status => ({
-    value: status,
-    label: (
-      <Box
-        component="span"
-        sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: '1lh' }}
-      >
-        <Icon
-          icon={status === 'success' ? 'mdi:check-circle' : 'mdi:alert-circle'}
-          width={16}
-          height={16}
-          aria-hidden="true"
-          style={{
-            flexShrink: 0,
-            color: status === 'success' ? theme.palette.success.main : errorColor,
-          }}
-        />
-        {status === 'success' ? 'Ready' : 'Not Ready'}
-      </Box>
-    ),
-  }));
-  const allStatusesSelected = statusFilter === null;
-  const selectedStatuses = statusFilter ?? statusOptions.map(option => option.value);
-
   return (
     <Paper
       className="nopan nowheel"
@@ -96,6 +73,28 @@ export function GraphControls({
       elevation={PANEL_ELEVATION}
       sx={{ ...PANEL_SX, p: 2, width: 220 }}
     >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={!canGroup}
+          onClick={onGroupAll}
+          sx={{ justifyContent: 'flex-start', gap: 0.75 }}
+        >
+          <Icon icon="mdi:group" width={16} height={16} aria-hidden="true" />
+          Group all
+        </Button>
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={!hasGroups}
+          onClick={onUngroupAll}
+          sx={{ justifyContent: 'flex-start', gap: 0.75 }}
+        >
+          <Icon icon="mdi:ungroup" width={16} height={16} aria-hidden="true" />
+          Ungroup all
+        </Button>
+      </Box>
       <TextField
         id="crossplane-map-category"
         select
@@ -147,77 +146,10 @@ export function GraphControls({
             selectedCategories={selectedCategories}
             onCategorySelectionChange={onCategorySelectionChange}
           />
-          <TextField
-            id="crossplane-map-status"
-            select
-            size="small"
-            fullWidth
-            label="Status"
-            value={allStatusesSelected ? ['', ...selectedStatuses] : selectedStatuses}
-            InputLabelProps={{ shrink: true }}
-            SelectProps={{
-              multiple: true,
-              displayEmpty: true,
-              renderValue: () =>
-                allStatusesSelected
-                  ? 'All'
-                  : selectedStatuses.length === 0
-                  ? 'None'
-                  : statusOptions.find(option => option.value === selectedStatuses[0])?.label,
-              MenuProps: {
-                MenuListProps: {
-                  sx: {
-                    '& .MuiMenuItem-root.Mui-selected': {
-                      backgroundColor: 'transparent',
-                      '&:hover': { backgroundColor: 'action.hover' },
-                      '&.Mui-focusVisible': { backgroundColor: 'action.focus' },
-                    },
-                  },
-                },
-              },
-            }}
-            onChange={(event: any) => {
-              const next: string[] =
-                typeof event.target.value === 'string'
-                  ? event.target.value.split(',')
-                  : event.target.value;
-              if (next.includes('') !== allStatusesSelected) {
-                onStatusFilterChange(allStatusesSelected ? [] : null);
-              } else {
-                const values = statusOptions
-                  .filter(option => next.includes(option.value))
-                  .map(option => option.value);
-                onStatusFilterChange(values.length === statusOptions.length ? null : values);
-              }
-            }}
-            sx={{ mt: 1.5 }}
-          >
-            <MenuItem value="" sx={{ borderBottom: 1, borderColor: 'divider', mb: 0.5 }}>
-              <Checkbox
-                size="small"
-                checked={allStatusesSelected}
-                indeterminate={!allStatusesSelected && selectedStatuses.length > 0}
-                disableRipple
-                tabIndex={-1}
-                inputProps={{ 'aria-hidden': true }}
-                sx={{ pointerEvents: 'none' }}
-              />
-              All
-            </MenuItem>
-            {statusOptions.map(({ value, label }) => (
-              <MenuItem key={value} value={value}>
-                <Checkbox
-                  size="small"
-                  checked={selectedStatuses.includes(value)}
-                  disableRipple
-                  tabIndex={-1}
-                  inputProps={{ 'aria-hidden': true }}
-                  sx={{ pointerEvents: 'none' }}
-                />
-                {label}
-              </MenuItem>
-            ))}
-          </TextField>
+          <StatusFilterControl
+            statusFilter={statusFilter}
+            onStatusFilterChange={onStatusFilterChange}
+          />
           {hasActiveFilters && (
             <Typography
               variant="caption"
@@ -229,30 +161,117 @@ export function GraphControls({
               {totalCount === 1 ? 'matches' : 'match'} filters
             </Typography>
           )}
-          {(matchingCount < totalCount || showMatchesOnly) && (
-            <Box sx={{ mt: 1.5 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={showMatchesOnly}
-                    onChange={event => onShowMatchesOnlyChange(event.target.checked)}
-                    size="small"
-                  />
-                }
-                label="Hide non-matching"
-                labelPlacement="start"
-                sx={{
-                  m: 0,
-                  width: '100%',
-                  justifyContent: 'space-between',
-                  '& .MuiFormControlLabel-label': { typography: 'body2' },
-                }}
-              />
-            </Box>
-          )}
         </Box>
       </Box>
     </Paper>
+  );
+}
+
+function StatusFilterControl({
+  statusFilter,
+  onStatusFilterChange,
+}: {
+  statusFilter: StatusFilter;
+  onStatusFilterChange: (statuses: StatusFilter) => void;
+}) {
+  const theme = useTheme();
+  const errorColor = theme.palette.mode === 'dark' ? colors.red[200] : theme.palette.error.main;
+  const statusOptions = (['success', 'error'] as const).map(status => ({
+    value: status,
+    label: (
+      <Box
+        component="span"
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: '1lh' }}
+      >
+        <Icon
+          icon={status === 'success' ? 'mdi:check-circle' : 'mdi:alert-circle'}
+          width={16}
+          height={16}
+          aria-hidden="true"
+          style={{
+            flexShrink: 0,
+            color: status === 'success' ? theme.palette.success.main : errorColor,
+          }}
+        />
+        {status === 'success' ? 'Healthy' : 'Needs Attention'}
+      </Box>
+    ),
+  }));
+  const allStatusesSelected = statusFilter === null;
+  const selectedStatuses = statusFilter ?? statusOptions.map(option => option.value);
+
+  return (
+    <TextField
+      id="crossplane-map-status"
+      select
+      size="small"
+      fullWidth
+      label="Status"
+      value={allStatusesSelected ? ['', ...selectedStatuses] : selectedStatuses}
+      InputLabelProps={{ shrink: true }}
+      SelectProps={{
+        multiple: true,
+        displayEmpty: true,
+        renderValue: () =>
+          allStatusesSelected
+            ? 'All'
+            : selectedStatuses.length === 0
+            ? 'None'
+            : statusOptions.find(option => option.value === selectedStatuses[0])?.label,
+        MenuProps: {
+          MenuListProps: {
+            sx: {
+              '& .MuiMenuItem-root.Mui-selected': {
+                backgroundColor: 'transparent',
+                '&:hover': { backgroundColor: 'action.hover' },
+                '&.Mui-focusVisible': { backgroundColor: 'action.focus' },
+              },
+            },
+          },
+        },
+      }}
+      onChange={(event: any) => {
+        const next: string[] =
+          typeof event.target.value === 'string'
+            ? event.target.value.split(',')
+            : event.target.value;
+        if (next.includes('') !== allStatusesSelected) {
+          onStatusFilterChange(allStatusesSelected ? [] : null);
+        } else {
+          const values = statusOptions
+            .filter(option => next.includes(option.value))
+            .map(option => option.value);
+          onStatusFilterChange(values.length === statusOptions.length ? null : values);
+        }
+      }}
+      sx={{ mt: 1.5 }}
+    >
+      <MenuItem value="" sx={{ borderBottom: 1, borderColor: 'divider', mb: 0.5 }}>
+        <Checkbox
+          size="small"
+          checked={allStatusesSelected}
+          indeterminate={!allStatusesSelected && selectedStatuses.length > 0}
+          disableRipple
+          tabIndex={-1}
+          inputProps={{ 'aria-hidden': true }}
+          sx={{ pointerEvents: 'none' }}
+        />
+        All
+      </MenuItem>
+      {statusOptions.map(({ value, label }) => (
+        <MenuItem key={value} value={value}>
+          <Checkbox
+            size="small"
+            checked={selectedStatuses.includes(value)}
+            disableRipple
+            tabIndex={-1}
+            inputProps={{ 'aria-hidden': true }}
+            sx={{ pointerEvents: 'none' }}
+          />
+          {label}
+        </MenuItem>
+      ))}
+    </TextField>
   );
 }
 
@@ -266,11 +285,13 @@ function CategoryFilter({
   categoryMode: CategoryMode;
   categoryColorMap: ReadonlyMap<CategoryKey, string>;
   categoryOptions: CategoryKey[];
-  selectedCategories: CategoryKey[];
+  selectedCategories: CategoryKey[] | null;
   onCategorySelectionChange: (values: CategoryKey[] | null) => void;
 }) {
-  const allSelected =
-    categoryOptions.length > 0 && selectedCategories.length === categoryOptions.length;
+  const allSelected = selectedCategories === null;
+  const selectedKeys = categoryOptions.filter(
+    key => selectedCategories === null || selectedCategories.includes(key)
+  );
   const filterLabel =
     categoryMode === 'none'
       ? 'Category'
@@ -281,7 +302,7 @@ function CategoryFilter({
     value: JSON.stringify(key),
     label: categoryLabelOf(key),
   }));
-  const selectedValues = selectedCategories.map(key => JSON.stringify(key));
+  const selectedValues = selectedKeys.map(key => JSON.stringify(key));
 
   return (
     <TextField
@@ -299,9 +320,9 @@ function CategoryFilter({
         renderValue: () =>
           categoryMode === 'none' || allSelected ? (
             'All'
-          ) : selectedCategories.length === 0 ? (
+          ) : selectedKeys.length === 0 ? (
             'None'
-          ) : selectedCategories.length === 1 ? (
+          ) : selectedKeys.length === 1 ? (
             <Box
               component="span"
               sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: '1lh' }}
@@ -311,7 +332,7 @@ function CategoryFilter({
                 aria-hidden="true"
                 sx={{
                   ...CATEGORY_SWATCH_SX,
-                  color: categoryColorMap.get(selectedCategories[0]),
+                  color: categoryColorMap.get(selectedKeys[0]),
                 }}
               />
               <Box
@@ -324,13 +345,13 @@ function CategoryFilter({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {categoryLabelOf(selectedCategories[0])}
+                {categoryLabelOf(selectedKeys[0])}
               </Box>
             </Box>
           ) : (
-            `${selectedCategories.length} selected`
+            `${selectedKeys.length} selected`
           ),
-        SelectDisplayProps: { title: selectedCategories.map(categoryLabelOf).join(', ') },
+        SelectDisplayProps: { title: selectedKeys.map(categoryLabelOf).join(', ') },
         MenuProps: {
           PaperProps: { sx: { maxHeight: 320, maxWidth: 'calc(100vw - 32px)' } },
           MenuListProps: {
@@ -364,7 +385,7 @@ function CategoryFilter({
         <Checkbox
           size="small"
           checked={allSelected}
-          indeterminate={!allSelected && selectedCategories.length > 0}
+          indeterminate={!allSelected && selectedKeys.length > 0}
           tabIndex={-1}
           inputProps={{ 'aria-hidden': true }}
         />
@@ -374,7 +395,7 @@ function CategoryFilter({
         <MenuItem key={value} value={value}>
           <Checkbox
             size="small"
-            checked={selectedCategories.includes(key)}
+            checked={selectedKeys.includes(key)}
             tabIndex={-1}
             inputProps={{ 'aria-hidden': true }}
           />
