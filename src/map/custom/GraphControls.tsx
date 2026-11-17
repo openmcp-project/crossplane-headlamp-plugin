@@ -1,6 +1,5 @@
 import { Icon } from '@iconify/react';
 import {
-  Badge,
   Box,
   Button,
   Checkbox,
@@ -16,12 +15,19 @@ import {
 import { useTheme } from '@mui/material/styles';
 import type { GraphNode } from '../common/types';
 import { CategoryKey, categoryLabelOf } from './graphCategories';
-import { CATEGORY_SWATCH_SX, PANEL_ELEVATION, PANEL_SX } from './styles';
+import { CATEGORY_SWATCH_SX, PANEL_ELEVATION, PANEL_SX, TRIMMED_TEXT_SX } from './styles';
 
 export type StatusFilter = GraphNode['status'][] | null;
 
 // Match the section width while its scrollbar uses the Paper's right padding.
-const FILTER_FIELD_SX = { width: '100cqw', maxWidth: '100%', flexShrink: 0 };
+// MUI's standard Select pads 1px top / 5px bottom, nudging content upward; even
+// it out so the collapsed label and badge sit vertically centered in the field.
+const FILTER_FIELD_SX = {
+  width: '100cqw',
+  maxWidth: '100%',
+  flexShrink: 0,
+  '& .MuiSelect-select': { pt: '3px', pb: '3px' },
+};
 
 export interface ValueFilterConfig {
   options: CategoryKey[];
@@ -213,8 +219,8 @@ export function GraphControls({
               fullWidth
               size="small"
               value=""
-              inputProps={{ 'aria-label': '+ Label filter' }}
-              SelectProps={{ displayEmpty: true, renderValue: () => '+ Label filter' }}
+              inputProps={{ 'aria-label': '+ Label' }}
+              SelectProps={{ displayEmpty: true, renderValue: () => '+ Label' }}
               sx={FILTER_FIELD_SX}
               onChange={(e: any) => onAddLabelFilter(e.target.value)}
             >
@@ -442,13 +448,19 @@ function ValueFilter({
 
 /**
  * Collapsed filter field content: the filter name on the left and a right-aligned
- * badge counting explicitly selected values (hidden at zero, i.e. the "all" state).
+ * count of explicitly selected values (hidden at zero, i.e. the "all" state).
  */
 function labelWithBadge(label: string, count: number) {
   return (
     <Box
       component="span"
-      sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        minHeight: '1lh',
+      }}
     >
       <Box
         component="span"
@@ -456,14 +468,30 @@ function labelWithBadge(label: string, count: number) {
       >
         {label}
       </Box>
-      <Badge
-        badgeContent={count || undefined}
-        color="primary"
-        sx={{
-          flexShrink: 0,
-          '& .MuiBadge-badge': { position: 'static', transform: 'none', ml: 1 },
-        }}
-      />
+      {count > 0 && (
+        <Box
+          component="span"
+          sx={{
+            flexShrink: 0,
+            ml: 1,
+            minWidth: 20,
+            height: 20,
+            px: 0.5,
+            borderRadius: '10px',
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '0.75rem',
+            fontWeight: 500,
+          }}
+        >
+          <Box component="span" sx={TRIMMED_TEXT_SX}>
+            {count}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }
