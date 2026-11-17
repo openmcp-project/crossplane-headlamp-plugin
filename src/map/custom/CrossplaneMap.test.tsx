@@ -129,28 +129,30 @@ vi.mock('@xyflow/react', async () => {
                         type="button"
                         aria-label={
                           node.type === 'aggregated'
-                            ? `Ungroup ${node.data.kind}`
+                            ? `Disaggregate ${node.data.kind}`
                             : `Open ${node.data.name}`
                         }
                         onClick={
-                          node.type === 'aggregated' ? node.data.onUngroup : node.data.onOpenDetails
+                          node.type === 'aggregated'
+                            ? node.data.onDisaggregate
+                            : node.data.onOpenDetails
                         }
                       >
                         {node.type === 'aggregated'
-                          ? `Ungroup ${node.data.kind}`
+                          ? `Disaggregate ${node.data.kind}`
                           : `Open ${node.data.name}`}
                       </button>
-                      {node.data.onGroup && (
+                      {node.data.onAggregate && (
                         <button
                           type="button"
-                          aria-label={`Group ${
+                          aria-label={`Aggregate ${
                             node.type === 'aggregated' ? node.data.kind : node.data.name
                           }`}
-                          onClick={node.data.onGroup}
-                          onMouseEnter={node.data.onGroupMouseEnter}
-                          onMouseLeave={node.data.onGroupMouseLeave}
+                          onClick={node.data.onAggregate}
+                          onMouseEnter={node.data.onAggregateMouseEnter}
+                          onMouseLeave={node.data.onAggregateMouseLeave}
                         >
-                          Group {node.type === 'aggregated' ? node.data.kind : node.data.name}
+                          Aggregate {node.type === 'aggregated' ? node.data.kind : node.data.name}
                         </button>
                       )}
                     </>
@@ -243,30 +245,195 @@ describe('Crossplane map category filtering', () => {
     render(<CrossplaneMap />);
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('named,missing'));
 
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Categorize by' }));
-    fireEvent.click(screen.getByRole('option', { name: mode }));
-    const filter = screen.getByRole('combobox', { name: mode });
+    const filterName = mode === 'Flux' ? 'Flux' : key;
+    if (mode !== 'Flux') {
+      selectOption('+ Label filter', key);
+    }
+    const filter = screen.getByRole('combobox', { name: filterName });
 
     fireEvent.mouseDown(filter);
-    fireEvent.click(screen.getByRole('option', { name: 'All' }));
     fireEvent.click(screen.getByRole('option', { name: value }));
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('named'));
-    expect(filter.textContent).toContain(value);
 
     fireEvent.mouseDown(filter);
     fireEvent.click(screen.getByRole('option', { name: value }));
     fireEvent.click(screen.getByRole('option', { name: 'Not set' }));
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('missing'));
-    expect(filter.textContent).toContain('Not set');
 
     fireEvent.mouseDown(filter);
-    fireEvent.click(screen.getByRole('option', { name: 'All' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Not set' }));
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('named,missing'));
-    expect(filter.textContent).toContain('All');
-    expect(mocks.nodes.every(node => !node.className?.includes('dimmed'))).toBe(true);
+    expect(filter.textContent).toBe(filterName);
+  });
+
+  it('hides the Flux filter when only Not set exists, and keeps an active Flux filter visible until reset', async () => {
+    const withFlux = {
+      nodes: [
+        {
+          id: 'flux-node',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'example.org/v1',
+            kind: 'Resource',
+            metadata: {
+              name: 'flux-node',
+              labels: { 'kustomize.toolkit.fluxcd.io/name': 'ks-1' },
+            },
+          },
+        },
+        {
+          id: 'plain-node',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'example.org/v1',
+            kind: 'Resource',
+            metadata: { name: 'plain-node' },
+          },
+        },
+      ],
+      edges: [],
+    };
+    mocks.source.current = { nodes: [withFlux.nodes[1]], edges: [] };
+    const { rerender } = render(<CrossplaneMap />);
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('plain-node'));
+    expect(screen.queryByRole('combobox', { name: 'Flux' })).toBeNull();
+
+    mocks.source.current = withFlux;
+    rerender(<CrossplaneMap />);
+    const fluxFilter = await screen.findByRole('combobox', { name: 'Flux' });
+    fireEvent.mouseDown(fluxFilter);
+    fireEvent.click(screen.getByRole('option', { name: 'ks-1' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('flux-node'));
+
+    mocks.source.current = { nodes: [withFlux.nodes[1]], edges: [] };
+    rerender(<CrossplaneMap />);
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe(''));
+    expect(screen.getByRole('combobox', { name: 'Flux' })).toBeTruthy();
+
+    fireEvent.mouseDown(fluxFilter);
+    expect(screen.getByRole('option', { name: 'ks-1' }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('option', { name: 'ks-1' }));
+    if (screen.queryByRole('listbox')) {
+      fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    }
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('plain-node'));
+    expect(screen.queryByRole('combobox', { name: 'Flux' })).toBeNull();
+  });
+
+  it('combines fixed filters and multiple label filters with AND across dimensions and OR within each filter', async () => {
+    mocks.source.current = {
+      nodes: [
+        {
+          id: 'n1',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'alpha.org/v1',
+            kind: 'Resource',
+            metadata: { name: 'n1', labels: { team: 'blue', env: 'dev' } },
+            spec: { providerConfigRef: { name: 'pc-1' } },
+          },
+        },
+        {
+          id: 'n2',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'alpha.org/v1',
+            kind: 'Resource',
+            metadata: { name: 'n2', labels: { team: 'red', env: 'prod' } },
+            spec: { providerConfigRef: { name: 'pc-2' } },
+          },
+        },
+        {
+          id: 'n3',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'beta.org/v1',
+            kind: 'OtherResource',
+            metadata: { name: 'n3', labels: { team: 'blue', env: 'prod' } },
+            spec: { providerConfigRef: { name: 'pc-1' } },
+          },
+        },
+      ],
+      edges: [],
+    };
+    render(<CrossplaneMap />);
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n1,n2,n3'));
+
+    selectOption('+ Label filter', 'team');
+    selectOption('+ Label filter', 'env');
+    expect(screen.queryByRole('combobox', { name: '+ Label filter' })).toBeNull();
+
+    const layoutsAfterAdd = mocks.layout.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Remove env filter' }));
+    expect(mocks.layout).toHaveBeenCalledTimes(layoutsAfterAdd);
+    expect(screen.getByRole('combobox', { name: '+ Label filter' })).toBeTruthy();
+    selectOption('+ Label filter', 'env');
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Kind' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Resource' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n1,n2'));
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'team' }));
+    fireEvent.click(screen.getByRole('option', { name: 'blue' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n1'));
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'team' }));
+    fireEvent.click(screen.getByRole('option', { name: 'red' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n1,n2'));
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'env' }));
+    fireEvent.click(screen.getByRole('option', { name: 'prod' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n2'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove env filter' }));
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n1,n2'));
+  });
+
+  it('filters by resource kind as a fixed dimension, independent of coloring', async () => {
+    mocks.source.current = {
+      nodes: [
+        {
+          id: 'instance',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'example.org/v1',
+            kind: 'ServiceInstance',
+            metadata: { name: 'instance' },
+          },
+        },
+        {
+          id: 'binding',
+          status: 'success',
+          kubeObject: {
+            apiVersion: 'example.org/v1',
+            kind: 'ServiceBinding',
+            metadata: { name: 'binding' },
+          },
+        },
+      ],
+      edges: [],
+    };
+    render(<CrossplaneMap />);
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('instance,binding'));
+
+    const filter = screen.getByRole('combobox', { name: 'Kind' });
+    fireEvent.mouseDown(filter);
+    fireEvent.click(screen.getByRole('option', { name: 'ServiceInstance' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('instance'));
+
+    fireEvent.mouseDown(filter);
+    fireEvent.click(screen.getByRole('option', { name: 'ServiceBinding' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('instance,binding'));
   });
 });
 
@@ -399,7 +566,11 @@ describe('Crossplane map discovery and layout state', () => {
     expect(mocks.nodes.find(node => node.id === 'parent')).toMatchObject({
       position: { x: 120, y: 75 },
       measured: { width: 300, height: 180 },
-      data: { status: 'error', categoryLabel: 'example.org' },
+      data: {
+        status: 'error',
+        kind: 'Resource',
+        name: 'parent',
+      },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Open parent' }));
     expect(mocks.openDetails).toHaveBeenLastCalledWith(
@@ -445,8 +616,8 @@ describe('Crossplane map discovery and layout state', () => {
     expect(screen.getByTestId('edges').textContent).toBe('new-edge');
   });
 
-  it.each(['namespace height', 'edge direction', 'edge priority'])(
-    'recalculates positions when %s changes and preserves existing measurements',
+  it.each(['namespace', 'edge direction', 'edge priority'])(
+    'updates %s and preserves existing measurements',
     async change => {
       mocks.source.current = loadedGraph();
       const { rerender } = render(<CrossplaneMap />);
@@ -464,7 +635,7 @@ describe('Crossplane map discovery and layout state', () => {
             ...node.kubeObject,
             metadata: {
               ...node.kubeObject.metadata,
-              namespace: change === 'namespace height' ? 'team-a' : undefined,
+              namespace: change === 'namespace' ? 'team-a' : undefined,
             },
           },
         })),
@@ -476,7 +647,7 @@ describe('Crossplane map discovery and layout state', () => {
         })),
       };
       await act(async () => rerender(<CrossplaneMap />));
-      expect(mocks.layout).toHaveBeenCalledTimes(2);
+      expect(mocks.layout).toHaveBeenCalledTimes(change === 'namespace' ? 1 : 2);
       expect(mocks.nodes.find(node => node.id === 'parent').measured).toEqual({
         width: 300,
         height: 180,
@@ -637,25 +808,44 @@ function selectOption(label: string, option: string) {
   }
 }
 
+// Selects exactly one status, deselecting the other if it was selected. Passing
+// 'All' resets to the "all" state by deselecting whatever is currently selected.
 function selectStatus(status: 'Healthy' | 'Needs Attention' | 'All') {
   fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Status' }));
-  if (status !== 'All') {
+  if (status === 'All') {
+    for (const name of ['Healthy', 'Needs Attention']) {
+      const option = screen.getByRole('option', { name });
+      if (option.getAttribute('aria-selected') === 'true') fireEvent.click(option);
+    }
+  } else {
     const other = screen.getByRole('option', {
       name: status === 'Healthy' ? 'Needs Attention' : 'Healthy',
     });
     if (other.getAttribute('aria-selected') === 'true') fireEvent.click(other);
+    const option = screen.getByRole('option', { name: status });
+    if (option.getAttribute('aria-selected') !== 'true') fireEvent.click(option);
   }
-  const option = screen.getByRole('option', { name: status });
-  if (option.getAttribute('aria-selected') !== 'true') fireEvent.click(option);
   fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
 }
 
 function selectTeam(team = 'blue') {
-  selectOption('Categorize by', 'Common Label');
-  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Common Label' }));
-  fireEvent.click(screen.getByRole('option', { name: 'All' }));
+  if (!screen.queryByRole('combobox', { name: 'team' })) {
+    selectOption('+ Label filter', 'team');
+  }
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'team' }));
   fireEvent.click(screen.getByRole('option', { name: team }));
   fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+}
+
+// Toggles the given options off to clear a value filter back to the "all" state.
+function clearValueFilter(label: string, selectedOptions: string[]) {
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: label }));
+  for (const option of selectedOptions) {
+    fireEvent.click(screen.getByRole('option', { name: option }));
+  }
+  if (screen.queryByRole('listbox')) {
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+  }
 }
 
 function positions() {
@@ -742,43 +932,40 @@ describe('Crossplane map resource filtering', () => {
   it('toggles statuses independently and updates resource membership for every selection', async () => {
     await renderFilteringGraph();
     const filter = screen.getByRole('combobox', { name: 'Status' });
-    expect(filter.textContent).toBe('All');
+    expect(filter.textContent).toBe('Status');
     fireEvent.mouseDown(filter);
-    const all = screen.getByRole('option', { name: 'All' });
     const healthy = screen.getByRole('option', { name: 'Healthy' });
     const needsAttention = screen.getByRole('option', { name: 'Needs Attention' });
     const checked = () =>
-      [all, healthy, needsAttention].map(
+      [healthy, needsAttention].map(
         option => option.querySelector<HTMLInputElement>('input')?.checked
       );
     expect(screen.getByRole('listbox').getAttribute('aria-multiselectable')).toBe('true');
-    expect(checked()).toEqual([true, true, true]);
-
-    fireEvent.click(healthy);
-    await waitFor(() => expect(mocks.nodes.map(node => node.id)).toEqual(['child']));
-    expect(filter.textContent).toBe('Needs Attention');
-    expect(all.querySelector('input')?.getAttribute('data-indeterminate')).toBe('true');
-    expect(screen.getByText('1 of 4 resources match filters')).toBeTruthy();
-
-    fireEvent.click(needsAttention);
-    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
-    expect(filter.textContent).toBe('None');
-    expect(checked()).toEqual([false, false, false]);
-    expect(all.querySelector('input')?.getAttribute('data-indeterminate')).toBe('false');
-    expect(screen.getByText('0 of 4 resources match filters')).toBeTruthy();
+    // No value selected is the "all" state: nothing is checked.
+    expect(checked()).toEqual([false, false]);
 
     fireEvent.click(healthy);
     await waitFor(() =>
       expect(mocks.nodes.map(node => node.id)).toEqual(['parent', 'grandchild', 'leaf'])
     );
-    expect(filter.textContent).toBe('Healthy');
-    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
+    expect(filter.textContent).toBe('Status1');
+    expect(checked()).toEqual([true, false]);
+
+    fireEvent.click(needsAttention);
+    // Selecting both statuses normalizes back to the "all" state.
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(filter.textContent).toBe('Status');
+    expect(checked()).toEqual([false, false]);
+
+    fireEvent.click(needsAttention);
+    await waitFor(() => expect(mocks.nodes.map(node => node.id)).toEqual(['child']));
+    expect(filter.textContent).toBe('Status1');
+    expect(checked()).toEqual([false, true]);
 
     fireEvent.click(needsAttention);
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
-    expect(filter.textContent).toBe('All');
-    expect(checked()).toEqual([true, true, true]);
-    expect(screen.queryByText(/resources match filters/)).toBeNull();
+    expect(filter.textContent).toBe('Status');
+    expect(checked()).toEqual([false, false]);
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
   });
 
@@ -791,27 +978,49 @@ describe('Crossplane map resource filtering', () => {
       .querySelector<HTMLInputElement>('input')!;
     expect(getComputedStyle(input.closest('.MuiCheckbox-root')!).pointerEvents).toBe('none');
     fireEvent.click(input);
-    expect(filter.textContent).toBe('Needs Attention');
-    await waitFor(() => expect(mocks.nodes.map(node => node.id)).toEqual(['child']));
+    expect(filter.textContent).toBe('Status1');
+    await waitFor(() =>
+      expect(mocks.nodes.map(node => node.id)).toEqual(['parent', 'grandchild', 'leaf'])
+    );
   });
 
-  it('keeps the camera unchanged when clearing and restoring all statuses', async () => {
+  it('keeps the camera unchanged when toggling a status filter on and off', async () => {
     const { viewport } = await renderFilteringGraph();
-    selectOption('Status', 'All');
-    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
-    expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: 'Status' }).textContent).toBe('None');
+    // A status filter that narrows the graph does not move the camera...
+    selectStatus('Healthy');
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     expect(mocks.fitView).not.toHaveBeenCalled();
     expect(mocks.setViewport).not.toHaveBeenCalled();
     expect(mocks.viewport).toEqual(viewport);
-    expect(screen.queryByRole('checkbox', { name: 'Hide non-matching' })).toBeNull();
 
-    selectOption('Status', 'All');
+    // ...nor does clearing it back to the "all" state.
+    selectStatus('All');
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
     expect(mocks.fitView).not.toHaveBeenCalled();
     expect(mocks.setViewport).not.toHaveBeenCalled();
     expect(mocks.viewport).toEqual(viewport);
-    expect(screen.queryByText('No resources match the selected filters.')).toBeNull();
+  });
+
+  it('shows the selected-value count as a badge on each filter dropdown', async () => {
+    await renderFilteringGraph();
+    // The team label filter must be added before it can be queried.
+    selectOption('+ Label filter', 'team');
+    const team = screen.getByRole('combobox', { name: 'team' });
+    // The "all" state carries no badge; the field shows only the filter name.
+    expect(team.textContent).toBe('team');
+
+    fireEvent.mouseDown(team);
+    fireEvent.click(screen.getByRole('option', { name: 'blue' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    await waitFor(() => expect(mocks.nodes).toHaveLength(3));
+    expect(team.textContent).toBe('team1');
+
+    fireEvent.mouseDown(team);
+    fireEvent.click(screen.getByRole('option', { name: 'red' }));
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    // Selecting every value normalizes back to "all": no badge.
+    await waitFor(() => expect(mocks.nodes).toHaveLength(4));
+    expect(team.textContent).toBe('team');
   });
 
   it('hides only excluded resources and their incident edges while preserving matching descendants', async () => {
@@ -820,61 +1029,27 @@ describe('Crossplane map resource filtering', () => {
     expect(mocks.edges.map(edge => edge.id)).toEqual(['grandchild-leaf', 'reference']);
     expect(node('grandchild').domAttributes['aria-hidden']).toBeUndefined();
     expect(node('grandchild').domAttributes.inert).toBeUndefined();
-    expect(mocks.nodes.every(node => !node.className?.includes('dimmed'))).toBe(true);
-    expect(mocks.edges.every(edge => !edge.className?.includes('dimmed'))).toBe(true);
 
-    selectOption('Common Label', 'All');
+    clearValueFilter('team', ['blue']);
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
     expect(mocks.edges.map(edge => edge.id)).toEqual(filteringGraph().edges.map(edge => edge.id));
   });
 
-  it('combines category and status filters and counts matches independently of collapse', async () => {
+  it('combines category and status filters independently of collapse', async () => {
     await renderBlueFilter();
     act(() => node('parent').data.onToggleCollapse('parent'));
     expect(screen.getByTestId('nodes').textContent).toBe('parent');
-    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
     mocks.fitView.mockClear();
     selectStatus('Needs Attention');
     await waitFor(() => expect(mocks.nodes).toHaveLength(0));
-    expect(screen.getByText('0 of 4 resources match filters')).toBeTruthy();
     expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
     expect(mocks.fitView).not.toHaveBeenCalled();
   });
 
-  it('uses singular wording when the source graph holds one resource', async () => {
-    mocks.source.current = { nodes: [filteringGraph().nodes[0]], edges: [] };
-    render(<CrossplaneMap />);
-    await waitFor(() => expect(mocks.nodes).toHaveLength(1));
-    selectStatus('Healthy');
-    expect(screen.getByText('1 of 1 resource matches filters')).toBeTruthy();
-    selectStatus('Needs Attention');
-    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
-    expect(screen.getByText('0 of 1 resource matches filters')).toBeTruthy();
-  });
-
-  it.each(['category mode', 'category selection', 'status', 'label key'])(
+  it.each(['category selection', 'status'])(
     'lays out current matches without changing the camera after changing %s',
     async change => {
       const { rerender, viewport } = await renderBlueFilter();
-      if (change === 'label key') {
-        mocks.source.current = {
-          ...mocks.source.current,
-          nodes: mocks.source.current.nodes.map((node: any, index: number) => ({
-            ...node,
-            kubeObject: {
-              ...node.kubeObject,
-              metadata: {
-                ...node.kubeObject.metadata,
-                labels: {
-                  ...node.kubeObject.metadata.labels,
-                  ...(index === 0 ? { env: 'dev' } : {}),
-                },
-              },
-            },
-          })),
-        };
-        rerender(<CrossplaneMap />);
-      }
       if (change === 'status') {
         mocks.source.current = {
           ...mocks.source.current,
@@ -887,10 +1062,8 @@ describe('Crossplane map resource filtering', () => {
       }
       mocks.fitView.mockClear();
       mocks.layout.mockImplementation(async input => positionedLayout(input, 100));
-      if (change === 'category mode') selectOption('Categorize by', 'Flux');
-      if (change === 'category selection') selectOption('Common Label', 'red');
+      if (change === 'category selection') selectOption('team', 'red');
       if (change === 'status') selectStatus('Needs Attention');
-      if (change === 'label key') selectOption('Label', 'env');
       const expectedIds =
         change === 'status' ? ['leaf'] : ['parent', 'child', 'grandchild', 'leaf'];
       await waitFor(() => expect(mocks.nodes.map(resource => resource.id)).toEqual(expectedIds));
@@ -904,7 +1077,22 @@ describe('Crossplane map resource filtering', () => {
     }
   );
 
-  it.each(['topology', 'dimensions', 'edge priority'])(
+  it('keeps compact cards while label filters restrict which resources match', async () => {
+    const { viewport } = await renderBlueFilter();
+    expect(screen.queryByRole('combobox', { name: 'Card details' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Provider' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Provider Config' })).toBeNull();
+    expect(node('parent').data).toMatchObject({ kind: 'Resource', name: 'parent' });
+    expect(mocks.nodes.map(resource => resource.id)).toEqual(['parent', 'grandchild', 'leaf']);
+    expect(
+      mocks.layout.mock.calls
+        .at(-1)[0]
+        .children.every((resource: any) => resource.height === RESOURCE_NODE_LAYOUT_HEIGHT)
+    ).toBe(true);
+    expect(mocks.viewport).toEqual(viewport);
+  });
+
+  it.each(['topology', 'namespace', 'edge priority'])(
     'uses current source %s when excluded resources become visible again',
     async change => {
       const { rerender, viewport } = await renderBlueFilter();
@@ -917,7 +1105,7 @@ describe('Crossplane map resource filtering', () => {
             ...node.kubeObject,
             metadata: {
               ...node.kubeObject.metadata,
-              ...(change === 'dimensions' && node.id === 'child' ? { namespace: 'team-a' } : {}),
+              ...(change === 'namespace' && node.id === 'child' ? { namespace: 'team-a' } : {}),
             },
           },
         })),
@@ -934,13 +1122,13 @@ describe('Crossplane map resource filtering', () => {
       rerender(<CrossplaneMap />);
       const layouts = mocks.layout.mock.calls.length;
       mocks.fitView.mockClear();
-      selectOption('Common Label', 'All');
+      clearValueFilter('team', ['blue']);
       await waitFor(() => expect(mocks.nodes).toHaveLength(4));
       expect(mocks.layout).toHaveBeenCalledTimes(layouts + 1);
       expect(mocks.fitView).not.toHaveBeenCalled();
       expect(mocks.setViewport).not.toHaveBeenCalled();
       expect(mocks.viewport).toEqual(viewport);
-      if (change === 'dimensions') expect(node('child').data.namespace).toBe('team-a');
+      if (change === 'namespace') expect(node('child').data.namespace).toBe('team-a');
       else
         expect(mocks.edges.find(edge => edge.id === 'parent-child')).toMatchObject(
           change === 'topology' ? { source: 'grandchild' } : { sourceHandle: 'aux-source' }
@@ -984,7 +1172,7 @@ describe('Crossplane map resource filtering', () => {
   it('retains an explicit category filter when it becomes the only available category', async () => {
     const { rerender } = await renderBlueFilter();
     const graph = filteringGraph();
-    const filter = screen.getByRole('combobox', { name: 'Common Label' });
+    const filter = screen.getByRole('combobox', { name: 'team' });
     mocks.source.current = {
       ...graph,
       nodes: graph.nodes.filter(node => node.id !== 'child'),
@@ -994,13 +1182,9 @@ describe('Crossplane map resource filtering', () => {
     await waitFor(() =>
       expect(screen.getByTestId('nodes').textContent).toBe('parent,grandchild,leaf')
     );
-    expect(filter.textContent).toBe('blue');
+    expect(filter.textContent).toBe('team1');
 
     fireEvent.mouseDown(filter);
-    const all = screen.getByRole('option', { name: 'All' });
-    expect(all.getAttribute('aria-selected')).toBe('false');
-    expect(all.querySelector<HTMLInputElement>('input')?.checked).toBe(false);
-    expect(all.querySelector('input')?.getAttribute('data-indeterminate')).toBe('true');
     expect(screen.getByRole('option', { name: 'blue' }).getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
 
@@ -1009,11 +1193,10 @@ describe('Crossplane map resource filtering', () => {
     await waitFor(() =>
       expect(screen.getByTestId('nodes').textContent).toBe('parent,grandchild,leaf')
     );
-    expect(filter.textContent).toBe('blue');
-    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
+    expect(filter.textContent).toBe('team1');
   });
 
-  it('removes a category restriction through All when only its selected category remains', async () => {
+  it('removes a category restriction by deselecting its only remaining category', async () => {
     const { rerender } = await renderBlueFilter();
     const graph = filteringGraph();
     mocks.source.current = {
@@ -1026,9 +1209,8 @@ describe('Crossplane map resource filtering', () => {
       expect(screen.getByTestId('nodes').textContent).toBe('parent,grandchild,leaf')
     );
 
-    selectOption('Common Label', 'All');
-    expect(screen.getByRole('combobox', { name: 'Common Label' }).textContent).toBe('All');
-    expect(screen.queryByText(/resources match filters/)).toBeNull();
+    clearValueFilter('team', ['blue']);
+    expect(screen.getByRole('combobox', { name: 'team' }).textContent).toBe('team');
     mocks.source.current = graph;
     rerender(<CrossplaneMap />);
     await waitFor(() =>
@@ -1047,25 +1229,23 @@ describe('Crossplane map resource filtering', () => {
     rerender(<CrossplaneMap />);
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe(''));
     expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Common Label' }));
-    expect(screen.getByRole('option', { name: 'All' }).getAttribute('aria-selected')).toBe('false');
-    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    // The held 'blue' selection persists even though no current resource carries it.
+    expect(screen.getByRole('combobox', { name: 'team' }).textContent).toBe('team1');
 
     mocks.source.current = graph;
     rerender(<CrossplaneMap />);
     await waitFor(() =>
       expect(screen.getByTestId('nodes').textContent).toBe('parent,grandchild,leaf')
     );
-    expect(screen.getByRole('combobox', { name: 'Common Label' }).textContent).toBe('blue');
-    expect(screen.getByText('3 of 4 resources match filters')).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'team' }).textContent).toBe('team1');
   });
 
-  it.each(['All', 'None'])(
-    'applies the next status filter after clearing categories with %s',
-    async option => {
+  it.each(['Deselect', 'Remove'])(
+    'applies the next status filter after clearing a label filter with %s',
+    async action => {
       await renderBlueFilter();
-      if (option === 'All') selectOption('Common Label', 'All');
-      else selectOption('Categorize by', 'None');
+      if (action === 'Deselect') clearValueFilter('team', ['blue']);
+      else fireEvent.click(screen.getByRole('button', { name: 'Remove team filter' }));
       await waitFor(() => expect(mocks.nodes).toHaveLength(4));
       selectStatus('Healthy');
       await waitFor(() =>
@@ -1088,7 +1268,7 @@ describe('Crossplane map resource filtering', () => {
     expect(mocks.viewport).toEqual(viewport);
   });
 
-  it('clears a stale category filter when the selected label key disappears', async () => {
+  it('keeps an added label filter active when its label key disappears from the data', async () => {
     const { rerender, viewport } = await renderBlueFilter();
     mocks.source.current = {
       ...filteringGraph(),
@@ -1101,10 +1281,10 @@ describe('Crossplane map resource filtering', () => {
       })),
     };
     rerender(<CrossplaneMap />);
+    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
+    expect(screen.getByRole('combobox', { name: 'team' }).textContent).toBe('team1');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove team filter' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
-    expect(screen.getByRole('combobox', { name: 'Label' }).textContent).toBe('env');
-    expect(screen.getByRole('combobox', { name: 'Common Label' }).textContent).toBe('All');
-    expect(screen.queryByText(/resources match filters/)).toBeNull();
     expect(mocks.fitView).not.toHaveBeenCalled();
     expect(mocks.setViewport).not.toHaveBeenCalled();
     expect(mocks.viewport).toEqual(viewport);
@@ -1145,7 +1325,7 @@ describe('Crossplane map collapse with filtering', () => {
       render(<CrossplaneMap />);
       await waitFor(() => expect(mocks.nodes).toHaveLength(graph.nodes.length));
       if (type === 'aggregated') {
-        fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
         await waitFor(() => expect(mocks.nodes).toHaveLength(4));
       }
       const resourceName =
@@ -1191,7 +1371,7 @@ describe('Crossplane map collapse with filtering', () => {
     );
     expect(node('grandchild').domAttributes.inert).toBeUndefined();
     expect(node('grandchild').data.childNodeCount).toBe(1);
-    selectOption('Common Label', 'All');
+    clearValueFilter('team', ['blue']);
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
     expect(screen.getByTestId('nodes').textContent).toBe('parent,child');
     expect(node('child').data.collapsed).toBe(true);
@@ -1251,12 +1431,13 @@ describe('Crossplane map filter layout transitions', () => {
   it('replaces an unfinished filter layout and ignores its late completion', async () => {
     const { viewport } = await renderFilteringGraph();
     const pending = delayedLayouts();
+    // Two successive single-value filter changes: Healthy, then back to all.
     selectStatus('Healthy');
-    selectStatus('Needs Attention');
+    clearValueFilter('Status', ['Healthy']);
     expect(pending).toHaveLength(2);
     await act(async () => pending[1].finish(100));
-    expect(mocks.nodes.map(node => node.id)).toEqual(['child']);
-    expect(node('child').position).toEqual({ x: 100, y: 100 });
+    expect(mocks.nodes.map(node => node.id)).toEqual(['parent', 'child', 'grandchild', 'leaf']);
+    expect(node('parent').position).toEqual({ x: 100, y: 100 });
     const latest = positions();
     await act(async () => pending[0].finish(900));
     expect(positions()).toEqual(latest);
@@ -1458,7 +1639,7 @@ describe('Crossplane map filter layout transitions', () => {
     expect(node('parent').data.collapsed).toBe(true);
     expect(screen.getByTestId('nodes').textContent).toBe('parent');
     expect(mocks.fitView).not.toHaveBeenCalled();
-    selectOption('Common Label', 'All');
+    clearValueFilter('team', ['blue']);
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
     expect(node('parent').selected).toBe(true);
     expect(node('parent').data.collapsed).toBe(true);
@@ -1480,32 +1661,19 @@ describe('Crossplane map filter layout transitions', () => {
     expect(mocks.nodes.every(node => !node.selected && !node.data.collapsed)).toBe(true);
   });
 
-  it('replaces stale geometry when a label-key fallback clears a filter during layout', async () => {
+  it('replaces stale geometry when an active label filter is removed during layout', async () => {
     const { rerender, viewport } = await renderBlueFilter();
     const pending = delayedLayouts();
     mocks.source.current = {
       ...filteringGraph(),
-      nodes: filteringGraph().nodes.map(node => ({
-        ...node,
-        kubeObject: {
-          ...node.kubeObject,
-          metadata: { ...node.kubeObject.metadata, namespace: 'team-a' },
-        },
+      edges: filteringGraph().edges.map(edge => ({
+        ...edge,
+        source: edge.id === 'reference' ? 'leaf' : edge.source,
       })),
     };
     rerender(<CrossplaneMap />);
     expect(pending).toHaveLength(1);
-    mocks.source.current = {
-      ...mocks.source.current,
-      nodes: mocks.source.current.nodes.map((node: any) => ({
-        ...node,
-        kubeObject: {
-          ...node.kubeObject,
-          metadata: { ...node.kubeObject.metadata, labels: { env: 'production' } },
-        },
-      })),
-    };
-    rerender(<CrossplaneMap />);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove team filter' }));
     expect(pending).toHaveLength(2);
     await act(async () => pending[1].finish(200));
     expect(mocks.nodes).toHaveLength(4);
@@ -1513,7 +1681,7 @@ describe('Crossplane map filter layout transitions', () => {
     const latest = positions();
     await act(async () => pending[0].finish(900));
     expect(positions()).toEqual(latest);
-    expect(screen.getByRole('combobox', { name: 'Common Label' }).textContent).toBe('All');
+    expect(screen.queryByRole('combobox', { name: 'team' })).toBeNull();
     expect(mocks.fitView).not.toHaveBeenCalled();
     expect(mocks.setViewport).not.toHaveBeenCalled();
     expect(mocks.viewport).toEqual(viewport);
@@ -1589,7 +1757,6 @@ describe('Crossplane map filter layout transitions', () => {
     expect(pending).toHaveLength(2);
     await act(async () => pending[1].finish(50));
     expect(mocks.nodes).toHaveLength(4);
-    expect(screen.queryByText(/resources match filters/)).toBeNull();
     const latest = positions();
     await act(async () => pending[0].finish(900));
     expect(positions()).toEqual(latest);
@@ -1597,7 +1764,7 @@ describe('Crossplane map filter layout transitions', () => {
   });
 });
 
-describe('Crossplane map grouping', () => {
+describe('Crossplane map aggregation', () => {
   function resource(id: string) {
     return {
       id,
@@ -1611,7 +1778,7 @@ describe('Crossplane map grouping', () => {
     };
   }
 
-  function groupingGraph() {
+  function aggregationGraph() {
     return {
       nodes: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D2'].map(resource),
       edges: [
@@ -1625,9 +1792,9 @@ describe('Crossplane map grouping', () => {
   }
 
   it.each(['completed', 'failed'])(
-    'keeps deleted resources removed when a superseding global grouping layout is %s',
+    'keeps deleted resources removed when a superseding global aggregation layout is %s',
     async outcome => {
-      const source = groupingGraph();
+      const source = aggregationGraph();
       mocks.source.current = { ...source, nodes: [...source.nodes, resource('X')] };
       const { rerender } = render(<CrossplaneMap />);
       await waitFor(() => expect(node('X')).toBeDefined());
@@ -1635,9 +1802,9 @@ describe('Crossplane map grouping', () => {
       mocks.source.current = source;
       rerender(<CrossplaneMap />);
       expect(node('X')).toBeUndefined();
-      const groupAll = screen.getByRole('button', { name: 'Group all' });
-      expect(groupAll).toHaveProperty('disabled', false);
-      fireEvent.click(groupAll);
+      const aggregateAll = screen.getByRole('button', { name: 'Combine all' });
+      expect(aggregateAll).toHaveProperty('disabled', false);
+      fireEvent.click(aggregateAll);
       expect(node('X')).toBeUndefined();
       await act(async () => {
         if (outcome === 'failed') pending[1].fail();
@@ -1664,7 +1831,7 @@ describe('Crossplane map grouping', () => {
 
   function highlightedIds() {
     return mocks.nodes
-      .filter(node => node.data.groupHighlighted)
+      .filter(node => node.data.aggregateHighlighted)
       .map(node => node.id)
       .sort();
   }
@@ -1691,17 +1858,31 @@ describe('Crossplane map grouping', () => {
     });
   }
 
-  it('groups all resources and restores the original graph when groups are dissolved', async () => {
-    const graph = groupingGraph();
+  it('aggregates all resources and restores the original graph when aggregates are dissolved', async () => {
+    const graph = aggregationGraph();
     mocks.source.current = graph;
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(7));
     expect(mocks.nodes.map(node => node.id)).toEqual(graph.nodes.map(node => node.id));
     expect(mocks.edges.map(edge => edge.id)).toEqual(graph.edges.map(edge => edge.id));
-    expect(screen.queryByRole('checkbox', { name: 'Group resources' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Ungroup all' })).toHaveProperty('disabled', true);
+    expect(screen.queryByRole('checkbox', { name: 'Aggregate resources' })).toBeNull();
+    const aggregateAll = screen.getByRole('button', { name: 'Combine all' });
+    const disaggregateAll = screen.getByRole('button', { name: 'Separate all' });
+    fireEvent.mouseOver(aggregateAll.parentElement!);
+    expect(
+      await screen.findByRole('tooltip', { name: 'Combine all eligible resources' })
+    ).toBeTruthy();
+    fireEvent.mouseLeave(aggregateAll.parentElement!);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+    fireEvent.mouseOver(disaggregateAll.parentElement!);
+    expect(
+      await screen.findByRole('tooltip', { name: 'Show resources individually' })
+    ).toBeTruthy();
+    fireEvent.mouseLeave(disaggregateAll.parentElement!);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+    expect(disaggregateAll).toHaveProperty('disabled', true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(aggregateAll);
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)', '(C)', 'D2']));
     expect(visibleEdges()).toEqual(['(A)→(B)', '(A)→(C)', '(A)→D2']);
     expect(mocks.setViewport).not.toHaveBeenCalled();
@@ -1711,23 +1892,23 @@ describe('Crossplane map grouping', () => {
         .every(node => node.data.memberCount === 2 && node.data.healthyMemberCount === 2)
     ).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate B' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(C)', 'B1', 'B2', 'D2']));
     expect(visibleEdges()).toEqual(['(A)→(C)', '(A)→B1', '(A)→B2', '(A)→D2']);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D2']));
     expect(visibleEdges()).toEqual(['A1→B1', 'A1→C1', 'A2→B2', 'A2→C2', 'A2→D2']);
     expect(mocks.nodes.map(node => node.id)).toEqual(graph.nodes.map(node => node.id));
     expect(mocks.edges.map(edge => edge.id)).toEqual(graph.edges.map(edge => edge.id));
     expect(mocks.openDetails).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(C)', 'B1', 'B2', 'D2']));
     const viewportCalls = mocks.setViewport.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)', '(C)', 'D2']));
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Separate all' }));
     await waitFor(() =>
       expect(mocks.nodes.map(node => node.id)).toEqual(graph.nodes.map(node => node.id))
     );
@@ -1736,11 +1917,11 @@ describe('Crossplane map grouping', () => {
     expect(mocks.setViewport).toHaveBeenCalledTimes(viewportCalls);
   });
 
-  it('preserves collapsed children and their expand control through a pending or failed parent ungroup', async () => {
+  it('preserves collapsed children and their expand control through a pending or failed parent disaggregation', async () => {
     mocks.source.current = splitParentGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(2));
     const parentId = mocks.nodes.find(node => node.data.kind === 'A').id;
     const childrenId = mocks.nodes.find(node => node.data.kind === 'B').id;
@@ -1757,7 +1938,7 @@ describe('Crossplane map grouping', () => {
     };
     expectCollapsedDrawing();
     const pending = delayedLayouts();
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(pending).toHaveLength(1));
     expectCollapsedDrawing();
     await act(async () => pending[0].fail());
@@ -1776,7 +1957,7 @@ describe('Crossplane map grouping', () => {
     expect(pending).toHaveLength(1);
   });
 
-  it('collapses nested groups without relayout and preserves their independent collapse state', async () => {
+  it('collapses nested aggregates without relayout and preserves their independent collapse state', async () => {
     mocks.source.current = {
       nodes: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'X1'].map(resource),
       edges: [
@@ -1793,12 +1974,12 @@ describe('Crossplane map grouping', () => {
     };
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(9));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(5));
     const aggregate = (kind: string) => mocks.nodes.find(node => node.data.kind === kind);
     const toggle = (kind: string) => {
-      const group = aggregate(kind);
-      act(() => group.data.onToggleCollapse(group.id));
+      const card = aggregate(kind);
+      act(() => card.data.onToggleCollapse(card.id));
     };
     const before = positions();
     const layouts = mocks.layout.mock.calls.length;
@@ -1824,7 +2005,7 @@ describe('Crossplane map grouping', () => {
     expect(mocks.setViewport).toHaveBeenCalledTimes(viewportCalls);
   });
 
-  it('keeps collapse on member resources across grouping and ungrouping', async () => {
+  it('keeps collapse on member resources across aggregation and disaggregation', async () => {
     mocks.source.current = splitParentGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
@@ -1832,20 +2013,20 @@ describe('Crossplane map grouping', () => {
       node('A1').data.onToggleCollapse('A1');
       node('A2').data.onToggleCollapse('A2');
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(5));
-    const group = mocks.nodes.find(node => node.type === 'aggregated');
-    expect(group.data).toMatchObject({ collapsed: true, childNodeCount: 4 });
+    const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
+    expect(aggregate.data).toMatchObject({ collapsed: true, childNodeCount: 4 });
     expect(mocks.nodes.filter(node => node.hidden).map(node => node.id)).toEqual([
       'B1',
       'B2',
       'B3',
       'B4',
     ]);
-    act(() => group.data.onToggleCollapse(group.id));
+    act(() => aggregate.data.onToggleCollapse(aggregate.id));
     expect(mocks.nodes.every(node => !node.hidden)).toBe(true);
-    act(() => group.data.onToggleCollapse(group.id));
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    act(() => aggregate.data.onToggleCollapse(aggregate.id));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
     expect(node('A1').data.collapsed).toBe(true);
     expect(node('A2').data.collapsed).toBe(true);
@@ -1854,7 +2035,7 @@ describe('Crossplane map grouping', () => {
     expect(screen.getByTestId('nodes').textContent).toBe('A1,A2,B1,B2');
   });
 
-  it('ignores childless members when expanding a group whose branches are already collapsed', async () => {
+  it('ignores childless members when expanding an aggregate whose branches are already collapsed', async () => {
     mocks.source.current = {
       nodes: ['A1', 'A2', 'B1'].map(resource),
       edges: [{ id: 'child', source: 'A1', target: 'B1' }],
@@ -1862,19 +2043,19 @@ describe('Crossplane map grouping', () => {
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     act(() => node('A1').data.onToggleCollapse('A1'));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(2));
-    const group = mocks.nodes.find(node => node.type === 'aggregated');
-    expect(group.data).toMatchObject({ collapsed: true, childNodeCount: 1 });
-    act(() => group.data.onToggleCollapse(group.id));
+    const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
+    expect(aggregate.data).toMatchObject({ collapsed: true, childNodeCount: 1 });
+    act(() => aggregate.data.onToggleCollapse(aggregate.id));
     expect(node('B1').hidden).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     expect(node('A1').data.collapsed).toBe(false);
     expect(node('A2').data.collapsed).toBe(false);
   });
 
-  it('applies group collapse only to matching members and restores filtered member state', async () => {
+  it('applies aggregate collapse only to matching members and restores filtered member state', async () => {
     mocks.source.current = {
       nodes: ['A1', 'A2', 'A3', 'B1', 'B2', 'B3'].map(id => ({
         ...resource(id),
@@ -1888,22 +2069,22 @@ describe('Crossplane map grouping', () => {
     };
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
-    let group = mocks.nodes.find(node => node.type === 'aggregated');
-    act(() => group.data.onToggleCollapse(group.id));
-    expect(screen.getByTestId('nodes').textContent).toBe(group.id);
+    let aggregate = mocks.nodes.find(node => node.type === 'aggregated');
+    act(() => aggregate.data.onToggleCollapse(aggregate.id));
+    expect(screen.getByTestId('nodes').textContent).toBe(aggregate.id);
 
     selectStatus('Healthy');
     await waitFor(() =>
       expect(mocks.nodes.find(node => node.type === 'aggregated').data.memberCount).toBe(2)
     );
-    group = mocks.nodes.find(node => node.type === 'aggregated');
-    expect(group.data.collapsed).toBe(true);
+    aggregate = mocks.nodes.find(node => node.type === 'aggregated');
+    expect(aggregate.data.collapsed).toBe(true);
     expect(node('B1').hidden).toBe(true);
     expect(node('B2').hidden).toBe(false);
     expect(node('B3').hidden).toBe(true);
-    act(() => group.data.onToggleCollapse(group.id));
+    act(() => aggregate.data.onToggleCollapse(aggregate.id));
     expect(mocks.nodes.every(node => !node.hidden)).toBe(true);
 
     selectStatus('All');
@@ -1915,15 +2096,15 @@ describe('Crossplane map grouping', () => {
     expect(node('B3').hidden).toBe(false);
   });
 
-  it.each(['group', 'ungroup'])(
+  it.each(['aggregate', 'disaggregate'])(
     'updates live resource and aggregate data while a failed %s layout retains geometry',
     async action => {
-      const graph = groupingGraph();
+      const graph = aggregationGraph();
       mocks.source.current = graph;
       const { rerender } = render(<CrossplaneMap />);
       await waitFor(() => expect(mocks.nodes).toHaveLength(graph.nodes.length));
-      if (action === 'ungroup') {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+      if (action === 'disaggregate') {
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
         await waitFor(() => expect(mocks.nodes).toHaveLength(6));
       }
       const previousPositions = positions();
@@ -1931,7 +2112,9 @@ describe('Crossplane map grouping', () => {
       const fitCalls = mocks.fitView.mock.calls.length;
       const pending = delayedLayouts();
       fireEvent.click(
-        screen.getByRole('button', { name: action === 'group' ? 'Group A1' : 'Ungroup A' })
+        screen.getByRole('button', {
+          name: action === 'aggregate' ? 'Aggregate A1' : 'Disaggregate A',
+        })
       );
       await waitFor(() => expect(pending).toHaveLength(1));
       await act(async () => pending[0].fail());
@@ -1951,10 +2134,9 @@ describe('Crossplane map grouping', () => {
       };
       rerender(<CrossplaneMap />);
       const resources = mocks.nodes.filter(node => node.type === 'resource');
-      expect(resources).toHaveLength(action === 'group' ? 7 : 5);
+      expect(resources).toHaveLength(action === 'aggregate' ? 7 : 5);
       expect(resources.every(node => node.data.status === 'error')).toBe(true);
-      expect(resources.every(node => node.data.categoryLabel === 'example.org')).toBe(true);
-      if (action === 'ungroup') {
+      if (action === 'disaggregate') {
         expect(mocks.nodes.find(node => node.type === 'aggregated').data).toMatchObject({
           memberCount: 2,
           healthyMemberCount: 0,
@@ -1971,14 +2153,14 @@ describe('Crossplane map grouping', () => {
     }
   );
 
-  it('updates group health from live member statuses without regrouping or relayout', async () => {
+  it('updates aggregate health from live member statuses without reaggregation or relayout', async () => {
     const graph = { nodes: ['A1', 'A2', 'A3'].map(resource), edges: [] };
     mocks.source.current = graph;
     const { rerender } = render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)']));
-    const groupId = mocks.nodes[0].id;
+    const aggregateId = mocks.nodes[0].id;
     const layoutCalls = mocks.layout.mock.calls.length;
     expect(mocks.nodes[0].data).toMatchObject({ memberCount: 3, healthyMemberCount: 3 });
 
@@ -1995,11 +2177,11 @@ describe('Crossplane map grouping', () => {
     };
     rerender(<CrossplaneMap />);
     expect(mocks.nodes[0].data).toMatchObject({ memberCount: 3, healthyMemberCount: 0 });
-    expect(mocks.nodes[0].id).toBe(groupId);
+    expect(mocks.nodes[0].id).toBe(aggregateId);
     expect(mocks.layout).toHaveBeenCalledTimes(layoutCalls);
   });
 
-  it('previews and groups only current candidates, recalculating them after a parent split', async () => {
+  it('previews and aggregates only current candidates, recalculating them after a parent split', async () => {
     mocks.source.current = splitParentGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
@@ -2011,8 +2193,8 @@ describe('Crossplane map grouping', () => {
 
     fireEvent.mouseEnter(a1);
     expect(highlightedIds()).toEqual([]);
-    const groupA = screen.getByRole('button', { name: 'Group A1' });
-    fireEvent.mouseEnter(groupA);
+    const aggregateA = screen.getByRole('button', { name: 'Aggregate A1' });
+    fireEvent.mouseEnter(aggregateA);
     expect(highlightedIds()).toEqual(['A1', 'A2']);
     expect(node('A1').data.candidateMemberCount).toBe(2);
     expect(mocks.nodes.every(node => !node.selected)).toBe(true);
@@ -2020,59 +2202,59 @@ describe('Crossplane map grouping', () => {
     expect(mocks.layout).toHaveBeenCalledTimes(layoutCalls);
     expect(mocks.fitView).toHaveBeenCalledTimes(fitCalls);
     expect(mocks.setViewport).toHaveBeenCalledTimes(viewportCalls);
-    fireEvent.mouseLeave(groupA);
+    fireEvent.mouseLeave(aggregateA);
     expect(highlightedIds()).toEqual([]);
 
-    act(() => groupA.focus());
+    act(() => aggregateA.focus());
     expect(highlightedIds()).toEqual([]);
-    act(() => groupA.blur());
+    act(() => aggregateA.blur());
     expect(highlightedIds()).toEqual([]);
-    fireEvent.click(groupA);
+    fireEvent.click(aggregateA);
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', 'B1', 'B2', 'B3', 'B4']));
-    const b1 = screen.getByRole('button', { name: 'Group B1' });
+    const b1 = screen.getByRole('button', { name: 'Aggregate B1' });
     fireEvent.mouseEnter(b1);
     expect(highlightedIds()).toEqual(['B1', 'B2', 'B3', 'B4']);
     expect(node('B1').data.candidateMemberCount).toBe(4);
-    fireEvent.click(screen.getByRole('button', { name: 'Group B1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate B1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)']));
     expect(mocks.nodes.find(node => node.data.kind === 'B').data.memberCount).toBe(4);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate B' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(5));
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
-    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Group B1' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Aggregate B1' }));
     expect(highlightedIds()).toEqual(['B1', 'B2']);
     expect(node('B1').data.candidateMemberCount).toBe(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Group B1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate B1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(B)', 'A1', 'A2', 'B3', 'B4']));
     expect(mocks.nodes.find(node => node.type === 'aggregated').data.memberCount).toBe(2);
   });
 
-  it('keeps independently grouped children separate when their parents are grouped', async () => {
+  it('keeps independently aggregated children separate when their parents are aggregated', async () => {
     mocks.source.current = splitParentGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
-    fireEvent.click(screen.getByRole('button', { name: 'Group B1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate B1' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(5));
-    fireEvent.click(screen.getByRole('button', { name: 'Group B3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate B3' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(4));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)', '(B)']));
     expect(
       mocks.nodes.filter(node => node.data.kind === 'B').map(node => node.data.memberCount)
     ).toEqual([2, 2]);
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Group B' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Aggregate B' })[0]);
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)']));
     expect(mocks.nodes.find(node => node.data.kind === 'B').data.memberCount).toBe(4);
   });
 
-  it('keeps newly discovered resources individual until explicitly grouped', async () => {
-    mocks.source.current = groupingGraph();
+  it('keeps newly discovered resources individual until explicitly aggregated', async () => {
+    mocks.source.current = aggregationGraph();
     const { rerender } = render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(7));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
     await act(async () => {
       mocks.source.current = {
@@ -2086,17 +2268,17 @@ describe('Crossplane map grouping', () => {
     );
     expect(mocks.nodes.find(node => node.type === 'aggregated').data.memberCount).toBe(2);
     expect(node('A3').data.candidateMemberCount).toBe(3);
-    fireEvent.click(screen.getByRole('button', { name: 'Group A3' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A3' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', 'B1', 'B2', 'C1', 'C2', 'D2']));
     expect(mocks.nodes.find(node => node.type === 'aggregated').data.memberCount).toBe(3);
   });
 
-  it('preserves unrelated detail selection and collapsed branches across grouping actions', async () => {
-    const grouped = groupingGraph();
+  it('preserves unrelated detail selection and collapsed branches across aggregation actions', async () => {
+    const aggregated = aggregationGraph();
     const unrelated = loadedGraph();
     mocks.source.current = {
-      nodes: [...grouped.nodes, ...unrelated.nodes],
-      edges: [...grouped.edges, ...unrelated.edges],
+      nodes: [...aggregated.nodes, ...unrelated.nodes],
+      edges: [...aggregated.edges, ...unrelated.edges],
     };
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(9));
@@ -2105,12 +2287,12 @@ describe('Crossplane map grouping', () => {
     expect(node('parent').selected).toBe(true);
     expect(node('child').hidden).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(8));
     expect(node('parent').selected).toBe(true);
     expect(node('parent').data.collapsed).toBe(true);
     expect(node('child').hidden).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Separate all' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(9));
     expect(node('parent').selected).toBe(true);
     expect(node('parent').data.collapsed).toBe(true);
@@ -2126,9 +2308,9 @@ describe('Crossplane map grouping', () => {
     mocks.source.current = graph;
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)']));
-    const fullGroupId = mocks.nodes[0].id;
+    const fullAggregateId = mocks.nodes[0].id;
     mocks.viewport = { x: 240, y: -60, zoom: 0.7 };
     const viewport = { ...mocks.viewport };
     mocks.fitView.mockClear();
@@ -2138,30 +2320,28 @@ describe('Crossplane map grouping', () => {
     expect(screen.getByRole('combobox', { name: 'Status' }).getAttribute('aria-disabled')).not.toBe(
       'true'
     );
-    expect(
-      screen.getByRole('combobox', { name: 'Provider' }).getAttribute('aria-disabled')
-    ).not.toBe('true');
+    expect(screen.getByRole('combobox', { name: 'Kind' }).getAttribute('aria-disabled')).not.toBe(
+      'true'
+    );
 
     selectStatus('Healthy');
     await waitFor(() => expect(mocks.nodes[0]?.data.memberCount).toBe(2));
     expect(mocks.nodes[0].data.healthyMemberCount).toBe(2);
     expect(visibleNames()).toEqual(['(A)']);
-    expect(screen.getByText('2 of 3 resources match filters')).toBeTruthy();
 
     selectStatus('Needs Attention');
     await waitFor(() => expect(visibleNames()).toEqual(['A2']));
-    expect(node('A2').data.onGroup).toBeUndefined();
-    expect(screen.queryByRole('button', { name: 'Ungroup A' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Group all' })).toHaveProperty('disabled', true);
-    expect(screen.getByRole('button', { name: 'Ungroup all' })).toHaveProperty('disabled', true);
-    expect(screen.getByText('1 of 3 resources match filters')).toBeTruthy();
+    expect(node('A2').data.onAggregate).toBeUndefined();
+    expect(screen.queryByRole('button', { name: 'Disaggregate A' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Combine all' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Separate all' })).toHaveProperty('disabled', true);
 
-    selectOption('Status', 'Needs Attention');
-    await waitFor(() => expect(mocks.nodes).toHaveLength(0));
-    expect(screen.getByText('No resources match the selected filters.')).toBeTruthy();
+    // Clearing the status filter restores the full aggregate membership.
+    // (The "empty projection" the old test reached by toggling off the last
+    // status is no longer reachable: an empty status selection means "all".)
     selectStatus('All');
     await waitFor(() => expect(visibleNames()).toEqual(['(A)']));
-    expect(mocks.nodes[0].id).toBe(fullGroupId);
+    expect(mocks.nodes[0].id).toBe(fullAggregateId);
     expect(mocks.nodes[0].data.memberCount).toBe(3);
     expect(mocks.nodes[0].data.healthyMemberCount).toBe(2);
     expect(mocks.fitView).not.toHaveBeenCalled();
@@ -2170,7 +2350,7 @@ describe('Crossplane map grouping', () => {
   });
 
   it.each(['local', 'all'])(
-    'groups only matching resources through the %s action',
+    'aggregates only matching resources through the %s action',
     async action => {
       mocks.source.current = {
         nodes: [resource('A1'), { ...resource('A2'), status: 'error' }, resource('A3')],
@@ -2182,7 +2362,7 @@ describe('Crossplane map grouping', () => {
       await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A3']));
       expect(node('A1').data.candidateMemberCount).toBe(2);
       fireEvent.click(
-        screen.getByRole('button', { name: action === 'local' ? 'Group A1' : 'Group all' })
+        screen.getByRole('button', { name: action === 'local' ? 'Aggregate A1' : 'Combine all' })
       );
       await waitFor(() => expect(visibleNames()).toEqual(['(A)']));
       expect(mocks.nodes[0].data.memberCount).toBe(2);
@@ -2192,7 +2372,7 @@ describe('Crossplane map grouping', () => {
     }
   );
 
-  it('restores an expanded subgroup without absorbing another matching sibling', async () => {
+  it('restores an expanded aggregate without absorbing another matching sibling', async () => {
     mocks.source.current = {
       nodes: [resource('A1'), resource('A2'), { ...resource('A3'), status: 'error' }],
       edges: [],
@@ -2201,20 +2381,20 @@ describe('Crossplane map grouping', () => {
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     selectStatus('Healthy');
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2']));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)']));
     selectStatus('All');
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', 'A3']));
-    const groupedId = mocks.nodes.find(node => node.type === 'aggregated').id;
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    const aggregatedId = mocks.nodes.find(node => node.type === 'aggregated').id;
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'A3']));
     expect(node('A1').data.candidateMemberCount).toBe(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', 'A3']));
-    expect(mocks.nodes.find(node => node.type === 'aggregated').id).toBe(groupedId);
+    expect(mocks.nodes.find(node => node.type === 'aggregated').id).toBe(aggregatedId);
   });
 
-  it('keeps grouping candidates separated by their original hidden parents', async () => {
+  it('keeps aggregation candidates separated by their original hidden parents', async () => {
     mocks.source.current = {
       nodes: [
         { ...resource('A1'), status: 'error' },
@@ -2232,12 +2412,12 @@ describe('Crossplane map grouping', () => {
     selectStatus('Healthy');
     await waitFor(() => expect(visibleNames()).toEqual(['B1', 'B2']));
     expect(mocks.edges).toHaveLength(0);
-    expect(node('B1').data.onGroup).toBeUndefined();
-    expect(node('B2').data.onGroup).toBeUndefined();
-    expect(screen.getByRole('button', { name: 'Group all' })).toHaveProperty('disabled', true);
+    expect(node('B1').data.onAggregate).toBeUndefined();
+    expect(node('B2').data.onAggregate).toBeUndefined();
+    expect(screen.getByRole('button', { name: 'Combine all' })).toHaveProperty('disabled', true);
   });
 
-  it('removes connections from excluded group members without removing their matching children', async () => {
+  it('removes connections from excluded aggregate members without removing their matching children', async () => {
     mocks.source.current = {
       nodes: [
         resource('A1'),
@@ -2255,7 +2435,7 @@ describe('Crossplane map grouping', () => {
     };
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)']));
     expect(visibleEdges()).toEqual(['(A)→(B)']);
     selectStatus('Healthy');
@@ -2268,7 +2448,7 @@ describe('Crossplane map grouping', () => {
   });
 
   it.each(['local', 'all'])(
-    'roundtrips matching parents and descendants through %s grouping',
+    'roundtrips matching parents and descendants through %s aggregation',
     async action => {
       const graph = splitParentGraph();
       mocks.source.current = {
@@ -2283,23 +2463,24 @@ describe('Crossplane map grouping', () => {
       await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B3']));
       const originalEdges = visibleEdges();
       fireEvent.click(
-        screen.getByRole('button', { name: action === 'local' ? 'Group A1' : 'Group all' })
+        screen.getByRole('button', { name: action === 'local' ? 'Aggregate A1' : 'Combine all' })
       );
       await waitFor(() =>
         expect(visibleNames()).toEqual(action === 'local' ? ['(A)', 'B1', 'B3'] : ['(A)', '(B)'])
       );
-      expect(screen.getByText('4 of 6 resources match filters')).toBeTruthy();
       fireEvent.click(
-        screen.getByRole('button', { name: action === 'local' ? 'Ungroup A' : 'Ungroup all' })
+        screen.getByRole('button', {
+          name: action === 'local' ? 'Disaggregate A' : 'Separate all',
+        })
       );
       await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B3']));
       expect(visibleEdges()).toEqual(originalEdges);
-      expect(node('B1').data.onGroup).toBeUndefined();
-      expect(node('B3').data.onGroup).toBeUndefined();
+      expect(node('B1').data.onAggregate).toBeUndefined();
+      expect(node('B3').data.onAggregate).toBeUndefined();
     }
   );
 
-  it('restores a child group after its parent is ungrouped and regrouped with a fixed filter', async () => {
+  it('restores a child aggregate after its parent is disaggregated and reaggregated with a fixed filter', async () => {
     const graph = splitParentGraph();
     mocks.source.current = {
       ...graph,
@@ -2311,58 +2492,58 @@ describe('Crossplane map grouping', () => {
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
     selectStatus('Healthy');
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B3']));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)']));
-    const childGroupId = mocks.nodes.find(node => node.data.kind === 'B').id;
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    const childAggregateId = mocks.nodes.find(node => node.data.kind === 'B').id;
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B3']));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', '(B)']));
-    expect(mocks.nodes.find(node => node.data.kind === 'B').id).toBe(childGroupId);
+    expect(mocks.nodes.find(node => node.data.kind === 'B').id).toBe(childAggregateId);
     expect(mocks.nodes.find(node => node.data.kind === 'B').data.memberCount).toBe(2);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate B' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', 'B1', 'B3']));
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B3']));
-    fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)', 'B1', 'B3']));
   });
 
-  it('clears the hover preview on keyboard focus and follows local grouping actions', async () => {
+  it('clears the hover preview on keyboard focus and follows local aggregation actions', async () => {
     mocks.source.current = splitParentGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
-    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Group A1' }));
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Aggregate A1' }));
     expect(highlightedIds()).toEqual(['A1', 'A2']);
 
-    const groupB = screen.getByRole('button', { name: 'Group B1' });
-    act(() => groupB.focus());
+    const aggregateB = screen.getByRole('button', { name: 'Aggregate B1' });
+    act(() => aggregateB.focus());
     expect(highlightedIds()).toEqual([]);
-    fireEvent.click(groupB);
+    fireEvent.click(aggregateB);
     await waitFor(() => expect(visibleNames()).toEqual(['(B)', 'A1', 'A2', 'B3', 'B4']));
     await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Ungroup B' }))
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Disaggregate B' }))
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disaggregate B' }));
     await waitFor(() => expect(mocks.nodes).toHaveLength(6));
     await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Group B1' }))
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Aggregate B1' }))
     );
     expect(highlightedIds()).toEqual([]);
   });
 
   it.each(['another node', 'pan', 'zoom', 'global action'])(
-    'does not restore pending group focus after the user chooses %s',
+    'does not restore pending aggregate focus after the user chooses %s',
     async interruption => {
-      mocks.source.current = groupingGraph();
+      mocks.source.current = aggregationGraph();
       render(<CrossplaneMap />);
       await waitFor(() => expect(mocks.nodes).toHaveLength(7));
       const pending = delayedLayouts();
-      const groupA = screen.getByRole('button', { name: 'Group A1' });
-      act(() => groupA.focus());
-      fireEvent.click(groupA);
+      const aggregateA = screen.getByRole('button', { name: 'Aggregate A1' });
+      act(() => aggregateA.focus());
+      fireEvent.click(aggregateA);
       await waitFor(() => expect(pending).toHaveLength(1));
 
       if (interruption === 'another node') {
@@ -2372,7 +2553,7 @@ describe('Crossplane map grouping', () => {
       } else if (interruption === 'zoom') {
         fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
       } else {
-        fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
         await waitFor(() => expect(pending).toHaveLength(2));
         await act(async () => pending[1].finish(300));
       }
@@ -2386,14 +2567,14 @@ describe('Crossplane map grouping', () => {
     }
   );
 
-  it('does not restore a failed group action’s focus when its layout is retried', async () => {
-    mocks.source.current = groupingGraph();
+  it('does not restore a failed aggregate action’s focus when its layout is retried', async () => {
+    mocks.source.current = aggregationGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(7));
     const pending = delayedLayouts();
-    const groupA = screen.getByRole('button', { name: 'Group A1' });
-    act(() => groupA.focus());
-    fireEvent.click(groupA);
+    const aggregateA = screen.getByRole('button', { name: 'Aggregate A1' });
+    act(() => aggregateA.focus());
+    fireEvent.click(aggregateA);
     await waitFor(() => expect(pending).toHaveLength(1));
     await act(async () => pending[0].fail());
     expect(screen.getByRole('alert').textContent).toContain('Could not arrange the map');
@@ -2406,7 +2587,7 @@ describe('Crossplane map grouping', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
-  it('focuses a matching member after ungrouping with an active filter', async () => {
+  it('focuses a matching member after disaggregation with an active filter', async () => {
     mocks.source.current = {
       nodes: [{ ...resource('A1'), status: 'error' }, resource('A2'), resource('A3')],
       edges: [],
@@ -2415,28 +2596,28 @@ describe('Crossplane map grouping', () => {
     await waitFor(() => expect(mocks.nodes).toHaveLength(3));
     selectStatus('Healthy');
     await waitFor(() => expect(visibleNames()).toEqual(['A2', 'A3']));
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['(A)']));
     const pending = delayedLayouts();
-    const ungroup = screen.getByRole('button', { name: 'Ungroup A' });
-    act(() => ungroup.focus());
-    fireEvent.click(ungroup);
+    const disaggregate = screen.getByRole('button', { name: 'Disaggregate A' });
+    act(() => disaggregate.focus());
+    fireEvent.click(disaggregate);
     await waitFor(() => expect(pending).toHaveLength(1));
     await act(async () => pending[0].finish());
     await flushFocusFrame();
     expect(node('A1')).toBeUndefined();
     expect(visibleNames()).toEqual(['A2', 'A3']);
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Group A2' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Aggregate A2' }));
   });
 
-  it.each(['group', 'ungroup'])(
+  it.each(['aggregate', 'disaggregate'])(
     'retains the complete last drawing while a local %s layout is pending or failed',
     async action => {
-      mocks.source.current = groupingGraph();
+      mocks.source.current = aggregationGraph();
       render(<CrossplaneMap />);
       await waitFor(() => expect(mocks.nodes).toHaveLength(7));
-      if (action === 'ungroup') {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+      if (action === 'disaggregate') {
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
         await waitFor(() => expect(mocks.nodes).toHaveLength(6));
       }
       const previousPositions = positions();
@@ -2459,7 +2640,9 @@ describe('Crossplane map grouping', () => {
       };
       const pending = delayedLayouts();
       fireEvent.click(
-        screen.getByRole('button', { name: action === 'group' ? 'Group A1' : 'Ungroup A' })
+        screen.getByRole('button', {
+          name: action === 'aggregate' ? 'Aggregate A1' : 'Disaggregate A',
+        })
       );
       await waitFor(() => expect(pending).toHaveLength(1));
       expectPreviousDrawing();
@@ -2473,7 +2656,7 @@ describe('Crossplane map grouping', () => {
       await act(async () => pending[1].finish(200));
       expect(screen.queryByRole('alert')).toBeNull();
       expect(visibleNames()).toEqual(
-        action === 'group'
+        action === 'aggregate'
           ? ['(A)', 'B1', 'B2', 'C1', 'C2', 'D2']
           : ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D2']
       );
@@ -2481,7 +2664,7 @@ describe('Crossplane map grouping', () => {
     }
   );
 
-  describe('grouping motion', () => {
+  describe('aggregation motion', () => {
     const cardHeight = RESOURCE_NODE_LAYOUT_HEIGHT - 18;
     beforeEach(() => {
       mocks.reduceMotion = false;
@@ -2501,6 +2684,7 @@ describe('Crossplane map grouping', () => {
     function animationClock() {
       const callbacks = new Map<number, FrameRequestCallback>();
       let nextId = 1;
+      let lastTime = 0;
       vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
         const id = nextId++;
         callbacks.set(id, callback);
@@ -2509,6 +2693,8 @@ describe('Crossplane map grouping', () => {
       vi.stubGlobal('cancelAnimationFrame', (id: number) => callbacks.delete(id));
       return {
         async frame(time: number) {
+          expect(time).toBeGreaterThanOrEqual(lastTime);
+          lastTime = time;
           await act(async () => {
             for (const id of [...callbacks.keys()]) {
               const callback = callbacks.get(id);
@@ -2566,46 +2752,30 @@ describe('Crossplane map grouping', () => {
       });
     }
 
-    it.each([
-      { category: 'None', reduceMotion: false },
-      { category: 'Provider', reduceMotion: false },
-      { category: 'None', reduceMotion: true },
-      { category: 'Provider', reduceMotion: true },
-    ])(
-      'anchors the current member bounds after changing category to $category with reduceMotion=$reduceMotion',
-      async ({ category, reduceMotion }) => {
+    it.each([false, true])(
+      'anchors the current member bounds when disaggregating compact cards with reduceMotion=%s',
+      async reduceMotion => {
         const clock = animationClock();
         mocks.reduceMotion = true;
         const { rerender } = await renderMotionGraph();
         mocks.viewport.zoom = 0.5;
-        const categoryRowHeight = 22.8;
         const originalBounds = Element.prototype.getBoundingClientRect;
         vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
           this: HTMLElement
         ) {
           const current = this.matches('.react-flow__node') ? node(this.dataset.id!) : undefined;
           if (!current) return originalBounds.call(this);
-          const height =
-            current.type === 'aggregated'
-              ? AGGREGATED_NODE_HEIGHT
-              : current.data.categoryLabel
-              ? cardHeight
-              : cardHeight - categoryRowHeight;
+          const height = current.type === 'aggregated' ? AGGREGATED_NODE_HEIGHT : cardHeight;
           return {
             width: NODE_WIDTH * mocks.viewport.zoom,
             height: height * mocks.viewport.zoom,
           } as DOMRect;
         });
-        if (category === 'Provider') {
-          selectOption('Categorize by', 'None');
-          await act(async () => {});
-        }
         await act(async () => {
-          fireEvent.click(screen.getByRole('button', { name: 'Group A2' }));
+          fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' }));
         });
         expect(node('A1')).toBeUndefined();
         expect(node('A2')).toBeUndefined();
-        selectOption('Categorize by', category);
         await act(async () => {});
         const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
         const anchor = screenPosition(aggregate.id);
@@ -2617,7 +2787,7 @@ describe('Crossplane map grouping', () => {
         mocks.reduceMotion = reduceMotion;
         rerender(<CrossplaneMap />);
         await act(async () => {
-          fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+          fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
         });
         function expectFixedCenter() {
           const elements = [...document.querySelectorAll<HTMLElement>('.react-flow__node')].filter(
@@ -2648,21 +2818,171 @@ describe('Crossplane map grouping', () => {
       }
     );
 
-    it('keeps the clicked card’s screen position through gathering, replacement and layout', async () => {
+    it.each([false, true])(
+      'combines all resources and crossfades during the same 500 ms motion with existingAggregate=%s',
+      async existingAggregate => {
+        const clock = animationClock();
+        const { rerender } = await renderMotionGraph();
+        if (existingAggregate) {
+          mocks.reduceMotion = true;
+          rerender(<CrossplaneMap />);
+          await act(async () =>
+            fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }))
+          );
+          mocks.reduceMotion = false;
+          rerender(<CrossplaneMap />);
+        }
+        const initial = mocks.nodes.map(node => ({
+          id: node.id,
+          kind: node.data.kind,
+          position: { ...node.position },
+          height: node.type === 'aggregated' ? AGGREGATED_NODE_HEIGHT : RESOURCE_NODE_LAYOUT_HEIGHT,
+        }));
+        const edgeIds = mocks.edges.map(edge => edge.id);
+        const viewport = { ...mocks.viewport };
+        let target: any;
+        mocks.layout.mockImplementationOnce(async input => {
+          target = positionedLayout(input, 900);
+          return target;
+        });
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Combine all' })));
+        expect(positions()).toEqual(initial.map(({ id, position }) => ({ id, position })));
+
+        await clock.frame(0);
+        await clock.frame(250);
+        const midpoint = new Map(positions().map(node => [node.id, node.position]));
+        const parentTarget = target.children.find((node: any) => node.id === 'P');
+        expect(node('P').position).toEqual({ x: parentTarget.x / 2, y: parentTarget.y / 2 });
+        expect(mocks.nodes.map(node => node.id)).toEqual(initial.map(node => node.id));
+        expect(mocks.edges.map(edge => edge.id)).toEqual(edgeIds);
+        expect(mocks.nodes.every(node => node.domAttributes.inert === '')).toBe(true);
+
+        await clock.frame(450);
+        expect(node('P').style?.opacity).toBeUndefined();
+        for (const kind of ['A', 'B']) {
+          const members = initial.filter(node => node.kind === kind);
+          const incoming = mocks.nodes.find(
+            current => current.data.kind === kind && !initial.some(node => node.id === current.id)
+          );
+          if (existingAggregate && kind === 'A') {
+            expect(incoming).toBeUndefined();
+            for (const member of members) expect(node(member.id).style?.opacity).toBeUndefined();
+            continue;
+          }
+          expect(incoming).toBeDefined();
+          expect(incoming.style.opacity).toBe(0.5);
+          for (const member of members) expect(node(member.id).style.opacity).toBe(0.5);
+          expect(incoming.position.x + NODE_WIDTH / 2).toBeCloseTo(
+            members.reduce((sum, member) => sum + node(member.id).position.x + NODE_WIDTH / 2, 0) /
+              members.length,
+            8
+          );
+          expect(incoming.position.y + AGGREGATED_NODE_HEIGHT / 2).toBeCloseTo(
+            members.reduce(
+              (sum, member) => sum + node(member.id).position.y + member.height / 2,
+              0
+            ) / members.length,
+            8
+          );
+          const destination = target.children.find((child: any) => child.id === incoming.id);
+          expect(incoming.position).not.toEqual({ x: destination.x, y: destination.y });
+        }
+        expect(mocks.edges.map(edge => edge.id)).toEqual(edgeIds);
+        await clock.frame(500);
+        expect(positions()).toEqual(layoutPositions(target));
+        expect(visibleNames()).toEqual(['(A)', '(B)', 'P']);
+        for (const original of initial) {
+          const destination = mocks.nodes.find(node => node.data.kind === original.kind);
+          const height =
+            destination.type === 'aggregated'
+              ? AGGREGATED_NODE_HEIGHT
+              : RESOURCE_NODE_LAYOUT_HEIGHT;
+          const y =
+            destination.position.y +
+            (destination.id === original.id ? 0 : (height - original.height) / 2);
+          expect(midpoint.get(original.id)).toEqual({
+            x: (original.position.x + destination.position.x) / 2,
+            y: (original.position.y + y) / 2,
+          });
+        }
+        expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+        const settled = positions();
+        await clock.frame(1000);
+        expect(positions()).toEqual(settled);
+        expect(mocks.fitView).toHaveBeenCalledTimes(1);
+        expect(mocks.setViewport).not.toHaveBeenCalled();
+        expect(mocks.viewport).toEqual(viewport);
+      }
+    );
+
+    it('separates all groups while arranging the map in the same 500 ms motion', async () => {
+      const clock = animationClock();
+      mocks.reduceMotion = true;
+      const { rerender } = await renderMotionGraph();
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Combine all' })));
+      const previous = new Map(
+        mocks.nodes.map(node => [
+          node.data.kind,
+          {
+            position: { ...node.position },
+            height:
+              node.type === 'aggregated' ? AGGREGATED_NODE_HEIGHT : RESOURCE_NODE_LAYOUT_HEIGHT,
+          },
+        ])
+      );
+      const viewport = { ...mocks.viewport };
+      mocks.reduceMotion = false;
+      rerender(<CrossplaneMap />);
+      let target: any;
+      mocks.layout.mockImplementationOnce(async input => {
+        target = positionedLayout(input, 900);
+        return target;
+      });
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Separate all' })));
+      expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B2', 'P']);
+      const origin = new Map(
+        mocks.nodes.map(node => {
+          const parent = previous.get(node.data.kind)!;
+          return [
+            node.id,
+            {
+              x: parent.position.x,
+              y: parent.position.y + (parent.height - RESOURCE_NODE_LAYOUT_HEIGHT) / 2,
+            },
+          ];
+        })
+      );
+      for (const node of mocks.nodes) expect(node.position).toEqual(origin.get(node.id));
+      await clock.frame(0);
+      await clock.frame(250);
+      for (const node of mocks.nodes) {
+        const destination = target.children.find((child: any) => child.id === node.id);
+        const start = origin.get(node.id)!;
+        expect(node.position.x).toBeCloseTo((start.x + destination.x) / 2, 8);
+        expect(node.position.y).toBeCloseTo((start.y + destination.y) / 2, 8);
+      }
+      await clock.frame(500);
+      expect(positions()).toEqual(layoutPositions(target));
+      expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+      expect(mocks.fitView).toHaveBeenCalledTimes(1);
+      expect(mocks.setViewport).not.toHaveBeenCalled();
+      expect(mocks.viewport).toEqual(viewport);
+    });
+
+    it('keeps the clicked card fixed on screen while gathering and arranging the map together', async () => {
       const clock = animationClock();
       await renderMotionGraph();
       mocks.viewport = { x: 120, y: 80, zoom: 0.5 };
       mockVisibleCardBounds();
       const initial = positions();
       const source = new Map(initial.map(node => [node.id, node.position]));
-      const anchor = source.get('A2')!;
       const anchorScreen = screenPosition('A2');
       let target: any;
       mocks.layout.mockImplementationOnce(async input => {
         target = positionedLayout(input, 900);
         return target;
       });
-      const button = screen.getByRole('button', { name: 'Group A2' });
+      const button = screen.getByRole('button', { name: 'Aggregate A2' });
       act(() => button.focus());
       await act(async () => {
         fireEvent.click(button);
@@ -2672,45 +2992,60 @@ describe('Crossplane map grouping', () => {
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
 
       await clock.frame(0);
-      await clock.frame(175);
-      expect(node('A1').position).toEqual({
-        x: (source.get('A1')!.x + anchor.x) / 2,
-        y: (source.get('A1')!.y + anchor.y) / 2,
-      });
-      expect(node('A2').position).toEqual(anchor);
+      await clock.frame(250);
+      const aggregateTarget = target.children.find(
+        (node: any) => !['P', 'B1', 'B2'].includes(node.id)
+      );
+      for (const id of ['A1', 'A2'])
+        expect(node(id).position).toEqual({
+          x: (source.get(id)!.x + aggregateTarget.x) / 2,
+          y: (source.get(id)!.y + aggregateTarget.y) / 2,
+        });
       expect(screenPosition('A2')).toEqual(anchorScreen);
-      for (const id of ['P', 'B1', 'B2']) expect(node(id).position).toEqual(source.get(id));
+      for (const id of ['P', 'B1', 'B2']) {
+        const destination = target.children.find((node: any) => node.id === id);
+        expect(node(id).position).toEqual({
+          x: (source.get(id)!.x + destination.x) / 2,
+          y: (source.get(id)!.y + destination.y) / 2,
+        });
+      }
       expect(mocks.nodes.every(node => node.type === 'resource')).toBe(true);
       expect(mocks.nodes.every(node => !node.className?.includes('fading'))).toBe(true);
       expect(mocks.edges.every(edge => !edge.className?.includes('fading'))).toBe(true);
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
 
-      await clock.frame(350);
+      expect(mocks.viewport.zoom).toBe(0.5);
+      expect(document.activeElement).toBe(document.body);
+
+      await clock.frame(400);
       const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
-      const origin = anchor;
-      expect(aggregate.position).toEqual(origin);
       expect(screenPosition(aggregate.id)).toEqual(anchorScreen);
-      expect(mocks.setViewport).not.toHaveBeenCalled();
+      expect(node('A1').style.opacity).toBe(1);
+      expect(node('A2').style.opacity).toBe(1);
+      expect(aggregate.style.opacity).toBe(0);
+      for (const id of ['P', 'B1', 'B2']) expect(node(id).style?.opacity).toBeUndefined();
+      expect(mocks.nodes.every(node => node.domAttributes.inert === '')).toBe(true);
+      const fadePositions = positions();
+      await clock.frame(450);
+      expect(node('A1').style.opacity).toBe(0.5);
+      expect(node('A2').style.opacity).toBe(0.5);
+      expect(node(aggregate.id).style.opacity).toBe(0.5);
+      for (const id of ['P', 'B1', 'B2']) expect(node(id).style?.opacity).toBeUndefined();
+      expect(positions()).not.toEqual(fadePositions);
+      expect(node('A1').position).not.toEqual(
+        fadePositions.find(node => node.id === 'A1')!.position
+      );
+      expect(node('P').position).not.toEqual(fadePositions.find(node => node.id === 'P')!.position);
+      expect(screenPosition('A2')).toEqual(anchorScreen);
+      expect(node(aggregate.id).position).toEqual(node('A2').position);
+      expect(screenPosition(aggregate.id)).toEqual(anchorScreen);
+      expect(document.activeElement).toBe(document.body);
+
+      await clock.frame(500);
       expect(node('A1')).toBeUndefined();
       expect(node('A2')).toBeUndefined();
-      for (const id of ['P', 'B1', 'B2']) expect(node(id).position).toEqual(source.get(id));
-      expect(document.activeElement).toBe(document.body);
-      expect(mocks.fitView).toHaveBeenCalledTimes(1);
-
-      await clock.frame(366);
-      await clock.frame(616);
-      const aggregateTarget = target.children.find((node: any) => node.id === aggregate.id);
-      expect(node(aggregate.id).position).toEqual({
-        x: (origin.x + aggregateTarget.x) / 2,
-        y: (origin.y + aggregateTarget.y) / 2,
-      });
-      expect(node('P').position).toEqual({ x: 450, y: 450 });
-      expect(screenPosition(aggregate.id)).toEqual(anchorScreen);
-      expect(mocks.viewport.zoom).toBe(0.5);
-      expect(mocks.fitView).toHaveBeenCalledTimes(1);
-      expect(document.activeElement).toBe(document.body);
-
-      await clock.frame(866);
+      expect(node(aggregate.id).style?.opacity).toBeUndefined();
+      expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
       expect(positions()).toEqual(layoutPositions(target));
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
       expect(screenPosition(aggregate.id)).toEqual(anchorScreen);
@@ -2719,17 +3054,17 @@ describe('Crossplane map grouping', () => {
         true
       );
       expect(document.activeElement).toBe(document.body);
-      await clock.frame(882);
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Ungroup A' }));
+      await clock.frame(516);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Disaggregate A' }));
     });
 
-    it('keeps the ungrouped members’ bounding center fixed while their layout and children move', async () => {
+    it('keeps the disaggregated members’ bounding center fixed while their layout and children move', async () => {
       const clock = animationClock();
       mocks.reduceMotion = true;
       const { rerender } = await renderMotionGraph();
       mockVisibleCardBounds();
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' }));
       });
       const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
       const viewport = { ...mocks.viewport };
@@ -2761,7 +3096,7 @@ describe('Crossplane map grouping', () => {
         target = positionedLayout(input, 900);
         return target;
       });
-      const button = screen.getByRole('button', { name: 'Ungroup A' });
+      const button = screen.getByRole('button', { name: 'Disaggregate A' });
       act(() => button.focus());
       await act(async () => {
         fireEvent.click(button);
@@ -2792,10 +3127,10 @@ describe('Crossplane map grouping', () => {
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
       expectFixedCenter();
       await clock.frame(516);
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Group A1' }));
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Aggregate A1' }));
     });
 
-    it('applies grouping and ungrouping immediately when reduced motion is enabled', async () => {
+    it('applies aggregation and disaggregation immediately when reduced motion is enabled', async () => {
       animationClock();
       mocks.reduceMotion = true;
       await renderMotionGraph();
@@ -2807,7 +3142,7 @@ describe('Crossplane map grouping', () => {
         return target;
       });
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' }));
       });
       expect(positions()).toEqual(layoutPositions(target));
       expect(mocks.nodes.find(node => node.type === 'aggregated').data.memberCount).toBe(2);
@@ -2815,41 +3150,43 @@ describe('Crossplane map grouping', () => {
       expect(screenPosition(aggregate.id)).toEqual(anchorScreen);
       expect(mocks.viewport.zoom).toBe(1);
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
-      const groupCenter = {
+      const aggregateCenter = {
         x: screenPosition(aggregate.id).x + NODE_WIDTH / 2,
         y: screenPosition(aggregate.id).y + AGGREGATED_NODE_HEIGHT / 2,
       };
       mocks.setViewport.mockClear();
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
       });
       expect(positions()).toEqual(original);
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
       expect((screenPosition('A1').x + screenPosition('A2').x + NODE_WIDTH) / 2).toBe(
-        groupCenter.x
+        aggregateCenter.x
       );
       expect(
         (screenPosition('A1').y + screenPosition('A2').y + RESOURCE_NODE_LAYOUT_HEIGHT) / 2
-      ).toBeCloseTo(groupCenter.y, 8);
+      ).toBeCloseTo(aggregateCenter.y, 8);
       expect(mocks.viewport.zoom).toBe(1);
     });
 
     it.each([
-      { operation: 'group', action: 'early pan' },
-      { operation: 'group', action: 'pan' },
-      { operation: 'group', action: 'Zoom in' },
-      { operation: 'group', action: 'Zoom out' },
-      { operation: 'ungroup', action: 'pan' },
-      { operation: 'ungroup', action: 'Zoom in' },
+      { operation: 'aggregate', action: 'early pan' },
+      { operation: 'aggregate', action: 'pan' },
+      { operation: 'aggregate', action: 'Zoom in' },
+      { operation: 'aggregate', action: 'Zoom out' },
+      { operation: 'disaggregate', action: 'pan' },
+      { operation: 'disaggregate', action: 'Zoom in' },
     ])(
       'stops $operation camera tracking after $action while completing the node motion',
       async ({ operation, action }) => {
         const clock = animationClock();
         const { rerender } = await renderMotionGraph();
-        if (operation === 'ungroup') {
+        if (operation === 'disaggregate') {
           mocks.reduceMotion = true;
           rerender(<CrossplaneMap />);
-          await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Group all' })));
+          await act(async () =>
+            fireEvent.click(screen.getByRole('button', { name: 'Combine all' }))
+          );
           mocks.reduceMotion = false;
           rerender(<CrossplaneMap />);
         }
@@ -2859,20 +3196,15 @@ describe('Crossplane map grouping', () => {
           return target;
         });
         const button = screen.getByRole('button', {
-          name: operation === 'group' ? 'Group A2' : 'Ungroup A',
+          name: operation === 'aggregate' ? 'Aggregate A2' : 'Disaggregate A',
         });
         act(() => button.focus());
         await act(async () => {
           fireEvent.click(button);
         });
         await clock.frame(0);
-        await clock.frame(175);
+        await clock.frame(action === 'early pan' ? 0 : 250);
         if (action !== 'early pan') {
-          if (operation === 'group') {
-            await clock.frame(350);
-            await clock.frame(366);
-            await clock.frame(616);
-          }
           expect(mocks.setViewport).toHaveBeenCalled();
         }
         mocks.setViewport.mockClear();
@@ -2883,12 +3215,8 @@ describe('Crossplane map grouping', () => {
           });
         } else fireEvent.click(screen.getByRole('button', { name: action }));
         const viewport = { ...mocks.viewport };
-        if (action === 'early pan') {
-          await clock.frame(350);
-          await clock.frame(366);
-        }
-        await clock.frame(operation === 'group' ? 866 : 500);
-        await clock.frame(operation === 'group' ? 882 : 516);
+        await clock.frame(500);
+        await clock.frame(516);
         expect(positions()).toEqual(layoutPositions(target));
         expect(mocks.fitView).toHaveBeenCalledTimes(1);
         expect(mocks.setViewport).not.toHaveBeenCalled();
@@ -2901,7 +3229,7 @@ describe('Crossplane map grouping', () => {
       const clock = animationClock();
       await renderMotionGraph();
       mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
-      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Group A2' })));
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' })));
       await clock.frame(0);
       await clock.frame(175);
       expect(mocks.nodes.every(node => node.domAttributes.inert === '')).toBe(true);
@@ -2939,14 +3267,16 @@ describe('Crossplane map grouping', () => {
       const original = positions();
       mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' }));
       });
       await clock.frame(0);
       await clock.frame(175);
       const intermediate = positions();
       expect(intermediate).not.toEqual(original);
+      const viewport = { ...mocks.viewport };
+      mocks.setViewport.mockClear();
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Ungroup all' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Separate all' }));
       });
       expect(positions()).toEqual(intermediate);
       await clock.frame(200);
@@ -2961,8 +3291,163 @@ describe('Crossplane map grouping', () => {
       expect(positions()).toEqual(original);
       expect(mocks.fitView).toHaveBeenCalledTimes(1);
       expect(mocks.setViewport).not.toHaveBeenCalled();
+      expect(mocks.viewport).toEqual(viewport);
       await clock.frame(1200);
       expect(positions()).toEqual(original);
+    });
+
+    it('separates all resources from their current positions during the crossfade without retaining incoming cards or opacity', async () => {
+      const clock = animationClock();
+      await renderMotionGraph();
+      const original = positions();
+      mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' })));
+      await clock.frame(0);
+      await clock.frame(450);
+      const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
+      expect(aggregate.style.opacity).toBe(0.5);
+      expect(node('A1').style.opacity).toBe(0.5);
+      const intermediate = positions().filter(({ id }) => id !== aggregate.id);
+      const viewport = { ...mocks.viewport };
+      mocks.setViewport.mockClear();
+
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Separate all' })));
+      expect(mocks.nodes.map(node => node.id)).toEqual(original.map(node => node.id));
+      expect(mocks.nodes.every(node => node.type === 'resource')).toBe(true);
+      expect(mocks.nodes.every(node => node.style?.opacity === undefined)).toBe(true);
+      expect(positions()).toEqual(intermediate);
+      expect(
+        mocks.edges.every(
+          edge => node(edge.source) !== undefined && node(edge.target) !== undefined
+        )
+      ).toBe(true);
+      await clock.frame(460);
+      await clock.frame(710);
+      expect(mocks.nodes.every(node => node.style?.opacity === undefined)).toBe(true);
+      expect(node('A1').position).toEqual({
+        x: (intermediate[1].position.x + original[1].position.x) / 2,
+        y: (intermediate[1].position.y + original[1].position.y) / 2,
+      });
+      await clock.frame(960);
+      expect(positions()).toEqual(original);
+      expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+      expect(mocks.viewport).toEqual(viewport);
+      expect(mocks.setViewport).not.toHaveBeenCalled();
+      expect(mocks.fitView).toHaveBeenCalledTimes(1);
+      await clock.frame(1560);
+      expect(positions()).toEqual(original);
+    });
+
+    it('finishes the crossfade immediately when reduced motion is enabled during the fade', async () => {
+      const clock = animationClock();
+      const { rerender } = await renderMotionGraph();
+      const anchorScreen = screenPosition('A2');
+      let target: any;
+      mocks.layout.mockImplementationOnce(async input => {
+        target = positionedLayout(input, 900);
+        return target;
+      });
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' })));
+      await clock.frame(0);
+      await clock.frame(450);
+      expect(node('A1').style.opacity).toBe(0.5);
+      mocks.reduceMotion = true;
+      rerender(<CrossplaneMap />);
+      await clock.frame(466);
+      expect(positions()).toEqual(layoutPositions(target));
+      expect(node('A1')).toBeUndefined();
+      expect(node('A2')).toBeUndefined();
+      const aggregate = mocks.nodes.find(node => node.type === 'aggregated');
+      expect(screenPosition(aggregate.id)).toEqual(anchorScreen);
+      expect(mocks.nodes.every(node => node.style?.opacity === undefined)).toBe(true);
+      expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+      expect(mocks.fitView).toHaveBeenCalledTimes(1);
+      await clock.frame(1000);
+      expect(positions()).toEqual(layoutPositions(target));
+    });
+
+    it('survives unavailable source data during the crossfade and cleans up replacements after restoration', async () => {
+      const clock = animationClock();
+      const { rerender, graph } = await renderMotionGraph();
+      let target: any;
+      mocks.layout.mockImplementation(async input => {
+        target = positionedLayout(input, 900);
+        return target;
+      });
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' })));
+      await clock.frame(0);
+      await clock.frame(425);
+      expect(node('A1').style.opacity).toBe(0.75);
+      expect(mocks.nodes.find(node => node.type === 'aggregated').style.opacity).toBe(0.25);
+
+      await act(async () => {
+        mocks.source.current = null;
+        rerender(<CrossplaneMap />);
+      });
+      expect(screen.getByText('Loading Crossplane resources…')).toBeDefined();
+      expect(screen.queryByTestId('nodes')).toBeNull();
+      await clock.frame(450);
+      expect(screen.queryByTestId('nodes')).toBeNull();
+
+      await act(async () => {
+        mocks.source.current = graph;
+        rerender(<CrossplaneMap />);
+      });
+      expect(screen.getByTestId('nodes')).toBeDefined();
+      await clock.frame(475);
+      await clock.frame(975);
+      expect(positions()).toEqual(layoutPositions(target));
+      expect(visibleNames()).toEqual(['(A)', 'B1', 'B2', 'P']);
+      expect(node('A1')).toBeUndefined();
+      expect(node('A2')).toBeUndefined();
+      expect(mocks.nodes.every(node => node.style?.opacity === undefined)).toBe(true);
+      expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+      expect(
+        mocks.edges.every(
+          edge => node(edge.source) !== undefined && node(edge.target) !== undefined
+        )
+      ).toBe(true);
+      await clock.frame(2000);
+      expect(positions()).toEqual(layoutPositions(target));
+    });
+
+    it('removes incoming crossfade cards and releases original cards when an interrupting filter layout fails', async () => {
+      const clock = animationClock();
+      await renderMotionGraph();
+      mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' })));
+      await clock.frame(0);
+      await clock.frame(425);
+      expect(node('A1').style.opacity).toBe(0.75);
+      const retainedPositions = positions().filter(({ id }) => node(id).type === 'resource');
+      const retainedEdgeIds = mocks.edges.map(edge => edge.id);
+      const viewport = { ...mocks.viewport };
+      mocks.setViewport.mockClear();
+      const pending = delayedLayouts();
+      selectStatus('Healthy');
+      await waitFor(() => expect(pending).toHaveLength(1));
+      await act(async () => pending[0].fail());
+
+      expect(screen.getByRole('alert').textContent).toContain('Could not arrange the map');
+      expect(positions()).toEqual(retainedPositions);
+      expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B2', 'P']);
+      expect(mocks.nodes.every(node => node.type === 'resource')).toBe(true);
+      expect(mocks.nodes.every(node => node.style?.opacity === undefined)).toBe(true);
+      expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+      expect(mocks.edges.map(edge => edge.id)).toEqual(retainedEdgeIds);
+      fireEvent.click(screen.getByRole('button', { name: 'Open P' }));
+      expect(mocks.openDetails).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'P' }));
+
+      for (const time of [700, 1000, 2000]) {
+        await clock.frame(time);
+        expect(positions()).toEqual(retainedPositions);
+        expect(mocks.nodes.every(node => node.style?.opacity === undefined)).toBe(true);
+        expect(mocks.nodes.every(node => node.domAttributes.inert === undefined)).toBe(true);
+        expect(mocks.edges.map(edge => edge.id)).toEqual(retainedEdgeIds);
+      }
+      expect(mocks.setViewport).not.toHaveBeenCalled();
+      expect(mocks.viewport).toEqual(viewport);
+      expect(mocks.fitView).toHaveBeenCalledTimes(1);
     });
 
     it('cancels obsolete motion frames when live resources disappear', async () => {
@@ -2970,7 +3455,7 @@ describe('Crossplane map grouping', () => {
       const { rerender, graph } = await renderMotionGraph();
       mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' }));
       });
       await clock.frame(0);
       await clock.frame(175);
@@ -2997,24 +3482,26 @@ describe('Crossplane map grouping', () => {
       expect(positions()).toEqual(latest);
     });
 
-    it('keeps every member represented when a live reference does not change the grouped layout', async () => {
+    it('keeps every member represented when a live reference does not change the aggregated layout', async () => {
       const clock = animationClock();
       const { rerender, graph } = await renderMotionGraph();
       mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A2' }));
       });
       await clock.frame(0);
       await clock.frame(175);
       const expectCompleteGraph = () => {
         expect(
-          mocks.nodes
-            .flatMap(node =>
-              node.type === 'aggregated' && node.data.kind === 'A' && node.data.memberCount === 2
-                ? ['A1', 'A2']
-                : [node.id]
-            )
-            .sort()
+          [
+            ...new Set(
+              mocks.nodes.flatMap(node =>
+                node.type === 'aggregated' && node.data.kind === 'A' && node.data.memberCount === 2
+                  ? ['A1', 'A2']
+                  : [node.id]
+              )
+            ),
+          ].sort()
         ).toEqual(['A1', 'A2', 'B1', 'B2', 'P']);
       };
       expectCompleteGraph();
@@ -3042,7 +3529,7 @@ describe('Crossplane map grouping', () => {
       mocks.reduceMotion = true;
       rerender(<CrossplaneMap />);
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
       });
       expect(mocks.edges.find(edge => edge.id === 'internal-reference')).toMatchObject({
         source: 'A1',
@@ -3051,19 +3538,23 @@ describe('Crossplane map grouping', () => {
     });
 
     it.each([
-      { phase: 'gather', filter: 'Healthy' },
-      { phase: 'layout', filter: 'Healthy' },
-      { phase: 'layout', filter: 'None' },
-      { phase: 'layout', filter: 'All' },
+      { time: 125, filter: 'Healthy' },
+      { time: 375, filter: 'Healthy' },
+      { time: 375, filter: 'None' },
+      { time: 375, filter: 'All' },
     ])(
-      'freezes the camera when $filter filtering interrupts the group $phase phase',
-      async ({ phase, filter }) => {
+      'freezes the camera when $filter filtering interrupts aggregation at $time ms',
+      async ({ time, filter }) => {
         const clock = animationClock();
         const { rerender, graph } = await renderMotionGraph();
         mocks.source.current = {
           ...graph,
           nodes: graph.nodes.map(node =>
-            node.id === (filter === 'All' ? 'B2' : 'A2') ? { ...node, status: 'error' } : node
+            // 'None' makes every node error so the interrupting Healthy filter
+            // produces an empty result; other cases flip a single member.
+            filter === 'None' || node.id === (filter === 'All' ? 'B2' : 'A2')
+              ? { ...node, status: 'error' }
+              : node
           ),
         };
         rerender(<CrossplaneMap />);
@@ -3073,20 +3564,17 @@ describe('Crossplane map grouping', () => {
         }
         mocks.viewport = { x: 120, y: 80, zoom: 0.5 };
         mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
-        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Group A1' })));
+        await act(async () =>
+          fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }))
+        );
         await clock.frame(0);
-        await clock.frame(175);
-        if (phase === 'layout') {
-          await clock.frame(350);
-          await clock.frame(366);
-          await clock.frame(616);
-          expect(mocks.setViewport).toHaveBeenCalled();
-        }
+        await clock.frame(time);
+        expect(mocks.setViewport).toHaveBeenCalled();
         const viewport = { ...mocks.viewport };
         mocks.fitView.mockClear();
         mocks.setViewport.mockClear();
         mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 1800));
-        if (filter === 'None') selectOption('Status', 'All');
+        if (filter === 'None') selectStatus('Healthy');
         else selectStatus(filter as 'Healthy' | 'All');
         await act(async () => {});
         expect(mocks.viewport).toEqual(viewport);
@@ -3106,7 +3594,7 @@ describe('Crossplane map grouping', () => {
       }
     );
 
-    it('continues from the current ungroup frame without moving the camera when matching filters change', async () => {
+    it('continues from the current disaggregate frame without moving the camera when matching filters change', async () => {
       const clock = animationClock();
       mocks.reduceMotion = true;
       const { rerender, graph } = await renderMotionGraph();
@@ -3116,14 +3604,14 @@ describe('Crossplane map grouping', () => {
       };
       rerender(<CrossplaneMap />);
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Group A1' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Aggregate A1' }));
       });
       expect(visibleNames()).toEqual(['(A)', 'B1', 'B2', 'P']);
       mocks.reduceMotion = false;
       rerender(<CrossplaneMap />);
       mocks.layout.mockImplementationOnce(async input => positionedLayout(input, 900));
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Ungroup A' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Disaggregate A' }));
       });
       expect(
         screen.getByRole('combobox', { name: 'Status' }).getAttribute('aria-disabled')
@@ -3178,23 +3666,23 @@ describe('Crossplane map grouping', () => {
     });
   });
 
-  it('discards an unfinished grouped layout when all groups are removed', async () => {
-    mocks.source.current = groupingGraph();
+  it('discards an unfinished aggregated layout when all aggregates are removed', async () => {
+    mocks.source.current = aggregationGraph();
     render(<CrossplaneMap />);
     await waitFor(() => expect(mocks.nodes).toHaveLength(7));
-    let finishGrouping!: (result: any) => void;
+    let finishAggregation!: (result: any) => void;
     mocks.layout.mockImplementationOnce(
       () =>
         new Promise(resolve => {
-          finishGrouping = resolve;
+          finishAggregation = resolve;
         })
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Group all' }));
-    await waitFor(() => expect(finishGrouping).toBeDefined());
-    const groupedInput = mocks.layout.mock.calls.at(-1)![0];
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Combine all' }));
+    await waitFor(() => expect(finishAggregation).toBeDefined());
+    const aggregatedInput = mocks.layout.mock.calls.at(-1)![0];
+    fireEvent.click(screen.getByRole('button', { name: 'Separate all' }));
     await waitFor(() => expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D2']));
-    await act(async () => finishGrouping(groupedInput));
+    await act(async () => finishAggregation(aggregatedInput));
     expect(visibleNames()).toEqual(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D2']);
     expect(mocks.edges).toHaveLength(5);
   });

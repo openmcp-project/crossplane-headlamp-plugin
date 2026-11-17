@@ -43,7 +43,7 @@ function Card() {
   return (
     <div className="react-flow" data-testid="canvas">
       <div onFocus={handleFocus} data-testid="card">
-        <button type="button">Group resources</button>
+        <button type="button">Aggregate resources</button>
         <button type="button">Collapse children</button>
       </div>
     </div>
@@ -54,7 +54,7 @@ function renderCard() {
   render(<Card />);
   const canvas = screen.getByTestId('canvas');
   const card = screen.getByTestId('card');
-  const group = screen.getByRole('button', { name: 'Group resources' });
+  const aggregate = screen.getByRole('button', { name: 'Aggregate resources' });
   const collapse = screen.getByRole('button', { name: 'Collapse children' });
   Object.defineProperties(canvas, {
     clientWidth: { get: () => flow.width },
@@ -77,7 +77,7 @@ function renderCard() {
       )
   );
   for (const [button, x] of [
-    [group, 180],
+    [aggregate, 180],
     [collapse, 220],
   ] as const) {
     vi.spyOn(button, 'getBoundingClientRect').mockImplementation(() => {
@@ -97,7 +97,7 @@ function renderCard() {
         : matches(selector)
     );
   }
-  return { group, collapse, canvas };
+  return { aggregate, collapse, canvas };
 }
 
 it('centers an off-screen card that fits the canvas and preserves zoom', () => {
@@ -134,8 +134,8 @@ it.each([
 
 it('follows successive action focus on an oversized card', () => {
   flow.viewport.zoom = 4;
-  const { group, collapse } = renderCard();
-  act(() => group.focus());
+  const { aggregate, collapse } = renderCard();
+  act(() => aggregate.focus());
   act(() => collapse.focus());
 
   expect(document.activeElement).toBe(collapse);

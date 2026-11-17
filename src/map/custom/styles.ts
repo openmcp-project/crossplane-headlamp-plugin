@@ -1,9 +1,8 @@
 import { alpha, type SxProps, type Theme } from '@mui/material/styles';
 
 export const NODE_WIDTH = 264;
-export const RESOURCE_NODE_LAYOUT_HEIGHT = 148;
+export const RESOURCE_NODE_LAYOUT_HEIGHT = 128;
 export const AGGREGATED_NODE_HEIGHT = 129.6;
-export const NAMESPACE_LINE_HEIGHT = 20;
 export const AUX_HANDLE_OFFSET = 32;
 export const EDGE_LABEL_BG_PADDING: [number, number] = [8, 4];
 export const PANEL_ELEVATION = 2;

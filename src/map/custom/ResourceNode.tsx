@@ -16,7 +16,6 @@ import {
   AUX_HANDLE_OFFSET,
   CATEGORY_SWATCH_SX,
   getCardActionSx,
-  NAMESPACE_LINE_HEIGHT,
   NODE_WIDTH,
   TRIMMED_TEXT_SX,
 } from './styles';
@@ -26,19 +25,17 @@ export type ResourceNodeData = {
   kind: string;
   name: string;
   namespace?: string;
-  // Resolved color for the active category mode; undefined = uncategorized (mode "none").
+  // Resolved color for the resource's kind; undefined when the kind has no color.
   color?: string;
-  // Display text is separate from the category key so missing values have a readable label.
-  categoryLabel?: string;
   // Ready-and-synced health, derived upstream in the graph source.
   status?: 'success' | 'error';
   childNodeCount?: number;
   collapsed?: boolean;
   candidateMemberCount?: number;
-  groupHighlighted?: boolean;
-  onGroup?: () => void;
-  onGroupMouseEnter?: () => void;
-  onGroupMouseLeave?: () => void;
+  aggregateHighlighted?: boolean;
+  onAggregate?: () => void;
+  onAggregateMouseEnter?: () => void;
+  onAggregateMouseLeave?: () => void;
   onOpenDetails?: () => void;
   onToggleCollapse?: (id: string) => void;
 };
@@ -74,9 +71,9 @@ const ResourceCard = memo(function ResourceCard({
   const isError = data.status === 'error';
   const resourceName = data.namespace ? `${data.namespace}/${data.name}` : data.name;
   const collapseLabel = `${data.collapsed ? 'Expand' : 'Collapse'} children of ${resourceName}`;
-  const groupLabel = `Group ${data.candidateMemberCount ? `${data.candidateMemberCount} ` : ''}${
-    data.kind
-  } resources with ${resourceName}`;
+  const aggregateLabel = `Aggregate ${
+    data.candidateMemberCount ? `${data.candidateMemberCount} ` : ''
+  }${data.kind} resources with ${resourceName}`;
 
   return (
     <>
@@ -110,7 +107,7 @@ const ResourceCard = memo(function ResourceCard({
           // React Flow leaves the node container inert; the card owns its controls.
           pointerEvents: 'auto',
           boxShadow: selected ? `0 0 0 1.5px ${accent}, ${theme.shadows[2]}` : undefined,
-          outline: data.groupHighlighted ? `2px dashed ${theme.palette.primary.main}` : undefined,
+          outline: data.aggregateHighlighted ? `2px dashed ${accent}` : undefined,
           outlineOffset: 3,
           transition: 'box-shadow 120ms',
         }}
@@ -139,47 +136,45 @@ const ResourceCard = memo(function ResourceCard({
               '&:last-child': { pb: 0.75 },
             }}
           >
-            {data.categoryLabel && (
+            <Box
+              component="span"
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                mb: 0.75,
+                minWidth: 0,
+                typography: 'caption',
+                minHeight: '1.4em',
+              }}
+            >
               <Box
                 component="span"
+                aria-hidden="true"
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  mb: 0.75,
+                  ...CATEGORY_SWATCH_SX,
+                  color: color ?? theme.palette.text.secondary,
+                }}
+              />
+              <Typography
+                variant="caption"
+                title={data.kind}
+                sx={{
+                  ...TRIMMED_TEXT_SX,
+                  display: 'block',
                   minWidth: 0,
-                  typography: 'caption',
-                  minHeight: '1.4em',
+                  color: color ?? theme.palette.text.secondary,
+                  fontWeight: 600,
+                  lineHeight: 1.4,
+                  whiteSpace: 'nowrap',
+                  // Clip horizontally for ellipsis while leaving trimmed descenders visible.
+                  overflowX: 'clip',
+                  textOverflow: 'ellipsis',
                 }}
               >
-                <Box
-                  component="span"
-                  aria-hidden="true"
-                  sx={{
-                    ...CATEGORY_SWATCH_SX,
-                    color: color ?? theme.palette.text.secondary,
-                  }}
-                />
-                <Typography
-                  variant="caption"
-                  title={data.categoryLabel}
-                  sx={{
-                    ...TRIMMED_TEXT_SX,
-                    display: 'block',
-                    minWidth: 0,
-                    color: color ?? theme.palette.text.secondary,
-                    fontWeight: 600,
-                    lineHeight: 1.4,
-                    whiteSpace: 'nowrap',
-                    // Clip horizontally for ellipsis while leaving trimmed descenders visible.
-                    overflowX: 'clip',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {data.categoryLabel}
-                </Typography>
-              </Box>
-            )}
+                {data.kind}
+              </Typography>
+            </Box>
             <Typography
               component="span"
               title={resourceName}
@@ -198,35 +193,9 @@ const ResourceCard = memo(function ResourceCard({
             >
               {data.name}
             </Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                display: 'block',
-                mt: 1.5,
-                color: theme.palette.text.secondary,
-                lineHeight: 1.4,
-              }}
-            >
-              {data.kind}
-            </Typography>
-            {data.namespace && (
-              <Typography
-                component="span"
-                variant="caption"
-                title={`Namespace: ${data.namespace}`}
-                noWrap
-                sx={{
-                  display: 'block',
-                  color: 'text.secondary',
-                  lineHeight: `${NAMESPACE_LINE_HEIGHT}px`,
-                }}
-              >
-                Namespace: {data.namespace}
-              </Typography>
-            )}
           </CardContent>
         </Box>
-        {(data.status || data.onToggleCollapse || data.onGroup) && (
+        {(data.status || data.onToggleCollapse || data.onAggregate) && (
           <CardActions
             disableSpacing
             sx={{
@@ -241,16 +210,16 @@ const ResourceCard = memo(function ResourceCard({
             }}
           >
             <HealthIndicator status={data.status} />
-            {data.onGroup && (
+            {data.onAggregate && (
               <IconButton
                 type="button"
                 size="small"
                 color="inherit"
-                aria-label={groupLabel}
-                title={groupLabel}
-                onClick={data.onGroup}
-                onMouseEnter={data.onGroupMouseEnter}
-                onMouseLeave={data.onGroupMouseLeave}
+                aria-label={aggregateLabel}
+                title="Combine resources"
+                onClick={data.onAggregate}
+                onMouseEnter={data.onAggregateMouseEnter}
+                onMouseLeave={data.onAggregateMouseLeave}
                 sx={{
                   ...getCardActionSx(theme, isError ? theme.palette.error : undefined),
                   ml: 'auto',
@@ -280,7 +249,7 @@ const ResourceCard = memo(function ResourceCard({
                 onClick={() => data.onToggleCollapse?.(id)}
                 sx={{
                   ...getCardActionSx(theme, isError ? theme.palette.error : undefined),
-                  ml: data.onGroup ? 0 : 'auto',
+                  ml: data.onAggregate ? 0 : 'auto',
                   p: 0.5,
                   minWidth: 32,
                   height: 32,

@@ -15,17 +15,19 @@ import { useCardFocusPan } from './useCardFocusPan';
 export type AggregatedNodeData = {
   kind: string;
   apiGroup?: string;
+  // Kind color shared by all members; drives the aggregate hover highlight.
+  color?: string;
   memberCount: number;
   healthyMemberCount: number;
   childNodeCount?: number;
   collapsed?: boolean;
   onToggleCollapse?: (id: string) => void;
   candidateMemberCount?: number;
-  groupHighlighted?: boolean;
-  onGroup?: () => void;
-  onGroupMouseEnter?: () => void;
-  onGroupMouseLeave?: () => void;
-  onUngroup: () => void;
+  aggregateHighlighted?: boolean;
+  onAggregate?: () => void;
+  onAggregateMouseEnter?: () => void;
+  onAggregateMouseLeave?: () => void;
+  onDisaggregate: () => void;
 };
 
 export function AggregatedNode({ id, data }: NodeProps<Node<AggregatedNodeData>>) {
@@ -54,10 +56,10 @@ const AggregatedCard = memo(function AggregatedCard({
         dark: '#fbc02d',
         contrastText: theme.palette.getContrastText(warningColor),
       };
-  const groupLabel = `Group ${data.candidateMemberCount ? `${data.candidateMemberCount} ` : ''}${
-    data.kind
-  } resources${data.apiGroup ? ` from ${data.apiGroup}` : ''}`;
-  const ungroupLabel = `Ungroup ${data.memberCount} ${data.kind} resources${
+  const aggregateLabel = `Aggregate ${
+    data.candidateMemberCount ? `${data.candidateMemberCount} ` : ''
+  }${data.kind} resources${data.apiGroup ? ` from ${data.apiGroup}` : ''}`;
+  const disaggregateLabel = `Disaggregate ${data.memberCount} ${data.kind} resources${
     data.apiGroup ? ` from ${data.apiGroup}` : ''
   }`;
   const collapseLabel = `${data.collapsed ? 'Expand' : 'Collapse'} children of ${
@@ -96,7 +98,9 @@ const AggregatedCard = memo(function AggregatedCard({
           position: 'relative',
           pointerEvents: 'auto',
           borderRadius: 1,
-          outline: data.groupHighlighted ? `2px dashed ${theme.palette.primary.main}` : undefined,
+          outline: data.aggregateHighlighted
+            ? `2px dashed ${data.color ?? theme.palette.primary.main}`
+            : undefined,
           outlineOffset: 3,
           // The stack extends above the node; layout and edge anchors follow the front card.
           '&::before, &::after': {
@@ -209,16 +213,16 @@ const AggregatedCard = memo(function AggregatedCard({
                 {healthLabel}
               </Typography>
             </Box>
-            {data.onGroup && (
+            {data.onAggregate && (
               <IconButton
                 type="button"
                 size="small"
                 color="inherit"
-                aria-label={groupLabel}
-                title={groupLabel}
-                onClick={data.onGroup}
-                onMouseEnter={data.onGroupMouseEnter}
-                onMouseLeave={data.onGroupMouseLeave}
+                aria-label={aggregateLabel}
+                title="Combine resources"
+                onClick={data.onAggregate}
+                onMouseEnter={data.onAggregateMouseEnter}
+                onMouseLeave={data.onAggregateMouseLeave}
                 sx={{
                   ...getCardActionSx(theme, healthPalette),
                   ml: 'auto',
@@ -234,12 +238,12 @@ const AggregatedCard = memo(function AggregatedCard({
               type="button"
               size="small"
               color="inherit"
-              aria-label={ungroupLabel}
-              title={ungroupLabel}
-              onClick={data.onUngroup}
+              aria-label={disaggregateLabel}
+              title="Show resources individually"
+              onClick={data.onDisaggregate}
               sx={{
                 ...getCardActionSx(theme, healthPalette),
-                ml: data.onGroup ? 0 : 'auto',
+                ml: data.onAggregate ? 0 : 'auto',
                 p: 0.5,
                 width: 32,
                 height: 32,

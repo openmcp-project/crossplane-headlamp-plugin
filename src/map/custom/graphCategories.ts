@@ -16,13 +16,11 @@ import {
   teal,
 } from '@mui/material/colors';
 
-export type CategoryMode = 'provider' | 'providerConfig' | 'flux' | 'label' | 'none';
 export type CategoryKey = string | null;
 
 export interface CategoryFields {
-  providerCategory: string; // apiGroup, 'account.' prefix stripped; 'unknown' fallback
-  providerConfigName: string; // spec.providerConfigRef.name ?? 'unknown'
   fluxName: string | null; // first Flux label/annotation hit, else null
+  kind: string | null; // resource kind; null when absent
   labels: Record<string, string>;
 }
 
@@ -47,7 +45,7 @@ export const CATEGORY_PALETTE: ReadonlyArray<{ light: string; dark: string }> = 
 export const MISSING_CATEGORY_SWATCH = { light: grey[700], dark: grey[300] };
 
 // Label-key prefixes that are infrastructure noise, excluded from the
-// common-label category mode so user labels aren't drowned out.
+// label filters so user labels aren't drowned out.
 const SYSTEM_LABEL_PREFIXES: readonly string[] = [
   'app.kubernetes.io/',
   'kubernetes.io/',
@@ -66,9 +64,8 @@ export function categoryFieldsFromKubeObject(ko: any): CategoryFields {
   const annotations: Record<string, string> = item?.metadata?.annotations ?? {};
   const fluxName = FLUX_KEYS.map(k => labels[k] ?? annotations[k]).find(Boolean) ?? null;
   return {
-    providerCategory: providerCategoryFromApiVersion(item?.apiVersion ?? ''),
-    providerConfigName: item?.spec?.providerConfigRef?.name ?? 'unknown',
     fluxName,
+    kind: item?.kind ?? ko?._kind ?? null,
     labels,
   };
 }
@@ -77,63 +74,38 @@ export function isSystemLabel(key: string): boolean {
   return SYSTEM_LABEL_PREFIXES.some(p => (p.endsWith('/') ? key.startsWith(p) : key === p));
 }
 
-/** apiGroup of an apiVersion, minus a leading `account.`; 'unknown' when absent. */
-export function providerCategoryFromApiVersion(apiVersion: string): string {
-  const domain = apiVersion?.split('/')[0] || '';
-  return domain.replace(/^account\./, '') || 'unknown';
-}
-
-/** null marks a missing value; '' means categorization is disabled. */
+/** null marks a missing value. */
 export function categoryKeyOf(
   fields: CategoryFields,
-  mode: CategoryMode,
+  mode: 'flux' | 'label',
   labelKey?: string
 ): CategoryKey {
-  switch (mode) {
-    case 'provider':
-      return fields.providerCategory;
-    case 'providerConfig':
-      return fields.providerConfigName;
-    case 'flux':
-      return fields.fluxName || null;
-    case 'label':
-      if (!labelKey || !Object.prototype.hasOwnProperty.call(fields.labels, labelKey)) return null;
-      return fields.labels[labelKey] || null;
-    default:
-      return '';
-  }
+  if (mode === 'flux') return fields.fluxName || null;
+  if (!labelKey || !Object.prototype.hasOwnProperty.call(fields.labels, labelKey)) return null;
+  return fields.labels[labelKey] || null;
 }
 
 export function categoryLabelOf(key: CategoryKey): string {
   return key ?? 'Not set';
 }
 
-/** Assigns colors in dropdown sort order; missing Flux/label values stay grey. */
-export function generateCategoryColorMap(
-  fields: CategoryFields[],
-  mode: CategoryMode,
-  colorMode: 'light' | 'dark',
-  labelKey?: string
+/**
+ * Maps distinct keys to palette colors in sorted order (wrapping once all 14 are
+ * used); a null key marks a missing value and stays grey without consuming a color.
+ */
+export function assignCategoryColors(
+  keys: Iterable<CategoryKey>,
+  colorMode: 'light' | 'dark'
 ): Map<CategoryKey, string> {
   const map = new Map<CategoryKey, string>();
-  if (mode === 'none') return map;
-
-  const keys = new Set<string>();
-  for (const f of fields) {
-    const key = categoryKeyOf(f, mode, labelKey);
-    if (key === null) {
-      map.set(null, MISSING_CATEGORY_SWATCH[colorMode]);
-    } else if (key) {
-      keys.add(key);
-    }
+  const named = new Set<string>();
+  for (const key of keys) {
+    if (key === null) map.set(null, MISSING_CATEGORY_SWATCH[colorMode]);
+    else if (key) named.add(key);
   }
-
-  let paletteIndex = { provider: 0, providerConfig: 1, flux: 2, label: 3 }[mode];
-  for (const key of [...keys].sort()) {
-    map.set(key, CATEGORY_PALETTE[paletteIndex][colorMode]);
-    // Step 5 visits all 14 colors before repeating; each mode's first three are disjoint.
-    paletteIndex = (paletteIndex + 5) % CATEGORY_PALETTE.length;
-  }
+  [...named].sort().forEach((key, index) => {
+    map.set(key, CATEGORY_PALETTE[index % CATEGORY_PALETTE.length][colorMode]);
+  });
   return map;
 }
 

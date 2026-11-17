@@ -1,8 +1,12 @@
 import type { XYPosition } from '@xyflow/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { GraphEdge, GraphNode } from '../common/types';
-import { collectAllGroups, groupGraph, ResourceGroup } from './groupGraph';
-import { createLayoutInterpolator, planGroupTransition, TransitionGraph } from './groupTransition';
+import { aggregateGraph, collectAllAggregates, ResourceAggregate } from './aggregateGraph';
+import {
+  createLayoutInterpolator,
+  planAggregateTransition,
+  TransitionGraph,
+} from './aggregateTransition';
 import type { EdgeRoute, GraphLayout } from './layoutGraph';
 import { layoutGraph } from './layoutGraph';
 import { AGGREGATED_NODE_HEIGHT, NODE_WIDTH, RESOURCE_NODE_LAYOUT_HEIGHT } from './styles';
@@ -18,10 +22,10 @@ function edge(source: string, target: string, aux = false): GraphEdge {
 function graph(
   ids: string[],
   edges: GraphEdge[],
-  groups: ResourceGroup[],
+  aggregates: ResourceAggregate[],
   locations: Record<string, XYPosition>
 ): TransitionGraph {
-  const viewGraph = groupGraph(ids.map(resource), edges, groups);
+  const viewGraph = aggregateGraph(ids.map(resource), edges, aggregates);
   const input = {
     nodes: viewGraph.nodes.map(node => ({
       id: node.id,
@@ -84,38 +88,33 @@ function transitionPair() {
   return { previous, next };
 }
 
-describe('group transition planning', () => {
-  it('converges at the clicked node center and keeps unrelated children fixed', () => {
+describe('aggregate transition planning', () => {
+  it('converges at the clicked card’s final position while arranging its children', () => {
     const { previous, next } = transitionPair();
-    const plan = planGroupTransition(previous, next, 'A1');
-    expect(plan.hasGather).toBe(true);
-    expect([...plan.gathered.positions.keys()]).toEqual([...previous.positions.keys()]);
-    expect(plan.gathered.positions.get('A1')).toEqual({ x: 10, y: 20 });
-    expect(plan.gathered.positions.get('A2')).toEqual({ x: 10, y: 20 });
-    expect(plan.gathered.positions.get('B1')).toEqual(previous.positions.get('B1'));
-    expect(plan.gathered.positions.get('B2')).toEqual(previous.positions.get('B2'));
-    expect(plan.nextStartLayout.positions.get(aggregateId(next, ['A1', 'A2']))).toEqual({
-      x: 10,
-      y: 20,
+    const plan = planAggregateTransition(previous, next, 'A1');
+    expect(plan).toMatchObject({
+      replacement: 'crossfade',
+      incomingSources: [{ node: { id: aggregateId(next, ['A1', 'A2']) }, sourceIds: ['A1', 'A2'] }],
     });
-    expect(plan.nextStartLayout.positions.get('B1')).toEqual(previous.positions.get('B1'));
-    expect(plan.nextStartLayout.positions.get('B2')).toEqual(previous.positions.get('B2'));
+    expect(plan.start).toEqual(previous);
+    expect([...plan.target.positions.keys()]).toEqual([...previous.positions.keys()]);
+    expect(plan.target.positions.get('A1')).toEqual({ x: 700, y: 500 });
+    expect(plan.target.positions.get('A2')).toEqual({ x: 700, y: 500 });
+    expect(plan.target.positions.get('B1')).toEqual(next.positions.get('B1'));
+    expect(plan.target.positions.get('B2')).toEqual(next.positions.get('B2'));
   });
 
-  it('uses the mean visible-node center without an applicable clicked anchor', () => {
+  it('converges at the final aggregate center without an applicable clicked anchor', () => {
     const { previous, next } = transitionPair();
     for (const anchor of [undefined, 'B1']) {
-      const plan = planGroupTransition(previous, next, anchor);
-      expect(plan.gathered.positions.get('A1')).toEqual({ x: 160, y: 70 });
-      expect(plan.gathered.positions.get('A2')).toEqual({ x: 160, y: 70 });
-      expect(plan.nextStartLayout.positions.get(aggregateId(next, ['A1', 'A2']))).toEqual({
-        x: 160,
-        y: 60,
-      });
+      const plan = planAggregateTransition(previous, next, anchor);
+      expect(plan.start).toEqual(previous);
+      expect(plan.target.positions.get('A1')).toEqual({ x: 700, y: 510 });
+      expect(plan.target.positions.get('A2')).toEqual({ x: 700, y: 510 });
     }
   });
 
-  it('gathers multiple global groups at their own centroids', () => {
+  it('gathers multiple global aggregates directly at their final positions', () => {
     const ids = ['A1', 'A2', 'B1', 'B2'];
     const previous = graph(ids, [], [], {
       A1: { x: 0, y: 0 },
@@ -135,13 +134,14 @@ describe('group transition planning', () => {
         'B1+B2': { x: 400, y: 0 },
       }
     );
-    const plan = planGroupTransition(previous, next);
-    expect(plan.gathered.positions.get('A1')).toEqual({ x: 100, y: 0 });
-    expect(plan.gathered.positions.get('B1')).toEqual({ x: 300, y: 300 });
-    expect(plan.gathered.positions.get('B2')).toEqual({ x: 300, y: 300 });
+    const plan = planAggregateTransition(previous, next);
+    expect(plan.target.positions.get('A1')).toEqual({ x: 0, y: 10 });
+    expect(plan.target.positions.get('A2')).toEqual({ x: 0, y: 10 });
+    expect(plan.target.positions.get('B1')).toEqual({ x: 400, y: 10 });
+    expect(plan.target.positions.get('B2')).toEqual({ x: 400, y: 10 });
   });
 
-  it('merges an existing aggregate and singleton using their card centers, without member-count weighting', () => {
+  it('aligns differing card heights while merging an existing aggregate and singleton', () => {
     const ids = ['A1', 'A2', 'A3'];
     const previous = graph(ids, [], [['A1', 'A2']], {
       'A1+A2': { x: 100, y: 200 },
@@ -149,17 +149,24 @@ describe('group transition planning', () => {
     });
     const next = graph(ids, [], [['A1', 'A2', 'A3']], { 'A1+A2+A3': { x: 0, y: 0 } });
     const oldAggregate = aggregateId(previous, ['A1', 'A2']);
-    const plan = planGroupTransition(previous, next);
-    expect(plan.gathered.positions.get(oldAggregate)).toEqual({ x: 300, y: 95 });
-    expect(plan.gathered.positions.get('A3')).toEqual({ x: 300, y: 105 });
-    expect(plan.nextStartLayout.positions.get(aggregateId(next, ids))).toEqual({ x: 300, y: 95 });
+    const plan = planAggregateTransition(previous, next);
+    expect(plan).toMatchObject({
+      replacement: 'crossfade',
+      incomingSources: [{ node: { id: aggregateId(next, ids) }, sourceIds: [oldAggregate, 'A3'] }],
+    });
+    expect(plan.target.positions.get(oldAggregate)).toEqual({ x: 0, y: 0 });
+    expect(plan.target.positions.get('A3')).toEqual({ x: 0, y: 10 });
 
-    const clicked = planGroupTransition(previous, next, oldAggregate);
-    expect(clicked.gathered.positions.get(oldAggregate)).toEqual({ x: 100, y: 200 });
-    expect(clicked.gathered.positions.get('A3')).toEqual({ x: 100, y: 210 });
+    const clicked = planAggregateTransition(previous, next, oldAggregate);
+    expect(clicked.target.positions.get(oldAggregate)).toEqual({ x: 0, y: 0 });
+    expect(clicked.target.positions.get('A3')).toEqual({ x: 0, y: 10 });
+
+    const clickedSingleton = planAggregateTransition(previous, next, 'A3');
+    expect(clickedSingleton.target.positions.get(oldAggregate)).toEqual({ x: 0, y: -10 });
+    expect(clickedSingleton.target.positions.get('A3')).toEqual({ x: 0, y: 0 });
   });
 
-  it('starts ungrouped resources and indirectly split child groups at their old aggregate centers', () => {
+  it('starts disaggregated resources and indirectly split child aggregates at their old aggregate centers', () => {
     const ids = ['A1', 'A2', 'B1', 'B2', 'B3', 'B4'];
     const edges = [edge('A1', 'B1'), edge('A1', 'B2'), edge('A2', 'B3'), edge('A2', 'B4')];
     const previous = graph(
@@ -188,26 +195,48 @@ describe('group transition planning', () => {
         'B3+B4': { x: 300, y: 200 },
       }
     );
-    const plan = planGroupTransition(previous, next);
-    expect(plan.hasGather).toBe(false);
-    expect(plan.gathered.positions).toEqual(previous.positions);
-    expect(plan.nextStartLayout.positions.get('A1')).toEqual({ x: 0, y: 10 });
-    expect(plan.nextStartLayout.positions.get('A2')).toEqual({ x: 0, y: 10 });
-    expect(plan.nextStartLayout.positions.get(aggregateId(next, ['B1', 'B2']))).toEqual({
+    const plan = planAggregateTransition(previous, next);
+    expect(plan.replacement).toBe('immediate');
+    expect(plan.start.viewGraph).toBe(next.viewGraph);
+    expect(plan.target).toBe(next);
+    expect(plan.start.positions.get('A1')).toEqual({ x: 0, y: 10 });
+    expect(plan.start.positions.get('A2')).toEqual({ x: 0, y: 10 });
+    expect(plan.start.positions.get(aggregateId(next, ['B1', 'B2']))).toEqual({
       x: 100,
       y: 200,
     });
-    expect(plan.nextStartLayout.positions.get(aggregateId(next, ['B3', 'B4']))).toEqual({
+    expect(plan.start.positions.get(aggregateId(next, ['B3', 'B4']))).toEqual({
       x: 100,
       y: 200,
     });
-    for (const route of plan.nextStartLayout.routes.values()) {
+    for (const route of plan.start.routes.values()) {
       expect(route.points[0]).toEqual({ x: 50, y: 50 });
       expect(route.points.at(-1)).toEqual({ x: 150, y: 200 });
     }
   });
 
-  it('moves bends and labels with their endpoints during gathering', () => {
+  it('replaces cards immediately when one aggregate splits while another merges', () => {
+    const ids = ['A1', 'A2', 'B1', 'B2'];
+    const previous = graph(ids, [], [['A1', 'A2']], {
+      'A1+A2': { x: 0, y: 0 },
+      B1: { x: 200, y: 0 },
+      B2: { x: 400, y: 0 },
+    });
+    const next = graph(ids, [], [['B1', 'B2']], {
+      A1: { x: 0, y: 300 },
+      A2: { x: 200, y: 300 },
+      'B1+B2': { x: 400, y: 300 },
+    });
+    const plan = planAggregateTransition(previous, next);
+    expect(plan.replacement).toBe('immediate');
+    expect(plan.start.viewGraph).toBe(next.viewGraph);
+    expect(plan.start.positions.get('A1')).toEqual({ x: 0, y: 10 });
+    expect(plan.start.positions.get('A2')).toEqual({ x: 0, y: 10 });
+    expect(plan.start.positions.get(aggregateId(next, ['B1', 'B2']))).toEqual({ x: 300, y: -10 });
+    expect(plan.target).toBe(next);
+  });
+
+  it('moves bends and labels toward the final routes with the same progress as cards', () => {
     const { previous, next } = transitionPair();
     const id = edge('A2', 'B2').id;
     previous.routes.set(id, {
@@ -219,20 +248,15 @@ describe('group transition planning', () => {
       ],
       labelPosition: { x: 380, y: 280 },
     });
-    const plan = planGroupTransition(previous, next, 'A1');
-    expect(plan.gathered.routes.get(id)?.points).toEqual([
-      { x: 60, y: 60 },
-      { x: 210, y: 230 },
-      { x: 360, y: 400 },
-    ]);
-    expect(plan.gathered.routes.get(id)?.labelPosition).toEqual({ x: 230, y: 230 });
-    const remapped = [...plan.nextStartLayout.routes.values()].find(
-      route => route.target === 'B2'
-    )!;
-    expect(remapped.source).toBe(aggregateId(next, ['A1', 'A2']));
-    expect(remapped.points[0]).toEqual({ x: 60, y: 80 });
-    expect(remapped.points.at(-1)).toEqual({ x: 360, y: 400 });
-    expect(remapped.points).toHaveLength(3);
+    const remapped = [...next.routes.values()].find(route => route.target === 'B2')!;
+    remapped.labelPosition = { x: 950, y: 650 };
+    const plan = planAggregateTransition(previous, next, 'A1');
+    expect(plan.start.routes.get(id)).toBe(previous.routes.get(id));
+    expect(plan.target.routes.get(id)?.points).toEqual(remapped.points);
+    expect(plan.target.routes.get(id)?.labelPosition).toEqual(remapped.labelPosition);
+    const middle = createLayoutInterpolator(plan.start, plan.target)(0.5);
+    expect(middle.positions.get('A2')).toEqual({ x: 505, y: 310 });
+    expect(middle.routes.get(id)?.labelPosition).toEqual({ x: 665, y: 465 });
   });
 
   it('prefers an unchanged edge identity and keeps auxiliary routes separate', () => {
@@ -253,11 +277,12 @@ describe('group transition planning', () => {
       A2: { x: 300, y: 100 },
       B1: { x: 200, y: 400 },
     });
-    const stable = planGroupTransition(previous, unchanged);
-    expect(stable.nextStartLayout.routes.get('another')?.points).toEqual(
+    const stable = planAggregateTransition(previous, unchanged);
+    expect(stable.replacement).toBe('immediate');
+    expect(stable.start.routes.get('another')?.points).toEqual(
       previous.routes.get('another')!.points
     );
-    expect(stable.nextStartLayout.routes.get(edge('A1', 'B1').id)?.points).toEqual(
+    expect(stable.start.routes.get(edge('A1', 'B1').id)?.points).toEqual(
       previous.routes.get(edge('A1', 'B1').id)!.points
     );
 
@@ -265,15 +290,15 @@ describe('group transition planning', () => {
       'A1+A2': { x: 100, y: 100 },
       B1: { x: 100, y: 400 },
     });
-    const merged = planGroupTransition(previous, next, 'A1');
-    const aux = [...merged.nextStartLayout.routes.values()].find(route => route.aux)!;
-    expect(aux.points[0]).toEqual({ x: 70, y: 60 });
-    expect(aux.points.at(-1)).toEqual({ x: 170, y: 300 });
+    const merged = planAggregateTransition(previous, next, 'A1');
+    const aux = [...merged.target.routes.values()].find(route => route.aux)!;
+    expect(aux.points[0]).toEqual({ x: 170, y: 160 });
+    expect(aux.points.at(-1)).toEqual({ x: 170, y: 400 });
     expect(aux.labelPosition).toBeDefined();
-    expect([...merged.nextStartLayout.routes.values()].filter(route => !route.aux)).toHaveLength(1);
+    expect([...merged.target.routes.values()].filter(route => !route.aux)).toHaveLength(2);
   });
 
-  it('inherits the first route by identity when several previous sources merge', () => {
+  it('retains each previous route until it reaches the merged route geometry', () => {
     const ids = ['A1', 'A2', 'B1', 'B2'];
     const edges = [
       { ...edge('A1', 'B1'), id: 'z-route' },
@@ -298,11 +323,15 @@ describe('group transition planning', () => {
         'B1+B2': { x: 0, y: 300 },
       }
     );
-    const plan = planGroupTransition(previous, next);
-    expect([...plan.nextStartLayout.routes.values()][0].points).toHaveLength(5);
+    const plan = planAggregateTransition(previous, next);
+    expect(plan.start.routes.get('a-route')?.points).toHaveLength(5);
+    expect(plan.start.routes.get('z-route')?.points).toHaveLength(4);
+    const mergedRoute = [...next.routes.values()][0];
+    expect(plan.target.routes.get('a-route')?.points).toEqual(mergedRoute.points);
+    expect(plan.target.routes.get('z-route')?.points).toEqual(mergedRoute.points);
   });
 
-  it('keeps route planning storage linear when restoring sparse relationships between groups', () => {
+  it('keeps route planning storage linear when restoring sparse relationships between aggregates', () => {
     const mapWrites = [64, 128].map(count => {
       const sources = Array.from(
         { length: count },
@@ -323,16 +352,16 @@ describe('group transition planning', () => {
       );
       // Map writes expose pair expansion without machine-dependent timing thresholds.
       const writes = vi.spyOn(Map.prototype, 'set');
-      let plan: ReturnType<typeof planGroupTransition>;
+      let plan: ReturnType<typeof planAggregateTransition>;
       let writeCount: number;
       try {
-        plan = planGroupTransition(previous, next);
+        plan = planAggregateTransition(previous, next);
         writeCount = writes.mock.calls.length;
       } finally {
         writes.mockRestore();
       }
-      expect(plan.nextStartLayout.routes.size).toBe(count);
-      for (const route of plan.nextStartLayout.routes.values()) {
+      expect(plan.start.routes.size).toBe(count);
+      for (const route of plan.start.routes.values()) {
         expect(route.points[0]).toEqual({ x: 50, y: 50 });
         expect(route.points.at(-1)).toEqual({ x: 50, y: 310 });
       }
@@ -362,17 +391,17 @@ describe('group transition planning', () => {
       // Count reads as well as membership checks so recounting degrees cannot hide quadratic work.
       const gets = vi.spyOn(Map.prototype, 'get');
       const checks = vi.spyOn(Set.prototype, 'has');
-      let plan: ReturnType<typeof planGroupTransition>;
+      let plan: ReturnType<typeof planAggregateTransition>;
       let lookupCount: number;
       try {
-        plan = planGroupTransition(previous, next);
+        plan = planAggregateTransition(previous, next);
         lookupCount = gets.mock.calls.length + checks.mock.calls.length;
       } finally {
         gets.mockRestore();
         checks.mockRestore();
       }
-      expect(plan.nextStartLayout.routes.size).toBe(count);
-      expect([...plan.nextStartLayout.routes.values()].every(route => route.aux)).toBe(true);
+      expect(plan.target.routes.size).toBe(count);
+      expect([...plan.target.routes.values()].every(route => route.aux)).toBe(true);
       return lookupCount;
     });
     expect(lookupCounts[1]).toBeLessThanOrEqual(lookupCounts[0] * 2);
@@ -384,10 +413,10 @@ describe('group transition planning', () => {
       kubeObject: { kind: id.startsWith('A') ? 'A' : id, apiVersion: 'example.org/v1' },
     }));
     const edges = [edge('P', 'A1'), edge('P', 'A2'), edge('A1', 'B1'), edge('A2', 'B2')];
-    const allGroups = collectAllGroups(nodes, edges);
-    expect(allGroups).toEqual([['A1', 'A2']]);
-    async function drawing(groups: ResourceGroup[]): Promise<TransitionGraph> {
-      const viewGraph = groupGraph(nodes, edges, groups);
+    const allAggregates = collectAllAggregates(nodes, edges);
+    expect(allAggregates).toEqual([['A1', 'A2']]);
+    async function drawing(aggregates: ResourceAggregate[]): Promise<TransitionGraph> {
+      const viewGraph = aggregateGraph(nodes, edges, aggregates);
       const input = {
         nodes: viewGraph.nodes.map(node => ({
           id: node.id,
@@ -399,26 +428,26 @@ describe('group transition planning', () => {
       return { ...(await layoutGraph(input)), input, viewGraph };
     }
     const original = await drawing([]);
-    const grouped = await drawing(allGroups);
+    const aggregated = await drawing(allAggregates);
+    const mergedLayout = planAggregateTransition(original, aggregated).target;
     expect([...original.routes.values()].some(route => route.points.length > 2)).toBe(true);
     let current = original;
     for (let cycle = 1; cycle <= 12; cycle++) {
-      const groupPlan = planGroupTransition(current, grouped);
-      expect(groupPlan.hasGather).toBe(true);
-      const gather = createLayoutInterpolator(current, groupPlan.gathered, {
-        preserveRoutePointCorrespondence: true,
-      });
-      current = { ...current, ...gather(0.5) };
-      const ungroupPlan = planGroupTransition(current, original);
-      expect(ungroupPlan.hasGather).toBe(false);
+      const aggregatePlan = planAggregateTransition(current, aggregated);
       current = {
-        ...original,
-        ...createLayoutInterpolator(ungroupPlan.nextStartLayout, original)(0.5),
+        ...aggregatePlan.start,
+        ...createLayoutInterpolator(aggregatePlan.start, aggregatePlan.target)(0.5),
+      };
+      const disaggregatePlan = planAggregateTransition(current, original);
+      current = {
+        ...disaggregatePlan.start,
+        ...createLayoutInterpolator(disaggregatePlan.start, disaggregatePlan.target)(0.5),
       };
       for (const [id, route] of current.routes) {
         const originalPointCount = original.routes.get(id)!.points.length;
+        const mergedPointCount = mergedLayout.routes.get(id)!.points.length;
         expect(route.points.length).toBeLessThanOrEqual(
-          originalPointCount + cycle * (originalPointCount - 2)
+          originalPointCount + cycle * (originalPointCount + mergedPointCount - 4)
         );
       }
     }
@@ -437,17 +466,111 @@ describe('group transition planning', () => {
         Object.freeze(route);
       }
     }
-    const plan = planGroupTransition(previous, next);
-    const gather = createLayoutInterpolator(previous, plan.gathered, {
-      preserveRoutePointCorrespondence: true,
-    });
-    const expand = createLayoutInterpolator(plan.nextStartLayout, next);
-    gather(0.4);
-    expand(0.7);
+    const plan = planAggregateTransition(previous, next);
+    const interpolate = createLayoutInterpolator(plan.start, plan.target);
+    interpolate(0.4);
+    interpolate(0.7);
     expect(previous).toEqual(before);
     expect(next).toEqual(destination);
-    expect(expand(1)).toBe(next);
+    expect(interpolate(1)).toBe(plan.target);
   });
+});
+
+describe('aggregate all transition planning', () => {
+  it('moves nested groups and unrelated cards directly to the final layout while merging routes', () => {
+    const ids = ['P', 'A1', 'A2', 'B1', 'B2'];
+    const edges = [
+      edge('P', 'A1'),
+      edge('P', 'A2'),
+      edge('A1', 'B1'),
+      edge('A2', 'B2'),
+      edge('A1', 'B1', true),
+      edge('A2', 'B2', true),
+    ];
+    const previous = graph(ids, edges, [], {
+      P: { x: 200, y: 0 },
+      A1: { x: 0, y: 200 },
+      A2: { x: 400, y: 200 },
+      B1: { x: 0, y: 500 },
+      B2: { x: 400, y: 500 },
+    });
+    const next = graph(
+      ids,
+      edges,
+      [
+        ['A1', 'A2'],
+        ['B1', 'B2'],
+      ],
+      {
+        P: { x: 700, y: 0 },
+        'A1+A2': { x: 700, y: 200 },
+        'B1+B2': { x: 700, y: 500 },
+      }
+    );
+    const original = structuredClone(previous);
+    const destination = structuredClone(next);
+    const target = planAggregateTransition(previous, next).target;
+    expect([...target.positions.keys()]).toEqual([...previous.positions.keys()]);
+    expect(target.positions.get('P')).toEqual({ x: 700, y: 0 });
+    for (const id of ['A1', 'A2']) expect(target.positions.get(id)).toEqual({ x: 700, y: 210 });
+    for (const id of ['B1', 'B2']) expect(target.positions.get(id)).toEqual({ x: 700, y: 510 });
+    expect([...target.routes.keys()]).toEqual([...previous.routes.keys()]);
+    const a = aggregateId(next, ['A1', 'A2']);
+    const b = aggregateId(next, ['B1', 'B2']);
+    for (const route of target.routes.values()) {
+      const merged = [...next.routes.values()].find(
+        nextRoute =>
+          nextRoute.source === (route.source === 'P' ? 'P' : a) &&
+          nextRoute.target === (route.source === 'P' ? a : b) &&
+          !!nextRoute.aux === !!route.aux
+      )!;
+      expect(route).toEqual({
+        ...previous.routes.get(route.id),
+        points: merged.points,
+        labelPosition: merged.labelPosition,
+      });
+    }
+    createLayoutInterpolator(previous, target)(0.5);
+    expect(previous).toEqual(original);
+    expect(next).toEqual(destination);
+  });
+
+  it('preserves distinct routes between unchanged endpoints', () => {
+    const ids = ['P', 'Q', 'A1', 'A2'];
+    const edges = [edge('P', 'Q'), { ...edge('P', 'Q'), id: 'parallel' }];
+    const previous = graph(ids, edges, [], {
+      P: { x: 0, y: 0 },
+      Q: { x: 0, y: 300 },
+      A1: { x: 300, y: 0 },
+      A2: { x: 600, y: 0 },
+    });
+    const next = graph(ids, edges, [['A1', 'A2']], {
+      P: { x: 700, y: 0 },
+      Q: { x: 700, y: 300 },
+      'A1+A2': { x: 1000, y: 0 },
+    });
+    next.routes.get('parallel')!.points.splice(1, 0, { x: 1000, y: 200 });
+    const target = planAggregateTransition(previous, next).target;
+    for (const id of [edge('P', 'Q').id, 'parallel'])
+      expect(target.routes.get(id)?.points).toEqual(next.routes.get(id)!.points);
+  });
+
+  it.each([{ ids: ['A1', 'A2', 'A3'] }, { ids: ['A2', 'A3'] }])(
+    'merges existing aggregates with singletons using matching members $ids',
+    ({ ids }) => {
+      const previous = graph(['A1', 'A2', 'A3'], [], [['A1', 'A2']], {
+        'A1+A2': { x: 100, y: 200 },
+        A3: { x: 500, y: 0 },
+      });
+      const next = graph(ids, [], [ids], { [ids.join('+')]: { x: 900, y: 500 } });
+      const target = planAggregateTransition(previous, next).target;
+      expect(target.positions.get(aggregateId(previous, ['A1', 'A2']))).toEqual({
+        x: 900,
+        y: 500,
+      });
+      expect(target.positions.get('A3')).toEqual({ x: 900, y: 510 });
+    }
+  );
 });
 
 function layout(points: XYPosition[], labelPosition?: XYPosition): GraphLayout {
@@ -468,7 +591,7 @@ function layout(points: XYPosition[], labelPosition?: XYPosition): GraphLayout {
 }
 
 describe('layout interpolation', () => {
-  it('preserves known gathering correspondence without assuming equal-length layouts correspond', () => {
+  it('retains differing corners when routes have the same number of points', () => {
     const from = layout([
       { x: 0, y: 0 },
       { x: 0, y: 100 },
@@ -479,13 +602,13 @@ describe('layout interpolation', () => {
       { x: 150, y: 0 },
       { x: 150, y: 150 },
     ]);
-    expect(createLayoutInterpolator(from, to)(0.5).routes.get('edge')!.points).toHaveLength(4);
-    const gather = createLayoutInterpolator(from, to, { preserveRoutePointCorrespondence: true });
-    expect(gather(0)).toBe(from);
-    expect(gather(1)).toBe(to);
-    expect(gather(0.5).routes.get('edge')!.points).toEqual([
+    const interpolate = createLayoutInterpolator(from, to);
+    expect(interpolate(0)).toBe(from);
+    expect(interpolate(1)).toBe(to);
+    expect(interpolate(0.5).routes.get('edge')!.points).toEqual([
       { x: 50, y: 0 },
-      { x: 75, y: 50 },
+      { x: 75, y: 25 },
+      { x: 75, y: 75 },
       { x: 125, y: 125 },
     ]);
   });

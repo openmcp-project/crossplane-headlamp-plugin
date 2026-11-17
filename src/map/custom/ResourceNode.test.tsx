@@ -4,7 +4,7 @@ import { readFileSync } from 'fs';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { layoutGraph } from './layoutGraph';
 import { ResourceNode } from './ResourceNode';
-import { NAMESPACE_LINE_HEIGHT, NODE_WIDTH, RESOURCE_NODE_LAYOUT_HEIGHT } from './styles';
+import { NODE_WIDTH, RESOURCE_NODE_LAYOUT_HEIGHT } from './styles';
 
 const nodeTypes = { resource: ResourceNode };
 const flowStyles = document.createElement('style');
@@ -29,9 +29,9 @@ afterEach(() => {
 afterAll(() => flowStyles.remove());
 
 it.each(['success', 'error'] as const)(
-  'groups resources independently of details and child visibility (status: %s)',
+  'aggregates resources independently of details and child visibility (status: %s)',
   status => {
-    const onGroup = vi.fn();
+    const onAggregate = vi.fn();
     const onOpenDetails = vi.fn();
     const onToggleCollapse = vi.fn();
     render(
@@ -51,7 +51,7 @@ it.each(['success', 'error'] as const)(
               status,
               childNodeCount: 1,
               candidateMemberCount: 4,
-              onGroup,
+              onAggregate,
               onOpenDetails,
               onToggleCollapse,
             },
@@ -61,12 +61,15 @@ it.each(['success', 'error'] as const)(
     );
 
     expect(screen.getByText(status === 'success' ? 'Healthy' : 'Needs Attention')).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Group 4 ServiceInstance resources with team-a/sample',
-      })
-    );
-    expect(onGroup).toHaveBeenCalledOnce();
+    expect(screen.getByText('ServiceInstance')).toBeTruthy();
+    expect(screen.getByText('sample').title).toBe('team-a/sample');
+    expect(screen.queryByText('Namespace: team-a')).toBeNull();
+    const aggregate = screen.getByRole('button', {
+      name: 'Aggregate 4 ServiceInstance resources with team-a/sample',
+    });
+    expect(aggregate.title).toBe('Combine resources');
+    fireEvent.click(aggregate);
+    expect(onAggregate).toHaveBeenCalledOnce();
     expect(onOpenDetails).not.toHaveBeenCalled();
     expect(onToggleCollapse).not.toHaveBeenCalled();
 
@@ -78,14 +81,14 @@ it.each(['success', 'error'] as const)(
     expect(collapse.title).toBe('Collapse 1 child node of team-a/sample');
     fireEvent.click(collapse);
     expect(onToggleCollapse).toHaveBeenCalledWith('resource');
-    expect(onGroup).toHaveBeenCalledOnce();
+    expect(onAggregate).toHaveBeenCalledOnce();
   }
 );
 
 it.each([undefined, 'team-a'])(
   'aligns both handle types with ELK ports (namespace: %s)',
   async namespace => {
-    const height = RESOURCE_NODE_LAYOUT_HEIGHT + (namespace ? NAMESPACE_LINE_HEIGHT : 0);
+    const height = RESOURCE_NODE_LAYOUT_HEIGHT;
     const onError = vi.fn();
     const { container } = render(
       <ReactFlow
@@ -105,7 +108,7 @@ it.each([undefined, 'team-a'])(
     );
     // JSDOM has no viewport dimensions; all other React Flow errors remain failures.
     expect(onError.mock.calls.every(([code]) => code === '004')).toBe(true);
-    expect(screen.queryByRole('button', { name: /^Group / })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Aggregate / })).toBeNull();
     const card = container.querySelector('.MuiCard-root')!;
     const width = parseFloat(getComputedStyle(card).width);
     expect(width).toBe(NODE_WIDTH);

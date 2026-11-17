@@ -1,21 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assignCategoryColors,
   CATEGORY_PALETTE,
   CategoryFields,
   categoryFieldsFromKubeObject,
   categoryKeyOf,
   collectLabelKeys,
-  generateCategoryColorMap,
   isSystemLabel,
   MISSING_CATEGORY_SWATCH,
-  providerCategoryFromApiVersion,
 } from './graphCategories';
 
 function field(overrides: Partial<CategoryFields> = {}): CategoryFields {
   return {
-    providerCategory: 'unknown',
-    providerConfigName: 'unknown',
     fluxName: null,
+    kind: null,
     labels: {},
     ...overrides,
   };
@@ -25,20 +23,23 @@ describe('categoryFieldsFromKubeObject', () => {
   it.each(['plain', 'wrapped'])('extracts categories from a %s resource', shape => {
     const resource = {
       apiVersion: 'account.btp.sap.crossplane.io/v1alpha1',
+      kind: 'Subaccount',
       metadata: {
         labels: { team: 'platform', 'kustomize.toolkit.fluxcd.io/name': 'from-label' },
         annotations: { 'kustomize.toolkit.fluxcd.io/name': 'from-annotation' },
       },
-      spec: { providerConfigRef: { name: 'my-account' } },
     };
     expect(
       categoryFieldsFromKubeObject(shape === 'wrapped' ? { jsonData: resource } : resource)
     ).toEqual({
-      providerCategory: 'btp.sap.crossplane.io',
-      providerConfigName: 'my-account',
       fluxName: 'from-label',
+      kind: 'Subaccount',
       labels: resource.metadata.labels,
     });
+  });
+
+  it('reads the kind from an unwrapped resource _kind fallback', () => {
+    expect(categoryFieldsFromKubeObject({ _kind: 'ServiceInstance' }).kind).toBe('ServiceInstance');
   });
 
   it.each(['kustomize.toolkit.fluxcd.io/name', 'helm.toolkit.fluxcd.io/name'])(
@@ -66,41 +67,15 @@ describe('categoryFieldsFromKubeObject', () => {
   });
 });
 
-describe('providerCategoryFromApiVersion', () => {
-  it('takes the apiGroup before the slash', () => {
-    expect(providerCategoryFromApiVersion('iam.aws.crossplane.io/v1beta1')).toBe(
-      'iam.aws.crossplane.io'
-    );
-  });
-
-  it('strips a leading account. prefix', () => {
-    expect(providerCategoryFromApiVersion('account.btp.sap.crossplane.io/v1alpha1')).toBe(
-      'btp.sap.crossplane.io'
-    );
-  });
-
-  it('falls back to unknown for empty input', () => {
-    expect(providerCategoryFromApiVersion('')).toBe('unknown');
-  });
-});
-
 describe('categoryKeyOf', () => {
   const f = field({
-    providerCategory: 'aws',
-    providerConfigName: 'pc-a',
     fluxName: 'ks-1',
     labels: { team: 'blue', '': '' },
   });
 
   it('returns the field matching the mode', () => {
-    expect(categoryKeyOf(f, 'provider')).toBe('aws');
-    expect(categoryKeyOf(f, 'providerConfig')).toBe('pc-a');
     expect(categoryKeyOf(f, 'flux')).toBe('ks-1');
     expect(categoryKeyOf(f, 'label', 'team')).toBe('blue');
-  });
-
-  it('returns empty string for mode none', () => {
-    expect(categoryKeyOf(f, 'none')).toBe('');
   });
 
   it('buckets empty and missing label values under null', () => {
@@ -120,94 +95,32 @@ describe('categoryKeyOf', () => {
   });
 });
 
-describe.each(['light', 'dark'] as const)('generateCategoryColorMap (%s)', colorMode => {
-  it('returns an empty map for mode none', () => {
-    const map = generateCategoryColorMap([field({ providerCategory: 'aws' })], 'none', colorMode);
-    expect(map.size).toBe(0);
+describe.each(['light', 'dark'] as const)('assignCategoryColors (%s)', colorMode => {
+  it('colors distinct keys in sorted order and keeps null grey without a palette color', () => {
+    const map = assignCategoryColors(['b', null, 'a', 'b'], colorMode);
+    expect([...map.keys()]).toEqual([null, 'a', 'b']);
+    expect(map.get(null)).toBe(MISSING_CATEGORY_SWATCH[colorMode]);
+    expect(map.get('a')).toBe(CATEGORY_PALETTE[0][colorMode]);
+    expect(map.get('b')).toBe(CATEGORY_PALETTE[1][colorMode]);
   });
 
-  it('assigns distinct colors in dropdown sort order', () => {
-    const fields = [
-      field({ providerCategory: 'b' }),
-      field({ providerCategory: 'a' }),
-      field({ providerCategory: 'b' }),
-    ];
-    const map = generateCategoryColorMap(fields, 'provider', colorMode);
-    expect([...map.keys()]).toEqual(['a', 'b']);
-    expect(new Set(map.values()).size).toBe(2);
-  });
-
-  it.each(['provider', 'providerConfig', 'flux', 'label'] as const)(
-    'uses every color before repeating and stays stable for %s',
-    mode => {
-      const fields = Array.from({ length: CATEGORY_PALETTE.length + 1 }, (_, i) =>
-        field({
-          providerCategory: `p${i}`,
-          providerConfigName: `pc${i}`,
-          fluxName: `flux${i}`,
-          labels: { team: `team${i}` },
-        })
-      );
-      const map = generateCategoryColorMap(fields, mode, colorMode, 'team');
-      const colors = [...map.values()];
-      expect(new Set(colors.slice(0, CATEGORY_PALETTE.length))).toEqual(
-        new Set(CATEGORY_PALETTE.map(color => color[colorMode]))
-      );
-      expect(colors[CATEGORY_PALETTE.length]).toBe(colors[0]);
-      expect(generateCategoryColorMap([...fields].reverse(), mode, colorMode, 'team')).toEqual(map);
-    }
-  );
-
-  it('uses different first three colors across the four modes', () => {
-    const fields = Array.from({ length: 3 }, (_, i) =>
-      field({
-        providerCategory: `p${i}`,
-        providerConfigName: `pc${i}`,
-        fluxName: `flux${i}`,
-        labels: { team: `team${i}` },
-      })
+  it('uses every color before repeating and stays stable when keys change order', () => {
+    const keys = Array.from({ length: CATEGORY_PALETTE.length + 1 }, (_, i) => `kind${i}`);
+    const map = assignCategoryColors(keys, colorMode);
+    const colors = [...map.values()];
+    expect(colors.slice(0, CATEGORY_PALETTE.length)).toEqual(
+      CATEGORY_PALETTE.map(color => color[colorMode])
     );
-    const colors = (['provider', 'providerConfig', 'flux', 'label'] as const).flatMap(mode => [
-      ...generateCategoryColorMap(fields, mode, colorMode, 'team').values(),
-    ]);
-    expect(new Set(colors).size).toBe(12);
+    expect(colors[CATEGORY_PALETTE.length]).toBe(colors[0]);
+    expect(assignCategoryColors([...keys].reverse(), colorMode)).toEqual(map);
   });
 
-  it('uses the same color sequence for different label keys', () => {
-    const fields = [
-      field({ labels: { team: 'platform', environment: 'dev' } }),
-      field({ labels: { team: 'product', environment: 'prod' } }),
-    ];
-    expect([...generateCategoryColorMap(fields, 'label', colorMode, 'team').values()]).toEqual([
-      ...generateCategoryColorMap(fields, 'label', colorMode, 'environment').values(),
-    ]);
+  it('keeps a literal default value separate from missing metadata', () => {
+    const map = assignCategoryColors(['default', null], colorMode);
+    expect([...map.keys()]).toEqual([null, 'default']);
+    expect(map.get(null)).toBe(MISSING_CATEGORY_SWATCH[colorMode]);
+    expect(map.get('default')).toBe(CATEGORY_PALETTE[0][colorMode]);
   });
-
-  it.each(['flux', 'label'] as const)(
-    'keeps missing values grey without consuming a palette color in %s mode',
-    mode => {
-      const fields = [field({ fluxName: 'ks-1', labels: { team: 'platform' } })];
-      const map = generateCategoryColorMap([field(), ...fields], mode, colorMode, 'team');
-      expect(map.get(null)).toBe(MISSING_CATEGORY_SWATCH[colorMode]);
-      map.delete(null);
-      expect(map).toEqual(generateCategoryColorMap(fields, mode, colorMode, 'team'));
-    }
-  );
-
-  it.each(['flux', 'label'] as const)(
-    'keeps the literal default value separate from missing metadata in %s mode',
-    mode => {
-      const map = generateCategoryColorMap(
-        [field({ fluxName: 'default', labels: { team: 'default' } }), field()],
-        mode,
-        colorMode,
-        'team'
-      );
-      expect([...map.keys()]).toEqual([null, 'default']);
-      expect(map.get(null)).toBe(MISSING_CATEGORY_SWATCH[colorMode]);
-      expect(map.get('default')).not.toBe(MISSING_CATEGORY_SWATCH[colorMode]);
-    }
-  );
 });
 
 describe('isSystemLabel', () => {

@@ -1,17 +1,25 @@
 import type { XYPosition } from '@xyflow/react';
-import type { groupGraph, ViewNode } from './groupGraph';
+import type { aggregateGraph, ViewNode } from './aggregateGraph';
 import type { EdgeRoute, GraphLayout, GraphLayoutInput } from './layoutGraph';
 
 export type TransitionGraph = GraphLayout & {
   input: GraphLayoutInput;
-  viewGraph: ReturnType<typeof groupGraph>;
+  viewGraph: ReturnType<typeof aggregateGraph>;
 };
 
-export function planGroupTransition(
+type AggregateTransitionPlan = { start: TransitionGraph; target: GraphLayout } & (
+  | {
+      replacement: 'crossfade';
+      incomingSources: Array<{ node: ViewNode; sourceIds: string[] }>;
+    }
+  | { replacement: 'immediate' }
+);
+
+export function planAggregateTransition(
   previous: TransitionGraph,
   next: TransitionGraph,
   anchorNodeId?: string
-): { gathered: GraphLayout; nextStartLayout: GraphLayout; hasGather: boolean } {
+): AggregateTransitionPlan {
   const previousSizes = new Map(previous.input.nodes.map(node => [node.id, node]));
   const nextSizes = new Map(next.input.nodes.map(node => [node.id, node]));
   const previousRepresentative = new Map(
@@ -34,57 +42,84 @@ export function planGroupTransition(
     }
   }
 
-  const gatheredPositions = new Map(previous.positions);
-  const anchors = new Map<string, XYPosition>();
-  let hasGather = false;
-  for (const node of next.viewGraph.nodes) {
-    const sources = previousIdsByNextId.get(node.id)!;
-    if (node.type !== 'aggregated' || previous.positions.has(node.id) || sources.length < 2) {
-      continue;
-    }
-    // A representative split between several new groups cannot converge to several anchors.
-    if (sources.some(id => nextIdsByPreviousId.get(id)!.size > 1)) continue;
-    const centers = sources.map(id => center(previous.positions.get(id)!, previousSizes.get(id)!));
-    const anchorIndex = anchorNodeId ? sources.indexOf(anchorNodeId) : -1;
-    const anchor = anchorIndex >= 0 ? centers[anchorIndex] : mean(centers);
-    anchors.set(node.id, anchor);
-    for (const id of sources) {
-      const position = fromCenter(anchor, previousSizes.get(id)!);
-      const original = previous.positions.get(id)!;
-      if (position.x !== original.x || position.y !== original.y) hasGather = true;
-      gatheredPositions.set(id, position);
-    }
-  }
-  const gathered: GraphLayout = {
-    positions: gatheredPositions,
-    routes: new Map(
-      [...previous.routes].map(([id, route]) => [
-        id,
-        displaceRoute(
-          route,
-          difference(gatheredPositions.get(route.source)!, previous.positions.get(route.source)!),
-          difference(gatheredPositions.get(route.target)!, previous.positions.get(route.target)!)
-        ),
+  const hasMerges = next.viewGraph.nodes.some(
+    node => node.type === 'aggregated' && previousIdsByNextId.get(node.id)!.length > 1
+  );
+  const hasSplits = [...nextIdsByPreviousId.values()].some(ids => ids.size > 1);
+  if (hasMerges && !hasSplits) {
+    const nextIdByPreviousId = new Map(
+      [...nextIdsByPreviousId].map(([id, ids]) => [id, ids.values().next().value])
+    );
+    const clickedRepresentative = anchorNodeId && nextIdByPreviousId.get(anchorNodeId);
+    const clickedSize = anchorNodeId && previousSizes.get(anchorNodeId);
+    const positions = new Map(
+      [...previous.positions].map(([id, position]) => {
+        const representative = nextIdByPreviousId.get(id);
+        const target = representative && next.positions.get(representative);
+        if (!target || !representative) return [id, position];
+        // Local replacement keeps the clicked card's top-left corner stable on screen.
+        const size =
+          (representative === clickedRepresentative && clickedSize) ||
+          nextSizes.get(representative)!;
+        return [
+          id,
+          representative === id ? target : fromCenter(center(target, size), previousSizes.get(id)!),
+        ];
+      })
+    );
+    const routeKey = (source: string | undefined, target: string | undefined, aux?: boolean) =>
+      JSON.stringify([source, target, !!aux]);
+    const nextRoutes = new Map(
+      [...next.routes.values()].map(route => [
+        routeKey(route.source, route.target, route.aux),
+        route,
       ])
-    ),
-  };
+    );
+    const routes = new Map(
+      [...previous.routes].map(([id, route]) => {
+        const target =
+          next.routes.get(id) ??
+          nextRoutes.get(
+            routeKey(
+              nextIdByPreviousId.get(route.source),
+              nextIdByPreviousId.get(route.target),
+              route.aux
+            )
+          );
+        return [
+          id,
+          // Keep member cards and their edge identities until they reach the aggregate layout.
+          target
+            ? { ...route, points: target.points, labelPosition: target.labelPosition }
+            : displaceRoute(
+                route,
+                difference(positions.get(route.source)!, previous.positions.get(route.source)!),
+                difference(positions.get(route.target)!, previous.positions.get(route.target)!)
+              ),
+        ];
+      })
+    );
+    return {
+      start: previous,
+      target: { positions, routes },
+      replacement: 'crossfade',
+      incomingSources: next.viewGraph.nodes
+        .filter(node => !previous.positions.has(node.id))
+        .map(node => ({ node, sourceIds: previousIdsByNextId.get(node.id)! })),
+    };
+  }
 
   const nextStartPositions = new Map<string, XYPosition>();
   for (const [id, target] of next.positions) {
     const unchanged = previous.positions.get(id);
     const sources = previousIdsByNextId.get(id) ?? [];
-    const origin =
-      anchors.get(id) ??
-      (sources.length
-        ? mean(
-            sources.map(source =>
-              center(gatheredPositions.get(source)!, previousSizes.get(source)!)
-            )
-          )
-        : undefined);
-    // Keep the clicked card's top-left corner stable when the aggregate replaces it.
+    const origin = sources.length
+      ? mean(
+          sources.map(source => center(previous.positions.get(source)!, previousSizes.get(source)!))
+        )
+      : undefined;
     const clickedPosition =
-      anchorNodeId && sources.includes(anchorNodeId) && anchors.has(id)
+      anchorNodeId && sources.includes(anchorNodeId)
         ? previous.positions.get(anchorNodeId)
         : undefined;
     nextStartPositions.set(
@@ -95,7 +130,7 @@ export function planGroupTransition(
 
   const previousRoutesBySource = new Map<string, EdgeRoute[]>();
   const previousRoutesByTarget = new Map<string, EdgeRoute[]>();
-  for (const route of [...gathered.routes.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+  for (const route of [...previous.routes.values()].sort((a, b) => a.id.localeCompare(b.id))) {
     if (!previousRoutesBySource.has(route.source)) previousRoutesBySource.set(route.source, []);
     previousRoutesBySource.get(route.source)!.push(route);
     if (!previousRoutesByTarget.has(route.target)) previousRoutesByTarget.set(route.target, []);
@@ -138,7 +173,7 @@ export function planGroupTransition(
     const targetCandidates = previousRouteCandidatesByNextId.get(route.target)!;
     const inherited = findInheritedRoute(
       route,
-      gathered.routes.get(id),
+      previous.routes.get(id),
       sourceCandidates.outgoingCount <= targetCandidates.incomingCount
         ? sourceCandidates.outgoing
         : targetCandidates.incoming,
@@ -164,9 +199,9 @@ export function planGroupTransition(
   }
 
   return {
-    gathered,
-    nextStartLayout: { positions: nextStartPositions, routes: nextStartRoutes },
-    hasGather,
+    start: { ...next, positions: nextStartPositions, routes: nextStartRoutes },
+    target: next,
+    replacement: 'immediate',
   };
 }
 
@@ -191,11 +226,7 @@ function findInheritedRoute(
   return inherited;
 }
 
-export function createLayoutInterpolator(
-  from: GraphLayout,
-  to: GraphLayout,
-  { preserveRoutePointCorrespondence = false }: { preserveRoutePointCorrespondence?: boolean } = {}
-) {
+export function createLayoutInterpolator(from: GraphLayout, to: GraphLayout) {
   const positions = [...to.positions].map(([id, end]) => ({
     id,
     start: from.positions.get(id) ?? end,
@@ -203,19 +234,14 @@ export function createLayoutInterpolator(
   }));
   const routes = [...to.routes].map(([id, end]) => {
     const start = from.routes.get(id) ?? end;
-    let starts = start.points;
-    let ends = end.points;
-    // Gathering displaces existing points; resampling them would multiply samples on interruption.
-    if (!preserveRoutePointCorrespondence || starts.length !== ends.length || starts.length < 2) {
-      const startFractions = pathFractions(starts);
-      const endFractions = pathFractions(ends);
-      // Keep every original corner: index matching alone cuts across unequal polylines.
-      const fractions = [...new Set([0, ...startFractions, ...endFractions, 1])].sort(
-        (a, b) => a - b
-      );
-      starts = samplePath(starts, startFractions, fractions);
-      ends = samplePath(ends, endFractions, fractions);
-    }
+    const startFractions = pathFractions(start.points);
+    const endFractions = pathFractions(end.points);
+    // Keep every original corner: index matching alone cuts across unequal polylines.
+    const fractions = [...new Set([0, ...startFractions, ...endFractions, 1])].sort(
+      (a, b) => a - b
+    );
+    const starts = samplePath(start.points, startFractions, fractions);
+    const ends = samplePath(end.points, endFractions, fractions);
     return {
       id,
       end,

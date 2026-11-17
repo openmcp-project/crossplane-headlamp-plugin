@@ -28,14 +28,14 @@ afterEach(() => {
 });
 afterAll(() => flowStyles.remove());
 
-it('shows the health count and ungroups only through its dedicated button', () => {
-  const onUngroup = vi.fn();
+it('shows the health count and disaggregates only through its dedicated button', () => {
+  const onDisaggregate = vi.fn();
   render(
     <ReactFlow
       nodeTypes={nodeTypes}
       nodes={[
         {
-          id: 'group',
+          id: 'aggregate',
           type: 'aggregated',
           position: { x: 0, y: 0 },
           width: NODE_WIDTH,
@@ -45,7 +45,7 @@ it('shows the health count and ungroups only through its dedicated button', () =
             apiGroup: 'account.btp.sap.crossplane.io',
             memberCount: 2,
             healthyMemberCount: 2,
-            onUngroup,
+            onDisaggregate,
           },
         },
       ]}
@@ -58,26 +58,26 @@ it('shows the health count and ungroups only through its dedicated button', () =
   );
   expect(screen.queryByText('Needs Attention')).toBeNull();
   expect(screen.queryByText('Healthy')).toBeNull();
-  expect(screen.queryByRole('button', { name: /^Group / })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Aggregate / })).toBeNull();
   fireEvent.click(screen.getByText('ServiceInstance'));
-  expect(onUngroup).not.toHaveBeenCalled();
+  expect(onDisaggregate).not.toHaveBeenCalled();
   fireEvent.click(
     screen.getByRole('button', {
-      name: 'Ungroup 2 ServiceInstance resources from account.btp.sap.crossplane.io',
+      name: 'Disaggregate 2 ServiceInstance resources from account.btp.sap.crossplane.io',
     })
   );
-  expect(onUngroup).toHaveBeenCalledOnce();
+  expect(onDisaggregate).toHaveBeenCalledOnce();
 });
 
-it('offers separate actions to group eligible siblings and ungroup existing members', () => {
-  const onGroup = vi.fn();
-  const onUngroup = vi.fn();
+it('offers separate actions to aggregate eligible siblings and disaggregate existing members', () => {
+  const onAggregate = vi.fn();
+  const onDisaggregate = vi.fn();
   render(
     <ReactFlow
       nodeTypes={nodeTypes}
       nodes={[
         {
-          id: 'group',
+          id: 'aggregate',
           type: 'aggregated',
           position: { x: 0, y: 0 },
           width: NODE_WIDTH,
@@ -88,8 +88,8 @@ it('offers separate actions to group eligible siblings and ungroup existing memb
             memberCount: 2,
             healthyMemberCount: 1,
             candidateMemberCount: 4,
-            onGroup,
-            onUngroup,
+            onAggregate,
+            onDisaggregate,
           },
         },
       ]}
@@ -97,20 +97,20 @@ it('offers separate actions to group eligible siblings and ungroup existing memb
   );
 
   expect(screen.getByText('1 of 2 Healthy')).toBeTruthy();
-  fireEvent.click(
-    screen.getByRole('button', {
-      name: 'Group 4 ServiceInstance resources from account.btp.sap.crossplane.io',
-    })
-  );
-  expect(onGroup).toHaveBeenCalledOnce();
-  expect(onUngroup).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole('button', {
-      name: 'Ungroup 2 ServiceInstance resources from account.btp.sap.crossplane.io',
-    })
-  );
-  expect(onUngroup).toHaveBeenCalledOnce();
-  expect(onGroup).toHaveBeenCalledOnce();
+  const aggregate = screen.getByRole('button', {
+    name: 'Aggregate 4 ServiceInstance resources from account.btp.sap.crossplane.io',
+  });
+  expect(aggregate.title).toBe('Combine resources');
+  fireEvent.click(aggregate);
+  expect(onAggregate).toHaveBeenCalledOnce();
+  expect(onDisaggregate).not.toHaveBeenCalled();
+  const disaggregate = screen.getByRole('button', {
+    name: 'Disaggregate 2 ServiceInstance resources from account.btp.sap.crossplane.io',
+  });
+  expect(disaggregate.title).toBe('Show resources individually');
+  fireEvent.click(disaggregate);
+  expect(onDisaggregate).toHaveBeenCalledOnce();
+  expect(onAggregate).toHaveBeenCalledOnce();
 });
 
 it('keeps all four edge anchors on the front card while the stack extends above it', async () => {
@@ -119,7 +119,7 @@ it('keeps all four edge anchors on the front card while the stack extends above 
       nodeTypes={nodeTypes}
       nodes={[
         {
-          id: 'group',
+          id: 'aggregate',
           type: 'aggregated',
           position: { x: 0, y: 0 },
           width: NODE_WIDTH,
@@ -128,7 +128,7 @@ it('keeps all four edge anchors on the front card while the stack extends above 
             kind: 'ServiceInstance',
             memberCount: 2,
             healthyMemberCount: 0,
-            onUngroup: vi.fn(),
+            onDisaggregate: vi.fn(),
           },
         },
       ]}
@@ -139,28 +139,30 @@ it('keeps all four edge anchors on the front card while the stack extends above 
   expect(parseFloat(getComputedStyle(stack).width)).toBe(NODE_WIDTH);
   expect(parseFloat(getComputedStyle(stack).height)).toBe(AGGREGATED_NODE_HEIGHT);
   const edges = [
-    { id: 'source', source: 'group', target: 'other' },
-    { id: 'target', source: 'other', target: 'group' },
-    { id: 'aux-source', source: 'group', target: 'other', aux: true },
-    { id: 'aux-target', source: 'other', target: 'group', aux: true },
+    { id: 'source', source: 'aggregate', target: 'other' },
+    { id: 'target', source: 'other', target: 'aggregate' },
+    { id: 'aux-source', source: 'aggregate', target: 'other', aux: true },
+    { id: 'aux-target', source: 'other', target: 'aggregate', aux: true },
   ];
   const { positions, routes } = await layoutGraph({
-    nodes: ['group', 'other'].map(id => ({
+    nodes: ['aggregate', 'other'].map(id => ({
       id,
       width: NODE_WIDTH,
       height: AGGREGATED_NODE_HEIGHT,
     })),
     edges,
   });
-  const origin = positions.get('group')!;
+  const origin = positions.get('aggregate')!;
   expect(container.querySelectorAll('.react-flow__handle')).toHaveLength(4);
   for (const edge of edges) {
-    const handle = container.querySelector(`[data-nodeid="group"][data-handleid="${edge.id}"]`)!;
+    const handle = container.querySelector(
+      `[data-nodeid="aggregate"][data-handleid="${edge.id}"]`
+    )!;
     const style = getComputedStyle(handle);
     const x = style.left.endsWith('%')
       ? (parseFloat(style.left) * NODE_WIDTH) / 100
       : parseFloat(style.left);
-    const isSource = edge.source === 'group';
+    const isSource = edge.source === 'aggregate';
     const points = routes.get(edge.id)!.points;
     const anchor = isSource ? points[0] : points[points.length - 1];
     expect(handle.getAttribute('data-handlepos')).toBe(isSource ? 'bottom' : 'top');
@@ -172,14 +174,14 @@ it('keeps all four edge anchors on the front card while the stack extends above 
 });
 
 it('collapses children through a separate accessible action and offers expansion afterwards', () => {
-  const onUngroup = vi.fn();
+  const onDisaggregate = vi.fn();
   const onToggleCollapse = vi.fn();
   const data = {
     kind: 'ServiceManager',
     apiGroup: 'account.btp.sap.crossplane.io',
     memberCount: 4,
     healthyMemberCount: 2,
-    onUngroup,
+    onDisaggregate,
     onToggleCollapse,
   };
   const flow = (collapsed: boolean, childNodeCount: number) => (
@@ -187,7 +189,7 @@ it('collapses children through a separate accessible action and offers expansion
       nodeTypes={nodeTypes}
       nodes={[
         {
-          id: 'group',
+          id: 'aggregate',
           type: 'aggregated',
           position: { x: 0, y: 0 },
           width: NODE_WIDTH,
@@ -207,8 +209,8 @@ it('collapses children through a separate accessible action and offers expansion
     'Collapse 3 child nodes of 4 ServiceManager resources from account.btp.sap.crossplane.io'
   );
   fireEvent.click(collapse);
-  expect(onToggleCollapse).toHaveBeenCalledWith('group');
-  expect(onUngroup).not.toHaveBeenCalled();
+  expect(onToggleCollapse).toHaveBeenCalledWith('aggregate');
+  expect(onDisaggregate).not.toHaveBeenCalled();
 
   rerender(flow(true, 1));
   const expand = screen.getByRole('button', { name: /^Expand children of 4 ServiceManager/ });
@@ -219,22 +221,22 @@ it('collapses children through a separate accessible action and offers expansion
   );
   fireEvent.click(expand);
   expect(onToggleCollapse).toHaveBeenCalledTimes(2);
-  expect(onUngroup).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: /^Ungroup / }));
-  expect(onUngroup).toHaveBeenCalledOnce();
+  expect(onDisaggregate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /^Disaggregate / }));
+  expect(onDisaggregate).toHaveBeenCalledOnce();
   expect(onToggleCollapse).toHaveBeenCalledTimes(2);
 });
 
 it.each([20, 200, 1000])('preserves health and all three actions for %i members', count => {
-  const onGroup = vi.fn();
-  const onUngroup = vi.fn();
+  const onAggregate = vi.fn();
+  const onDisaggregate = vi.fn();
   const onToggleCollapse = vi.fn();
   render(
     <ReactFlow
       nodeTypes={nodeTypes}
       nodes={[
         {
-          id: 'group',
+          id: 'aggregate',
           type: 'aggregated',
           position: { x: 0, y: 0 },
           width: NODE_WIDTH,
@@ -245,8 +247,8 @@ it.each([20, 200, 1000])('preserves health and all three actions for %i members'
             healthyMemberCount: 0,
             childNodeCount: count,
             candidateMemberCount: count + 1,
-            onGroup,
-            onUngroup,
+            onAggregate,
+            onDisaggregate,
             onToggleCollapse,
           },
         },
@@ -256,17 +258,17 @@ it.each([20, 200, 1000])('preserves health and all three actions for %i members'
 
   expect(screen.getByText(`${count} of ${count} Needs Attention`)).toBeTruthy();
   fireEvent.click(
-    screen.getByRole('button', { name: `Group ${count + 1} ServiceManager resources` })
+    screen.getByRole('button', { name: `Aggregate ${count + 1} ServiceManager resources` })
   );
   fireEvent.click(
-    screen.getByRole('button', { name: `Ungroup ${count} ServiceManager resources` })
+    screen.getByRole('button', { name: `Disaggregate ${count} ServiceManager resources` })
   );
   const collapse = screen.getByRole('button', {
     name: `Collapse children of ${count} ServiceManager resources`,
   });
   expect(collapse.title).toBe(`Collapse ${count} child nodes of ${count} ServiceManager resources`);
   fireEvent.click(collapse);
-  expect(onGroup).toHaveBeenCalledOnce();
-  expect(onUngroup).toHaveBeenCalledOnce();
-  expect(onToggleCollapse).toHaveBeenCalledExactlyOnceWith('group');
+  expect(onAggregate).toHaveBeenCalledOnce();
+  expect(onDisaggregate).toHaveBeenCalledOnce();
+  expect(onToggleCollapse).toHaveBeenCalledExactlyOnceWith('aggregate');
 });

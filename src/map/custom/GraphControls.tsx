@@ -1,165 +1,229 @@
 import { Icon } from '@iconify/react';
 import {
+  Badge,
   Box,
   Button,
   Checkbox,
   colors,
-  FormLabel,
+  IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import type { GraphNode } from '../common/types';
-import { CategoryKey, categoryLabelOf, CategoryMode } from './graphCategories';
-import { CATEGORY_SWATCH_SX, PANEL_ELEVATION, PANEL_SX, TRIMMED_TEXT_SX } from './styles';
+import { CategoryKey, categoryLabelOf } from './graphCategories';
+import { CATEGORY_SWATCH_SX, PANEL_ELEVATION, PANEL_SX } from './styles';
 
 export type StatusFilter = GraphNode['status'][] | null;
 
-// UI labels for the category-mode switch (internal names are the clear ones).
-const CATEGORY_MODE_OPTIONS: ReadonlyArray<{ value: CategoryMode; label: string }> = [
-  { value: 'provider', label: 'Provider' },
-  { value: 'providerConfig', label: 'Provider Config' },
-  { value: 'flux', label: 'Flux' },
-  { value: 'label', label: 'Common Label' },
-  { value: 'none', label: 'None' },
-];
+// Match the section width while its scrollbar uses the Paper's right padding.
+const FILTER_FIELD_SX = { width: '100cqw', maxWidth: '100%', flexShrink: 0 };
+
+export interface ValueFilterConfig {
+  options: CategoryKey[];
+  selected: CategoryKey[] | null;
+  onChange: (values: CategoryKey[] | null) => void;
+  // When present, values render with their category color and swatch.
+  colorMap?: ReadonlyMap<CategoryKey, string>;
+}
+
+export interface LabelFilterConfig extends ValueFilterConfig {
+  key: string;
+  onRemove: () => void;
+}
 
 /** `nopan`/`nowheel` keep filter interaction off the canvas. */
 export function GraphControls({
-  categoryMode,
-  onCategoryModeChange,
-  labelKey,
-  labelKeys,
-  onLabelKeyChange,
-  categoryColorMap,
-  categoryOptions,
-  selectedCategories,
-  onCategorySelectionChange,
+  fluxFilter,
+  kindFilter,
+  labelFilters,
+  addableLabelKeys,
+  onAddLabelFilter,
   statusFilter,
   onStatusFilterChange,
-  hasActiveFilters,
-  matchingCount,
-  totalCount,
-  hasGroups,
-  canGroup,
-  onGroupAll,
-  onUngroupAll,
+  hasAggregates,
+  canAggregate,
+  onAggregateAll,
+  onDisaggregateAll,
 }: {
-  categoryMode: CategoryMode;
-  onCategoryModeChange: (m: CategoryMode) => void;
-  labelKey: string;
-  labelKeys: string[];
-  onLabelKeyChange: (k: string) => void;
-  categoryColorMap: ReadonlyMap<CategoryKey, string>;
-  categoryOptions: CategoryKey[];
-  selectedCategories: CategoryKey[] | null;
-  onCategorySelectionChange: (values: CategoryKey[] | null) => void;
+  fluxFilter?: ValueFilterConfig;
+  kindFilter?: ValueFilterConfig;
+  labelFilters: LabelFilterConfig[];
+  addableLabelKeys: string[];
+  onAddLabelFilter: (key: string) => void;
   statusFilter: StatusFilter;
   onStatusFilterChange: (statuses: StatusFilter) => void;
-  hasActiveFilters: boolean;
-  matchingCount: number;
-  totalCount: number;
-  hasGroups: boolean;
-  canGroup: boolean;
-  onGroupAll: () => void;
-  onUngroupAll: () => void;
+  hasAggregates: boolean;
+  canAggregate: boolean;
+  onAggregateAll: () => void;
+  onDisaggregateAll: () => void;
 }) {
   return (
     <Paper
       className="nopan nowheel"
       variant="elevation"
       elevation={PANEL_ELEVATION}
-      sx={{ ...PANEL_SX, p: 2, width: 220 }}
+      sx={{
+        ...PANEL_SX,
+        p: 2,
+        width: 244,
+        maxWidth: 'calc(100vw - 32px)',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+      }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
-        <Button
-          size="small"
-          variant="outlined"
-          disabled={!canGroup}
-          onClick={onGroupAll}
-          sx={{ justifyContent: 'flex-start', gap: 0.75 }}
-        >
-          <Icon icon="mdi:group" width={16} height={16} aria-hidden="true" />
-          Group all
-        </Button>
-        <Button
-          size="small"
-          variant="outlined"
-          disabled={!hasGroups}
-          onClick={onUngroupAll}
-          sx={{ justifyContent: 'flex-start', gap: 0.75 }}
-        >
-          <Icon icon="mdi:ungroup" width={16} height={16} aria-hidden="true" />
-          Ungroup all
-        </Button>
-      </Box>
-      <TextField
-        id="crossplane-map-category"
-        select
-        size="small"
-        fullWidth
-        label="Categorize by"
-        value={categoryMode}
-        onChange={(e: any) => onCategoryModeChange(e.target.value as CategoryMode)}
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 1,
+          flexShrink: 0,
+        }}
       >
-        {CATEGORY_MODE_OPTIONS.map(opt => (
-          <MenuItem key={opt.value} value={opt.value}>
-            {opt.label}
-          </MenuItem>
-        ))}
-      </TextField>
-
-      {categoryMode === 'label' && (
-        <TextField
-          id="crossplane-map-label"
-          select
-          size="small"
-          fullWidth
-          label="Label"
-          value={labelKey}
-          disabled={labelKeys.length === 0}
-          onChange={(e: any) => onLabelKeyChange(e.target.value)}
-          sx={{ mt: 1 }}
+        <Typography
+          id="crossplane-map-aggregation"
+          component="h3"
+          variant="subtitle2"
+          sx={{ fontWeight: 'fontWeightBold' }}
         >
-          {labelKeys.map(k => (
-            <MenuItem key={k} value={k}>
-              {k}
-            </MenuItem>
-          ))}
-        </TextField>
-      )}
-
-      <Box component="fieldset" sx={{ border: 0, m: 0, p: 0, minWidth: 0, mt: 3 }}>
-        <FormLabel
-          component="legend"
-          sx={{ typography: 'subtitle2', fontWeight: 600, color: 'text.primary', p: 0, mb: 1.5 }}
+          Aggregation
+        </Typography>
+        <Box
+          role="group"
+          aria-labelledby="crossplane-map-aggregation"
+          sx={{
+            display: 'flex',
+            width: '100%',
+            flexShrink: 0,
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 1,
+            overflow: 'hidden',
+            '& > span + span': { borderLeft: 1, borderColor: 'divider' },
+            '& .MuiButton-root': {
+              minWidth: 0,
+              minHeight: 32,
+              px: 1,
+              py: 0.5,
+              gap: 0.75,
+              borderRadius: 0,
+              '&.Mui-focusVisible': {
+                outline: '2px solid',
+                outlineColor: 'primary.main',
+                outlineOffset: -2,
+              },
+            },
+          }}
         >
-          Filter by
-        </FormLabel>
-        <Box sx={{ pl: 1.5 }}>
-          <CategoryFilter
-            categoryMode={categoryMode}
-            categoryColorMap={categoryColorMap}
-            categoryOptions={categoryOptions}
-            selectedCategories={selectedCategories}
-            onCategorySelectionChange={onCategorySelectionChange}
-          />
+          <Tooltip title="Combine all eligible resources" describeChild>
+            <Box component="span" sx={{ display: 'flex', flex: 1, minWidth: 0 }}>
+              <Button
+                fullWidth
+                color="inherit"
+                size="small"
+                aria-label="Combine all"
+                disabled={!canAggregate}
+                onClick={onAggregateAll}
+              >
+                <Icon icon="mdi:group" width={16} height={16} aria-hidden="true" />
+                Combine
+              </Button>
+            </Box>
+          </Tooltip>
+          <Tooltip title="Show resources individually" describeChild>
+            <Box component="span" sx={{ display: 'flex', flex: 1, minWidth: 0 }}>
+              <Button
+                fullWidth
+                color="inherit"
+                size="small"
+                aria-label="Separate all"
+                disabled={!hasAggregates}
+                onClick={onDisaggregateAll}
+              >
+                <Icon icon="mdi:ungroup" width={16} height={16} aria-hidden="true" />
+                Separate
+              </Button>
+            </Box>
+          </Tooltip>
+        </Box>
+      </Box>
+
+      <Box
+        role="group"
+        aria-labelledby="crossplane-map-filters"
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+          minHeight: 0,
+          containerType: 'inline-size',
+        }}
+      >
+        <Typography
+          id="crossplane-map-filters"
+          component="h3"
+          variant="subtitle2"
+          sx={{ fontWeight: 'fontWeightBold' }}
+        >
+          Filter
+        </Typography>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1.5,
+            minHeight: 0,
+            mr: -2,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          }}
+        >
+          {kindFilter && (
+            <ValueFilter id="crossplane-map-filter-kind" label="Kind" {...kindFilter} />
+          )}
           <StatusFilterControl
             statusFilter={statusFilter}
             onStatusFilterChange={onStatusFilterChange}
           />
-          {hasActiveFilters && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              component="p"
-              sx={{ m: 0, mt: 1.5 }}
+          {fluxFilter && (
+            <ValueFilter id="crossplane-map-filter-flux" label="Flux" {...fluxFilter} />
+          )}
+          {labelFilters.map(filter => (
+            <ValueFilter
+              key={filter.key}
+              id={`crossplane-map-filter-label-${filter.key}`}
+              label={filter.key}
+              options={filter.options}
+              selected={filter.selected}
+              onChange={filter.onChange}
+              onRemove={filter.onRemove}
+            />
+          ))}
+          {addableLabelKeys.length > 0 && (
+            <TextField
+              id="crossplane-map-add-label-filter"
+              select
+              fullWidth
+              size="small"
+              value=""
+              inputProps={{ 'aria-label': '+ Label filter' }}
+              SelectProps={{ displayEmpty: true, renderValue: () => '+ Label filter' }}
+              sx={FILTER_FIELD_SX}
+              onChange={(e: any) => onAddLabelFilter(e.target.value)}
             >
-              {matchingCount} of {totalCount} {totalCount === 1 ? 'resource' : 'resources'}{' '}
-              {totalCount === 1 ? 'matches' : 'match'} filters
-            </Typography>
+              {addableLabelKeys.map(k => (
+                <MenuItem key={k} value={k}>
+                  {k}
+                </MenuItem>
+              ))}
+            </TextField>
           )}
         </Box>
       </Box>
@@ -197,27 +261,23 @@ function StatusFilterControl({
       </Box>
     ),
   }));
-  const allStatusesSelected = statusFilter === null;
-  const selectedStatuses = statusFilter ?? statusOptions.map(option => option.value);
+  // null means "all"; render nothing checked and let the badge stay empty.
+  const selectedStatuses = statusFilter ?? [];
 
   return (
     <TextField
       id="crossplane-map-status"
       select
-      size="small"
       fullWidth
-      label="Status"
-      value={allStatusesSelected ? ['', ...selectedStatuses] : selectedStatuses}
+      size="small"
+      sx={FILTER_FIELD_SX}
+      value={selectedStatuses}
       InputLabelProps={{ shrink: true }}
+      inputProps={{ 'aria-label': 'Status' }}
       SelectProps={{
         multiple: true,
         displayEmpty: true,
-        renderValue: () =>
-          allStatusesSelected
-            ? 'All'
-            : selectedStatuses.length === 0
-            ? 'None'
-            : statusOptions.find(option => option.value === selectedStatuses[0])?.label,
+        renderValue: () => labelWithBadge('Status', selectedStatuses.length),
         MenuProps: {
           MenuListProps: {
             sx: {
@@ -235,29 +295,15 @@ function StatusFilterControl({
           typeof event.target.value === 'string'
             ? event.target.value.split(',')
             : event.target.value;
-        if (next.includes('') !== allStatusesSelected) {
-          onStatusFilterChange(allStatusesSelected ? [] : null);
-        } else {
-          const values = statusOptions
-            .filter(option => next.includes(option.value))
-            .map(option => option.value);
-          onStatusFilterChange(values.length === statusOptions.length ? null : values);
-        }
+        const values = statusOptions
+          .filter(option => next.includes(option.value))
+          .map(option => option.value);
+        // Empty or full selection both mean "all", represented as null.
+        onStatusFilterChange(
+          values.length === 0 || values.length === statusOptions.length ? null : values
+        );
       }}
-      sx={{ mt: 1.5 }}
     >
-      <MenuItem value="" sx={{ borderBottom: 1, borderColor: 'divider', mb: 0.5 }}>
-        <Checkbox
-          size="small"
-          checked={allStatusesSelected}
-          indeterminate={!allStatusesSelected && selectedStatuses.length > 0}
-          disableRipple
-          tabIndex={-1}
-          inputProps={{ 'aria-hidden': true }}
-          sx={{ pointerEvents: 'none' }}
-        />
-        All
-      </MenuItem>
       {statusOptions.map(({ value, label }) => (
         <MenuItem key={value} value={value}>
           <Checkbox
@@ -275,29 +321,28 @@ function StatusFilterControl({
   );
 }
 
-function CategoryFilter({
-  categoryMode,
-  categoryColorMap,
-  categoryOptions,
-  selectedCategories,
-  onCategorySelectionChange,
+function ValueFilter({
+  id,
+  label,
+  options: valueOptions,
+  selected,
+  onChange,
+  colorMap,
+  onRemove,
 }: {
-  categoryMode: CategoryMode;
-  categoryColorMap: ReadonlyMap<CategoryKey, string>;
-  categoryOptions: CategoryKey[];
-  selectedCategories: CategoryKey[] | null;
-  onCategorySelectionChange: (values: CategoryKey[] | null) => void;
+  id: string;
+  label: string;
+  options: CategoryKey[];
+  selected: CategoryKey[] | null;
+  onChange: (values: CategoryKey[] | null) => void;
+  colorMap?: ReadonlyMap<CategoryKey, string>;
+  onRemove?: () => void;
 }) {
-  const allSelected = selectedCategories === null;
-  const selectedKeys = categoryOptions.filter(
-    key => selectedCategories === null || selectedCategories.includes(key)
-  );
-  const filterLabel =
-    categoryMode === 'none'
-      ? 'Category'
-      : CATEGORY_MODE_OPTIONS.find(option => option.value === categoryMode)?.label;
+  const selectedKeys = selected ?? [];
+  // Keep selections removable after their values disappear from live data.
+  const availableKeys = [...new Set([...valueOptions, ...selectedKeys])];
   // MUI compares primitive values as strings; serialize to distinguish null from "null".
-  const options = categoryOptions.map(key => ({
+  const options = availableKeys.map(key => ({
     key,
     value: JSON.stringify(key),
     label: categoryLabelOf(key),
@@ -306,52 +351,39 @@ function CategoryFilter({
 
   return (
     <TextField
-      id="crossplane-map-filter"
+      id={id}
       select
-      size="small"
       fullWidth
-      label={filterLabel}
-      disabled={categoryOptions.length === 0}
-      value={allSelected ? ['', ...selectedValues] : selectedValues}
+      size="small"
+      sx={FILTER_FIELD_SX}
+      disabled={options.length === 0}
+      value={selectedValues}
       InputLabelProps={{ shrink: true }}
+      inputProps={{ 'aria-label': label }}
+      InputProps={
+        onRemove
+          ? {
+              endAdornment: (
+                <InputAdornment position="end" sx={{ mr: 3 }}>
+                  <IconButton
+                    size="small"
+                    aria-label={`Remove ${label} filter`}
+                    onClick={onRemove}
+                    sx={{ width: 28, height: 28 }}
+                  >
+                    <Icon icon="mdi:close" width={16} height={16} aria-hidden="true" />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }
+          : undefined
+      }
       SelectProps={{
+        // The adornment already reserves space for the dropdown arrow.
+        SelectDisplayProps: onRemove ? { style: { paddingRight: 0 } } : undefined,
         multiple: true,
         displayEmpty: true,
-        renderValue: () =>
-          categoryMode === 'none' || allSelected ? (
-            'All'
-          ) : selectedKeys.length === 0 ? (
-            'None'
-          ) : selectedKeys.length === 1 ? (
-            <Box
-              component="span"
-              sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: '1lh' }}
-            >
-              <Box
-                component="span"
-                aria-hidden="true"
-                sx={{
-                  ...CATEGORY_SWATCH_SX,
-                  color: categoryColorMap.get(selectedKeys[0]),
-                }}
-              />
-              <Box
-                component="span"
-                sx={{
-                  ...TRIMMED_TEXT_SX,
-                  minWidth: 0,
-                  overflowX: 'clip',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {categoryLabelOf(selectedKeys[0])}
-              </Box>
-            </Box>
-          ) : (
-            `${selectedKeys.length} selected`
-          ),
-        SelectDisplayProps: { title: selectedKeys.map(categoryLabelOf).join(', ') },
+        renderValue: () => labelWithBadge(label, selectedKeys.length),
         MenuProps: {
           PaperProps: { sx: { maxHeight: 320, maxWidth: 'calc(100vw - 32px)' } },
           MenuListProps: {
@@ -370,28 +402,14 @@ function CategoryFilter({
           typeof event.target.value === 'string'
             ? event.target.value.split(',')
             : event.target.value;
-        // Every serialized category is non-empty, leaving '' available for the All option.
-        if (next.includes('') !== allSelected) {
-          onCategorySelectionChange(allSelected ? [] : null);
-        } else {
-          const values = options
-            .filter(option => next.includes(option.value))
-            .map(option => option.key);
-          onCategorySelectionChange(values.length === categoryOptions.length ? null : values);
-        }
+        const values = options
+          .filter(option => next.includes(option.value))
+          .map(option => option.key);
+        // Empty or full selection both mean "all", represented as null.
+        onChange(values.length === 0 || values.length === options.length ? null : values);
       }}
     >
-      <MenuItem value="" sx={{ borderBottom: 1, borderColor: 'divider', mb: 0.5 }}>
-        <Checkbox
-          size="small"
-          checked={allSelected}
-          indeterminate={!allSelected && selectedKeys.length > 0}
-          tabIndex={-1}
-          inputProps={{ 'aria-hidden': true }}
-        />
-        All
-      </MenuItem>
-      {options.map(({ key, value, label }) => (
+      {options.map(({ key, value, label: optionLabel }) => (
         <MenuItem key={value} value={value}>
           <Checkbox
             size="small"
@@ -399,27 +417,53 @@ function CategoryFilter({
             tabIndex={-1}
             inputProps={{ 'aria-hidden': true }}
           />
-          <Box
-            component="span"
-            aria-hidden="true"
-            sx={{
-              ...CATEGORY_SWATCH_SX,
-              color: categoryColorMap.get(key),
-              mr: 1,
-            }}
-          />
+          {colorMap && (
+            <Box
+              component="span"
+              aria-hidden="true"
+              sx={{ ...CATEGORY_SWATCH_SX, color: colorMap.get(key), mr: 1 }}
+            />
+          )}
           <Typography
             component="span"
             sx={{
-              ...TRIMMED_TEXT_SX,
+              color: colorMap?.get(key),
               whiteSpace: 'normal',
               overflowWrap: 'anywhere',
             }}
           >
-            {label}
+            {optionLabel}
           </Typography>
         </MenuItem>
       ))}
     </TextField>
+  );
+}
+
+/**
+ * Collapsed filter field content: the filter name on the left and a right-aligned
+ * badge counting explicitly selected values (hidden at zero, i.e. the "all" state).
+ */
+function labelWithBadge(label: string, count: number) {
+  return (
+    <Box
+      component="span"
+      sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}
+    >
+      <Box
+        component="span"
+        sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
+        {label}
+      </Box>
+      <Badge
+        badgeContent={count || undefined}
+        color="primary"
+        sx={{
+          flexShrink: 0,
+          '& .MuiBadge-badge': { position: 'static', transform: 'none', ml: 1 },
+        }}
+      />
+    </Box>
   );
 }

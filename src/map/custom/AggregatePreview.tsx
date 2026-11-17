@@ -6,7 +6,7 @@ const DASH_LENGTH = 6;
 const GAP_LENGTH = 4;
 const DASH_PERIOD = DASH_LENGTH + GAP_LENGTH;
 
-export function GroupPreview({
+export function AggregatePreview({
   nodes,
   targetId,
   reduceMotion,
@@ -16,6 +16,10 @@ export function GroupPreview({
   reduceMotion: boolean;
 }) {
   const theme = useTheme();
+  // Aggregation is kind-scoped, so every previewed card shares the target's kind color.
+  const targetColor =
+    (nodes.find(node => node.id === targetId)?.data?.color as string | undefined) ??
+    theme.palette.primary.main;
   const cards = nodes.flatMap(node => {
     const { width, height } = node.measured ?? {};
     if (node.hidden || !width || !height) return [];
@@ -38,7 +42,7 @@ export function GroupPreview({
     <ViewportPortal>
       <Box
         component="svg"
-        className="crossplane-group-preview"
+        className="crossplane-aggregate-preview"
         aria-hidden="true"
         sx={{
           position: 'absolute',
@@ -50,13 +54,13 @@ export function GroupPreview({
           pointerEvents: 'none',
           zIndex: 2,
           fill: 'none',
-          stroke: theme.palette.primary.main,
+          stroke: targetColor,
           strokeWidth: 2,
           strokeDasharray: `${DASH_LENGTH} ${GAP_LENGTH}`,
           '& path': {
-            animation: reduceMotion ? 'none' : 'crossplane-group-dash 1s linear infinite',
+            animation: reduceMotion ? 'none' : 'crossplane-aggregate-dash 1s linear infinite',
           },
-          '@keyframes crossplane-group-dash': {
+          '@keyframes crossplane-aggregate-dash': {
             from: { strokeDashoffset: 0 },
             to: { strokeDashoffset: -DASH_PERIOD },
           },

@@ -17,23 +17,30 @@ import {
   useState,
 } from 'react';
 import type { GraphEdge, ManagedGraphData } from '../common/types';
-import { getGraphCollapseState } from './graphCollapse';
-import type { groupGraph } from './groupGraph';
-import { createLayoutInterpolator, planGroupTransition, TransitionGraph } from './groupTransition';
-import { GraphLayout, GraphLayoutInput, layoutGraph } from './layoutGraph';
+import type { aggregateGraph } from './aggregateGraph';
 import {
-  AGGREGATED_NODE_HEIGHT,
-  NAMESPACE_LINE_HEIGHT,
-  NODE_WIDTH,
-  RESOURCE_NODE_LAYOUT_HEIGHT,
-} from './styles';
+  createLayoutInterpolator,
+  planAggregateTransition,
+  TransitionGraph,
+} from './aggregateTransition';
+import { getGraphCollapseState } from './graphCollapse';
+import { GraphLayout, GraphLayoutInput, layoutGraph } from './layoutGraph';
+import { AGGREGATED_NODE_HEIGHT, NODE_WIDTH, RESOURCE_NODE_LAYOUT_HEIGHT } from './styles';
 
 type LayoutCommit = TransitionGraph & { revision: number; fitViewport: boolean };
 type GraphDrawing = TransitionGraph & { hiddenIds: ReadonlySet<string> };
-type GroupMotion = GraphDrawing & { isAnimating: boolean };
-type GroupCameraAnchor = { screenX: number; screenY: number; zoom: number } & (
-  | { type: 'group'; memberId: string }
-  | { type: 'ungroup'; memberIds: ReadonlySet<string> }
+type AggregateMotion = GraphDrawing & {
+  isAnimating: boolean;
+  nodeOpacities?: ReadonlyMap<string, number>;
+  crossfadeSource?: TransitionGraph;
+};
+export type AggregateTransitionOptions = {
+  focus?: { memberIds: string[]; aggregated: boolean };
+  cameraAnchor?: { nodeId: string; aggregated: boolean };
+};
+type AggregateCameraAnchor = { screenX: number; screenY: number; zoom: number } & (
+  | { type: 'aggregate'; memberId: string }
+  | { type: 'disaggregate'; memberIds: ReadonlySet<string> }
 );
 
 export function useGraphLayout({
@@ -42,35 +49,36 @@ export function useGraphLayout({
   collapsedIds,
   reduceMotion,
   mapElementRef,
-  deferLayout,
 }: {
   graph: ManagedGraphData | null;
-  viewGraph: ReturnType<typeof groupGraph> | null;
+  viewGraph: ReturnType<typeof aggregateGraph> | null;
   collapsedIds: ReadonlySet<string>;
   reduceMotion: boolean;
   mapElementRef: RefObject<HTMLDivElement>;
-  deferLayout: boolean;
 }) {
   const reduceMotionRef = useRef(reduceMotion);
   reduceMotionRef.current = reduceMotion;
-  const [groupMotion, setGroupMotion] = useState<GroupMotion | null>(null);
-  const groupMotionRef = useRef<GroupMotion | null>(null);
-  const groupTransitionRef = useRef<{ source: GraphDrawing; anchorNodeId?: string } | null>(null);
-  const groupCameraRef = useRef<GroupCameraAnchor | null>(null);
+  const [aggregateMotion, setAggregateMotion] = useState<AggregateMotion | null>(null);
+  const aggregateMotionRef = useRef<AggregateMotion | null>(null);
+  const aggregateTransitionRef = useRef<{
+    source: GraphDrawing;
+    anchorNodeId?: string;
+  } | null>(null);
+  const aggregateCameraRef = useRef<AggregateCameraAnchor | null>(null);
   const targetHiddenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const drawingRef = useRef<GraphDrawing | null>(null);
-  const groupingSourceRef = useRef<{ ids: Set<string>; edges: Map<string, GraphEdge> } | null>(
+  const aggregationSourceRef = useRef<{ ids: Set<string>; edges: Map<string, GraphEdge> } | null>(
     null
   );
-  const groupingSource = groupingSourceRef.current;
-  const groupingSourceChanged = Boolean(
-    groupingSource &&
+  const aggregationSource = aggregationSourceRef.current;
+  const aggregationSourceChanged = Boolean(
+    aggregationSource &&
       graph &&
-      (graph.nodes.length !== groupingSource.ids.size ||
-        graph.edges.length !== groupingSource.edges.size ||
-        graph.nodes.some(node => !groupingSource.ids.has(node.id)) ||
+      (graph.nodes.length !== aggregationSource.ids.size ||
+        graph.edges.length !== aggregationSource.edges.size ||
+        graph.nodes.some(node => !aggregationSource.ids.has(node.id)) ||
         graph.edges.some(edge => {
-          const previous = groupingSource.edges.get(edge.id);
+          const previous = aggregationSource.edges.get(edge.id);
           return (
             previous?.source !== edge.source ||
             previous?.target !== edge.target ||
@@ -81,7 +89,9 @@ export function useGraphLayout({
   const viewGraphRef = useRef(viewGraph);
   viewGraphRef.current = viewGraph;
   const nodeSizesRef = useRef(new Map<string, { width: number; height: number }>());
-  const pendingGroupFocusRef = useRef<{ memberIds: string[]; grouped: boolean } | null>(null);
+  const pendingAggregateFocusRef = useRef<{ memberIds: string[]; aggregated: boolean } | null>(
+    null
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const nodesInitialized = useNodesInitialized();
   const { fitView, getViewport, setViewport, viewportInitialized } = useReactFlow();
@@ -93,13 +103,10 @@ export function useGraphLayout({
             nodes: viewGraph.nodes.map(node => {
               if (node.type === 'aggregated')
                 return { id: node.id, width: NODE_WIDTH, height: AGGREGATED_NODE_HEIGHT };
-              const namespace =
-                node.resource.kubeObject?.metadata?.namespace ??
-                node.resource.kubeObject?.jsonData?.metadata?.namespace;
               return {
                 id: node.id,
                 width: NODE_WIDTH,
-                height: RESOURCE_NODE_LAYOUT_HEIGHT + (namespace ? NAMESPACE_LINE_HEIGHT : 0),
+                height: RESOURCE_NODE_LAYOUT_HEIGHT,
               };
             }),
             edges: viewGraph.edges,
@@ -135,9 +142,9 @@ export function useGraphLayout({
   );
   const interruptViewport = useCallback(
     (interrupt = true) => {
-      pendingGroupFocusRef.current = null;
-      groupCameraRef.current = null;
-      if (groupTransitionRef.current) pendingLayoutActionRef.current = null;
+      pendingAggregateFocusRef.current = null;
+      aggregateCameraRef.current = null;
+      if (aggregateTransitionRef.current) pendingLayoutActionRef.current = null;
       if (!viewportWorkRef.current) return;
       pendingLayoutActionRef.current = null;
       cancelViewportWork(interrupt);
@@ -146,11 +153,13 @@ export function useGraphLayout({
   );
 
   const relayout = useCallback(() => {
-    groupCameraRef.current = null;
-    if (groupMotionRef.current) {
-      groupTransitionRef.current = { source: drawingRef.current ?? groupMotionRef.current };
+    aggregateCameraRef.current = null;
+    if (aggregateMotionRef.current) {
+      aggregateTransitionRef.current = {
+        source: drawingRef.current ?? aggregateMotionRef.current,
+      };
     }
-    pendingGroupFocusRef.current = null;
+    pendingAggregateFocusRef.current = null;
     currentLayoutRevisionRef.current += 1;
     cancelViewportWork();
     pendingLayoutActionRef.current = 'relayout';
@@ -158,18 +167,15 @@ export function useGraphLayout({
   }, [cancelViewportWork]);
   const onFocusCapture = useCallback(
     (event: FocusEvent<HTMLElement>) => {
-      pendingGroupFocusRef.current = null;
+      pendingAggregateFocusRef.current = null;
       // Cancel before the card's focus handler pans through setCenter.
       if (event.target.closest('.react-flow__node')) interruptViewport();
     },
     [interruptViewport]
   );
-  const prepareGroupTransition = useCallback(
-    (
-      focus?: { memberIds: string[]; grouped: boolean },
-      cameraAnchor?: { nodeId: string; grouped: boolean }
-    ) => {
-      // Keep actual card sizes across grouping; ELK reserves space for two name lines.
+  const prepareAggregateTransition = useCallback(
+    ({ focus, cameraAnchor }: AggregateTransitionOptions = {}) => {
+      // Keep actual card sizes across aggregation; ELK reserves space for two name lines.
       const viewport = getViewport();
       const { zoom } = viewport;
       for (const [id, size] of measureNodeSizes(mapElementRef.current, zoom)) {
@@ -178,11 +184,11 @@ export function useGraphLayout({
       const source = drawingRef.current;
       const anchor = source?.viewGraph.nodes.find(node => node.id === cameraAnchor?.nodeId);
       const anchorPosition = anchor && source?.positions.get(anchor.id);
-      groupCameraRef.current = null;
+      aggregateCameraRef.current = null;
       if (anchor && anchorPosition) {
-        if (cameraAnchor?.grouped) {
-          groupCameraRef.current = {
-            type: 'group',
+        if (cameraAnchor?.aggregated) {
+          aggregateCameraRef.current = {
+            type: 'aggregate',
             memberId: anchor.type === 'resource' ? anchor.id : anchor.members[0].id,
             screenX: viewport.x + anchorPosition.x * zoom,
             screenY: viewport.y + anchorPosition.y * zoom,
@@ -193,8 +199,8 @@ export function useGraphLayout({
             nodeSizesRef.current.get(anchor.id) ??
             source?.input.nodes.find(node => node.id === anchor.id);
           if (size) {
-            groupCameraRef.current = {
-              type: 'ungroup',
+            aggregateCameraRef.current = {
+              type: 'disaggregate',
               memberIds: new Set(anchor.members.map(member => member.id)),
               screenX: viewport.x + (anchorPosition.x + size.width / 2) * zoom,
               screenY: viewport.y + (anchorPosition.y + size.height / 2) * zoom,
@@ -203,7 +209,7 @@ export function useGraphLayout({
           }
         }
       }
-      groupTransitionRef.current = source
+      aggregateTransitionRef.current = source
         ? {
             source: {
               ...source,
@@ -215,10 +221,10 @@ export function useGraphLayout({
                 })),
               },
             },
-            anchorNodeId: cameraAnchor?.grouped ? cameraAnchor.nodeId : undefined,
+            anchorNodeId: cameraAnchor?.aggregated ? cameraAnchor.nodeId : undefined,
           }
         : null;
-      groupingSourceRef.current = graph
+      aggregationSourceRef.current = graph
         ? {
             ids: new Set(graph.nodes.map(node => node.id)),
             edges: new Map(graph.edges.map(edge => [edge.id, edge])),
@@ -226,28 +232,29 @@ export function useGraphLayout({
         : null;
       currentLayoutRevisionRef.current += 1;
       cancelViewportWork();
-      pendingGroupFocusRef.current = focus ?? null;
+      pendingAggregateFocusRef.current = focus ?? null;
       pendingLayoutActionRef.current = null;
     },
     [cancelViewportWork, graph, getViewport, mapElementRef]
   );
   const [layoutInput, setLayoutInput] = useState(nextLayoutInput);
-  if (groupingSourceChanged && !hasSameLayoutInput(layoutInput, nextLayoutInput)) {
+  if (aggregationSourceChanged && !hasSameLayoutInput(layoutInput, nextLayoutInput)) {
     // Changes hidden inside an aggregate do not invalidate its ongoing movement.
-    groupingSourceRef.current = null;
-    groupTransitionRef.current = null;
-    groupMotionRef.current = null;
-    groupCameraRef.current = null;
+    aggregationSourceRef.current = null;
+    aggregateTransitionRef.current = null;
+    aggregateMotionRef.current = null;
+    aggregateCameraRef.current = null;
   }
   // Order and live metadata do not invalidate coordinates or unfinished layout work.
   if (!hasSameLayoutInput(layoutInput, nextLayoutInput)) setLayoutInput(nextLayoutInput);
   const layoutPending = !!layoutCommit && !hasSameLayoutInput(layoutCommit.input, layoutInput);
-  const activeMotion = groupingSourceRef.current ? groupMotion : null;
+  const activeMotion = aggregationSourceRef.current ? aggregateMotion : null;
   useLayoutEffect(() => {
-    const anchor = groupCameraRef.current;
-    const drawing = activeMotion ?? (layoutPending ? null : layoutCommit);
+    const anchor = aggregateCameraRef.current;
+    const drawing =
+      activeMotion?.crossfadeSource ?? activeMotion ?? (layoutPending ? null : layoutCommit);
     if (!anchor || !drawing) return;
-    if (anchor.type === 'ungroup') {
+    if (anchor.type === 'disaggregate') {
       const measuredSizes = measureNodeSizes(mapElementRef.current, getViewport().zoom);
       for (const [id, size] of measuredSizes) nodeSizesRef.current.set(id, size);
       // React Flow mounts replacement cards after receiving the new node set.
@@ -275,7 +282,7 @@ export function useGraphLayout({
         void setViewport(viewport, { duration: 0 });
       }
     }
-    if (!activeMotion) groupCameraRef.current = null;
+    if (!activeMotion) aggregateCameraRef.current = null;
   }, [
     activeMotion,
     layoutPending,
@@ -292,8 +299,8 @@ export function useGraphLayout({
   // Keep the last complete graph until replacement nodes and routes are ready together.
   const displayGraph =
     activeMotion?.viewGraph ??
-    (layoutPending && groupingSourceRef.current
-      ? groupTransitionRef.current?.source.viewGraph ?? layoutCommit.viewGraph
+    (layoutPending && aggregationSourceRef.current
+      ? aggregateTransitionRef.current?.source.viewGraph ?? layoutCommit.viewGraph
       : viewGraph);
   const visibleNodes = useMemo<Node[]>(
     () =>
@@ -302,10 +309,17 @@ export function useGraphLayout({
         : staticNodes ?? [],
     [motionInput, staticNodes]
   );
-  const collapseState = useMemo(
-    () => getViewCollapseState(graph, displayGraph, collapsedIds),
-    [graph, displayGraph, collapsedIds]
-  );
+  const incomingViewGraph = activeMotion?.nodeOpacities ? viewGraph : undefined;
+  const collapseState = useMemo(() => {
+    const state = getViewCollapseState(graph, displayGraph, collapsedIds);
+    if (incomingViewGraph) {
+      const next = getViewCollapseState(graph, incomingViewGraph, collapsedIds);
+      for (const [id, children] of next.childrenById) {
+        if (!state.childrenById.has(id)) state.childrenById.set(id, children);
+      }
+    }
+    return state;
+  }, [graph, displayGraph, collapsedIds, incomingViewGraph]);
   const targetHiddenIds = useMemo(
     () =>
       displayGraph === viewGraph
@@ -318,19 +332,20 @@ export function useGraphLayout({
   drawingRef.current =
     drawing && displayGraph
       ? {
-          ...getDisplayedDrawing(drawing, displayGraph),
+          // Incoming cards join the logical graph only once the movement completes.
+          ...(activeMotion?.crossfadeSource ?? getDisplayedDrawing(drawing, displayGraph)),
           hiddenIds: isAnimating ? activeMotion!.hiddenIds : collapseState.hiddenIds,
         }
       : null;
   const sourceIsEmpty = graph?.nodes.length === 0;
   useEffect(() => {
     if (!sourceIsEmpty) return;
-    pendingGroupFocusRef.current = null;
-    groupCameraRef.current = null;
-    groupingSourceRef.current = null;
-    groupTransitionRef.current = null;
-    groupMotionRef.current = null;
-    setGroupMotion(null);
+    pendingAggregateFocusRef.current = null;
+    aggregateCameraRef.current = null;
+    aggregationSourceRef.current = null;
+    aggregateTransitionRef.current = null;
+    aggregateMotionRef.current = null;
+    setAggregateMotion(null);
     nodeSizesRef.current.clear();
   }, [sourceIsEmpty]);
 
@@ -343,25 +358,25 @@ export function useGraphLayout({
 
   useEffect(() => {
     const revision = ++currentLayoutRevisionRef.current;
-    if (!layoutInput || deferLayout) return;
+    if (!layoutInput) return;
     const requestedViewGraph = viewGraphRef.current;
     if (!requestedViewGraph) return;
     let cancelled = false;
     let animationFrame: number | undefined;
-    const groupingTransition = groupTransitionRef.current;
-    if (!groupingTransition) {
-      groupMotionRef.current = null;
-      setGroupMotion(null);
+    const aggregationTransition = aggregateTransitionRef.current;
+    if (!aggregationTransition) {
+      aggregateMotionRef.current = null;
+      setAggregateMotion(null);
     }
     setLayoutError(null);
     const forceRelayout = pendingLayoutActionRef.current === 'relayout';
     const fitViewport = pendingLayoutActionRef.current === 'fit';
     const commit = ({ positions, routes }: GraphLayout) => {
       if (cancelled || revision !== currentLayoutRevisionRef.current) return;
-      groupingSourceRef.current = null;
-      groupTransitionRef.current = null;
-      groupMotionRef.current = null;
-      setGroupMotion(null);
+      aggregationSourceRef.current = null;
+      aggregateTransitionRef.current = null;
+      aggregateMotionRef.current = null;
+      setAggregateMotion(null);
       // An empty transition is complete even before the viewport initializes.
       if (positions.size === 0) pendingLayoutActionRef.current = null;
       setNodes(current => {
@@ -386,7 +401,7 @@ export function useGraphLayout({
     };
     const transition = (target: GraphLayout) => {
       if (cancelled || revision !== currentLayoutRevisionRef.current) return;
-      if (!groupingTransition || !groupingSourceRef.current || reduceMotionRef.current) {
+      if (!aggregationTransition || !aggregationSourceRef.current || reduceMotionRef.current) {
         commit(target);
         return;
       }
@@ -398,63 +413,113 @@ export function useGraphLayout({
         },
         viewGraph: requestedViewGraph,
       };
-      const plan = planGroupTransition(
-        groupingTransition.source,
+      const plan = planAggregateTransition(
+        aggregationTransition.source,
         next,
-        groupingTransition.anchorNodeId
+        aggregationTransition.anchorNodeId
       );
-      const showFrame = (
-        layout: GraphLayout,
-        drawing: TransitionGraph,
-        hiddenIds: ReadonlySet<string>
-      ) => {
-        const frame = { ...drawing, ...layout, hiddenIds, isAnimating: true };
-        groupMotionRef.current = frame;
-        setGroupMotion(frame);
-      };
-      const animate = (
-        interpolate: ReturnType<typeof createLayoutInterpolator>,
-        drawing: TransitionGraph,
-        hiddenIds: ReadonlySet<string>,
-        duration: number,
-        complete: () => void
-      ) => {
-        let started: number | undefined;
-        showFrame(interpolate(0), drawing, hiddenIds);
-        const tick = (time: number) => {
-          if (cancelled || revision !== currentLayoutRevisionRef.current) return;
-          if (reduceMotionRef.current) {
-            commit(target);
-            return;
+      const interpolate = createLayoutInterpolator(plan.start, plan.target);
+      const outgoingNodes =
+        plan.replacement === 'crossfade'
+          ? plan.start.viewGraph.nodes.filter(node => !next.positions.has(node.id))
+          : [];
+      const outgoingIds = new Set(outgoingNodes.map(node => node.id));
+      const incomingSources = plan.replacement === 'crossfade' ? plan.incomingSources : [];
+      const incomingNodes = incomingSources.map(({ node }) => node);
+      const incomingIds = new Set(incomingNodes.map(node => node.id));
+      const previousSizes = new Map(plan.start.input.nodes.map(node => [node.id, node]));
+      const nextSizes = new Map(next.input.nodes.map(node => [node.id, node]));
+      const crossfadeDrawing = outgoingNodes.length
+        ? {
+            ...plan.start,
+            input: {
+              ...plan.start.input,
+              nodes: [
+                ...plan.start.input.nodes,
+                ...next.input.nodes.filter(node => incomingIds.has(node.id)),
+              ],
+            },
+            viewGraph: {
+              ...plan.start.viewGraph,
+              nodes: [...plan.start.viewGraph.nodes, ...incomingNodes],
+            },
           }
-          started ??= time;
-          const progress = Math.min(1, (time - started) / duration);
-          const eased = progress * progress * (3 - 2 * progress);
-          showFrame(interpolate(eased), drawing, hiddenIds);
-          if (progress < 1) animationFrame = requestAnimationFrame(tick);
-          else complete();
+        : null;
+      const hiddenIds =
+        plan.replacement === 'crossfade'
+          ? aggregationTransition.source.hiddenIds
+          : targetHiddenIdsRef.current;
+      const showFrame = (layout: GraphLayout) => {
+        const frame = { ...plan.start, ...layout, hiddenIds, isAnimating: true };
+        aggregateMotionRef.current = frame;
+        setAggregateMotion(frame);
+      };
+      const showCrossfade = (layout: GraphLayout, progress: number) => {
+        const positions = new Map(layout.positions);
+        for (const { node, sourceIds } of incomingSources) {
+          if (!sourceIds.length) {
+            positions.set(node.id, next.positions.get(node.id)!);
+            continue;
+          }
+          const anchor = aggregationTransition.anchorNodeId;
+          if (anchor && sourceIds.includes(anchor)) {
+            positions.set(node.id, layout.positions.get(anchor)!);
+            continue;
+          }
+          const centers = sourceIds.map(id => {
+            const position = layout.positions.get(id)!;
+            const size = previousSizes.get(id)!;
+            return { x: position.x + size.width / 2, y: position.y + size.height / 2 };
+          });
+          const size = nextSizes.get(node.id)!;
+          positions.set(node.id, {
+            x: centers.reduce((sum, center) => sum + center.x, 0) / centers.length - size.width / 2,
+            y:
+              centers.reduce((sum, center) => sum + center.y, 0) / centers.length - size.height / 2,
+          });
+        }
+        const frame = {
+          ...crossfadeDrawing!,
+          ...layout,
+          positions,
+          hiddenIds: new Set([...hiddenIds, ...targetHiddenIdsRef.current]),
+          isAnimating: true,
+          crossfadeSource: { ...plan.start, ...layout },
+          nodeOpacities: new Map([
+            ...[...outgoingIds].map(id => [id, 1 - progress] as const),
+            ...[...incomingIds].map(id => [id, progress] as const),
+          ]),
         };
+        aggregateMotionRef.current = frame;
+        setAggregateMotion(frame);
+      };
+      const movementDuration = 500;
+      const crossfadeDuration = 100;
+      let started: number | undefined;
+      showFrame(interpolate(0));
+      const tick = (time: number) => {
+        if (cancelled || revision !== currentLayoutRevisionRef.current) return;
+        if (reduceMotionRef.current) {
+          commit(target);
+          return;
+        }
+        started ??= time;
+        const elapsed = time - started;
+        if (elapsed < movementDuration) {
+          const progress = elapsed / movementDuration;
+          const eased = progress * progress * (3 - 2 * progress);
+          const layout = interpolate(eased);
+          const fadeProgress =
+            (elapsed - (movementDuration - crossfadeDuration)) / crossfadeDuration;
+          if (crossfadeDrawing && fadeProgress >= 0) showCrossfade(layout, fadeProgress);
+          else showFrame(layout);
+        } else {
+          commit(target);
+          return;
+        }
         animationFrame = requestAnimationFrame(tick);
       };
-      const settle = () =>
-        animate(
-          createLayoutInterpolator(plan.nextStartLayout, target),
-          next,
-          targetHiddenIdsRef.current,
-          500,
-          () => commit(target)
-        );
-      if (plan.hasGather) {
-        animate(
-          createLayoutInterpolator(groupingTransition.source, plan.gathered, {
-            preserveRoutePointCorrespondence: true,
-          }),
-          groupingTransition.source,
-          groupingTransition.source.hiddenIds,
-          350,
-          settle
-        );
-      } else settle();
+      animationFrame = requestAnimationFrame(tick);
     };
     if (layoutInput.nodes.length === 0) transition({ positions: new Map(), routes: new Map() });
     else if (
@@ -467,14 +532,19 @@ export function useGraphLayout({
         .then(transition)
         .catch(error => {
           if (cancelled || revision !== currentLayoutRevisionRef.current) return;
-          pendingGroupFocusRef.current = null;
-          groupCameraRef.current = null;
+          pendingAggregateFocusRef.current = null;
+          aggregateCameraRef.current = null;
           pendingLayoutActionRef.current = null;
           // Keep the last rendered geometry, but end its interaction lock on failure.
-          if (groupMotionRef.current) {
-            const stopped = { ...groupMotionRef.current, isAnimating: false };
-            groupMotionRef.current = stopped;
-            setGroupMotion(stopped);
+          if (aggregateMotionRef.current) {
+            const motion = aggregateMotionRef.current;
+            const stopped = {
+              ...(motion.crossfadeSource ?? motion),
+              hiddenIds: motion.hiddenIds,
+              isAnimating: false,
+            };
+            aggregateMotionRef.current = stopped;
+            setAggregateMotion(stopped);
           }
           setLayoutError(error instanceof Error ? error : new Error(String(error)));
         });
@@ -485,26 +555,26 @@ export function useGraphLayout({
       if (revision === currentLayoutRevisionRef.current) currentLayoutRevisionRef.current += 1;
       cancelViewportWork();
     };
-  }, [layoutInput, layoutTriggerRevision, deferLayout, setNodes, cancelViewportWork]);
+  }, [layoutInput, layoutTriggerRevision, setNodes, cancelViewportWork]);
 
   useEffect(() => {
     if (
       !nodesInitialized ||
-      !pendingGroupFocusRef.current ||
+      !pendingAggregateFocusRef.current ||
       layoutCommit?.revision !== currentLayoutRevisionRef.current ||
       viewportCompleteRevision !== layoutCommit.revision
     ) {
       return;
     }
     const frame = requestAnimationFrame(() => {
-      const pending = pendingGroupFocusRef.current;
+      const pending = pendingAggregateFocusRef.current;
       if (!pending) return;
       // A newer focus outside the graph takes precedence over the completed layout.
       if (
         document.activeElement !== document.body &&
         !document.activeElement?.closest('.react-flow__node')
       ) {
-        pendingGroupFocusRef.current = null;
+        pendingAggregateFocusRef.current = null;
         return;
       }
       const members = new Set(pending.memberIds);
@@ -520,18 +590,18 @@ export function useGraphLayout({
           .map(node => node.id)
       );
       if (!targets.size) {
-        pendingGroupFocusRef.current = null;
+        pendingAggregateFocusRef.current = null;
         return;
       }
       const element = Array.from(
         mapElementRef.current?.querySelectorAll<HTMLElement>('.react-flow__node') ?? []
       ).find(node => targets.has(node.dataset.id ?? '') && !node.hasAttribute('inert'));
-      const action = pending.grouped ? 'Ungroup' : 'Group';
+      const action = pending.aggregated ? 'Disaggregate' : 'Aggregate';
       const button =
         element?.querySelector<HTMLButtonElement>(`button[aria-label^="${action} "]`) ??
         element?.querySelector<HTMLButtonElement>('button');
       if (!button) return;
-      pendingGroupFocusRef.current = null;
+      pendingAggregateFocusRef.current = null;
       button.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
@@ -582,12 +652,13 @@ export function useGraphLayout({
     displayGraph,
     collapseState,
     motionPositions: activeMotion?.positions,
+    motionOpacities: activeMotion?.nodeOpacities,
     motionHiddenIds: isAnimating ? activeMotion?.hiddenIds : undefined,
     routes: drawing?.routes,
     isAnimating,
     layoutPending,
     layoutError,
-    prepareGroupTransition,
+    prepareAggregateTransition,
     onFocusCapture,
     relayout,
     interruptViewport,
@@ -607,10 +678,10 @@ function measureNodeSizes(mapElement: HTMLDivElement | null, zoom: number) {
 
 function getCameraAnchorPosition(
   drawing: TransitionGraph,
-  anchor: GroupCameraAnchor,
+  anchor: AggregateCameraAnchor,
   nodeSizes: ReadonlyMap<string, { width: number; height: number }>
 ): XYPosition | undefined {
-  if (anchor.type === 'group') {
+  if (anchor.type === 'aggregate') {
     const representative = drawing.viewGraph.nodes.find(node =>
       node.type === 'resource'
         ? node.id === anchor.memberId
@@ -637,7 +708,7 @@ function getCameraAnchorPosition(
 
 function getDisplayedDrawing(
   drawing: TransitionGraph,
-  viewGraph: ReturnType<typeof groupGraph>
+  viewGraph: ReturnType<typeof aggregateGraph>
 ): TransitionGraph {
   if (drawing.viewGraph === viewGraph) return drawing;
   const nodes = viewGraph.nodes.filter(node => drawing.positions.has(node.id));
@@ -663,7 +734,7 @@ function getDisplayedDrawing(
 
 function getViewCollapseState(
   graph: ManagedGraphData | null,
-  viewGraph: ReturnType<typeof groupGraph> | null,
+  viewGraph: ReturnType<typeof aggregateGraph> | null,
   collapsedIds: ReadonlySet<string>
 ) {
   const visibleResources = new Set(

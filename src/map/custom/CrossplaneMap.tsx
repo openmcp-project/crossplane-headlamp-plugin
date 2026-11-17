@@ -31,23 +31,58 @@ import type { GraphNode } from '../common/types';
 import { useManagedGraph } from '../common/useManagedGraph';
 import { AggregatedNode, AggregatedNodeData } from './AggregatedNode';
 import {
+  aggregateGraph,
+  AggregationCandidate,
+  collectAllAggregates,
+  ResourceAggregate,
+} from './aggregateGraph';
+import { AggregatePreview } from './AggregatePreview';
+import {
+  assignCategoryColors,
+  CategoryFields,
   categoryFieldsFromKubeObject,
   CategoryKey,
   categoryKeyOf,
-  categoryLabelOf,
-  CategoryMode,
   collectLabelKeys,
-  generateCategoryColorMap,
 } from './graphCategories';
 import { GraphControls, StatusFilter } from './GraphControls';
-import { collectAllGroups, groupGraph, GroupingCandidate, ResourceGroup } from './groupGraph';
-import { GroupPreview } from './GroupPreview';
 import type { ResourceNodeData } from './ResourceNode';
 import { ResourceNode } from './ResourceNode';
 import { RoutedEdge } from './RoutedEdge';
 import { EDGE_LABEL_BG_PADDING, PANEL_ELEVATION, PANEL_SX } from './styles';
 import { useAnimatedGraphVisibility } from './useAnimatedGraphVisibility';
-import { useGraphLayout } from './useGraphLayout';
+import { AggregateTransitionOptions, useGraphLayout } from './useGraphLayout';
+
+type FixedFilterDimension = 'flux' | 'kind';
+type FilterDimensionId = FixedFilterDimension | `label:${string}`;
+
+function keyOfDimension(fields: CategoryFields, dimension: FilterDimensionId): CategoryKey {
+  if (dimension === 'kind') return fields.kind;
+  if (dimension === 'flux') {
+    return categoryKeyOf(fields, dimension);
+  }
+  return categoryKeyOf(fields, 'label', dimension.slice('label:'.length));
+}
+
+function optionsForDimension(
+  fields: CategoryFields[],
+  dimension: FilterDimensionId
+): CategoryKey[] {
+  let hasNull = false;
+  const keys = new Set<string>();
+  for (const f of fields) {
+    const key = keyOfDimension(f, dimension);
+    if (key === null) hasNull = true;
+    else if (key) keys.add(key);
+  }
+  const sorted: CategoryKey[] = [...keys].sort();
+  if (hasNull) sorted.unshift(null);
+  return sorted;
+}
+
+function hasSelectableDimensionValues(options: CategoryKey[]): boolean {
+  return options.some(key => key !== null);
+}
 
 function CrossplaneMapView() {
   const theme = useTheme();
@@ -60,78 +95,71 @@ function CrossplaneMapView() {
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const fadeDuration = theme.transitions.duration.shortest;
   const graph = useManagedGraph();
-  // Categorize-by mode + selected label key. State only (no persistence). All
-  // hooks below run before the loading early-return to keep hook order stable.
-  const [categoryMode, setCategoryMode] = useState<CategoryMode>('provider');
-  const [labelKey, setLabelKey] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
-  const [categoryFilter, setCategoryFilter] = useState<{
-    categoryMode: CategoryMode;
-    labelKey: string;
-    values: CategoryKey[];
-  } | null>(null);
+  const [fixedFilters, setFixedFilters] = useState<
+    Partial<Record<FixedFilterDimension, CategoryKey[]>>
+  >({});
+  const [labelFilters, setLabelFilters] = useState<
+    Array<{ key: string; values: CategoryKey[] | null }>
+  >([]);
 
   const categoryFields = useMemo(
     () => (graph?.nodes ?? []).map(node => categoryFieldsFromKubeObject(node.kubeObject)),
     [graph]
   );
   const labelKeys = useMemo(() => collectLabelKeys(categoryFields), [categoryFields]);
-  // Fall back when the chosen key is empty or no longer present in the data.
-  const effectiveLabelKey =
-    labelKey && labelKeys.includes(labelKey) ? labelKey : labelKeys[0] ?? '';
-  const categoryColorMap = useMemo(
-    () =>
-      generateCategoryColorMap(categoryFields, categoryMode, theme.palette.mode, effectiveLabelKey),
-    [categoryFields, categoryMode, theme.palette.mode, effectiveLabelKey]
+  const fluxOptions = useMemo(() => optionsForDimension(categoryFields, 'flux'), [categoryFields]);
+  const kindOptions = useMemo(() => optionsForDimension(categoryFields, 'kind'), [categoryFields]);
+  const kindColorMap = useMemo(
+    () => assignCategoryColors(kindOptions, theme.palette.mode),
+    [kindOptions, theme.palette.mode]
   );
-  const categoryOptions = useMemo(() => [...categoryColorMap.keys()], [categoryColorMap]);
-  const selectedCategories =
-    categoryFilter?.categoryMode === categoryMode &&
-    (categoryMode !== 'label' || categoryFilter.labelKey === effectiveLabelKey)
-      ? categoryFilter.values
-      : null;
-  const categoryExcludedIds = useMemo(() => {
-    if (selectedCategories === null || categoryMode === 'none') return new Set<string>();
-    const selectedValues = new Set(selectedCategories);
-    return new Set(
-      (graph?.nodes ?? [])
-        .filter(
-          node =>
-            !selectedValues.has(
-              categoryKeyOf(
-                categoryFieldsFromKubeObject(node.kubeObject),
-                categoryMode,
-                effectiveLabelKey
-              )
-            )
-        )
-        .map(node => node.id)
-    );
-  }, [graph, selectedCategories, categoryMode, effectiveLabelKey]);
+  const addableLabelKeys = useMemo(() => {
+    const activeKeys = new Set(labelFilters.map(filter => filter.key));
+    return labelKeys.filter(key => !activeKeys.has(key));
+  }, [labelKeys, labelFilters]);
   const { matchingNodes, matchingIds } = useMemo(() => {
     const sourceNodes = graph?.nodes ?? [];
-    const matchingNodes = sourceNodes.filter(
-      node =>
-        !categoryExcludedIds.has(node.id) &&
-        (statusFilter === null || statusFilter.includes(node.status))
-    );
+    const activeDimensions: Array<{
+      dimension: FilterDimensionId;
+      selected: Set<CategoryKey>;
+    }> = [];
+    for (const dimension of ['flux', 'kind'] as const) {
+      const values = fixedFilters[dimension];
+      if (values !== undefined) {
+        activeDimensions.push({ dimension, selected: new Set(values) });
+      }
+    }
+    for (const { key, values } of labelFilters) {
+      if (values !== null) {
+        activeDimensions.push({ dimension: `label:${key}`, selected: new Set(values) });
+      }
+    }
+    const matchingNodes = sourceNodes.filter((node, index) => {
+      if (statusFilter !== null && !statusFilter.includes(node.status)) return false;
+      if (activeDimensions.length === 0) return true;
+      const fields = categoryFields[index];
+      return activeDimensions.every(({ dimension, selected }) =>
+        selected.has(keyOfDimension(fields, dimension))
+      );
+    });
     const matchingIds = new Set(matchingNodes.map(node => node.id));
     return {
       matchingNodes,
       matchingIds,
     };
-  }, [graph, categoryExcludedIds, statusFilter]);
-  const hasActiveFilters =
-    statusFilter !== null || (categoryMode !== 'none' && selectedCategories !== null);
-  const [groups, setGroups] = useState<ResourceGroup[]>([]);
-  const [regroupHistory, setRegroupHistory] = useState<ResourceGroup[]>([]);
+  }, [graph, categoryFields, fixedFilters, labelFilters, statusFilter]);
+  const [aggregates, setAggregates] = useState<ResourceAggregate[]>([]);
+  const [reaggregateHistory, setReaggregateHistory] = useState<ResourceAggregate[]>([]);
   const viewGraph = useMemo(
     () =>
-      graph ? groupGraph(graph.nodes, graph.edges, groups, matchingIds, regroupHistory) : null,
-    [graph, groups, matchingIds, regroupHistory]
+      graph
+        ? aggregateGraph(graph.nodes, graph.edges, aggregates, matchingIds, reaggregateHistory)
+        : null,
+    [graph, aggregates, matchingIds, reaggregateHistory]
   );
-  const hasGroups = !!viewGraph?.nodes.some(node => node.type === 'aggregated');
-  const [hoveredGroupNodeId, setHoveredGroupNodeId] = useState<string | null>(null);
+  const hasAggregates = !!viewGraph?.nodes.some(node => node.type === 'aggregated');
+  const [hoveredAggregateNodeId, setHoveredAggregateNodeId] = useState<string | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const mapElementRef = useRef<HTMLDivElement>(null);
   const nodeTypes = useMemo(() => ({ resource: ResourceNode, aggregated: AggregatedNode }), []);
@@ -139,24 +167,21 @@ function CrossplaneMapView() {
   // Selection follows the detail action; a background click clears it.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
-  const labelFilterInvalidated =
-    categoryMode === 'label' &&
-    categoryFilter?.categoryMode === 'label' &&
-    categoryFilter.labelKey !== effectiveLabelKey;
   const {
     nodes: visibleNodes,
     onNodesChange,
     displayGraph,
     collapseState,
     motionPositions,
+    motionOpacities,
     motionHiddenIds,
     routes,
     isAnimating,
     layoutPending,
     layoutError,
-    prepareGroupTransition,
+    prepareAggregateTransition,
     onFocusCapture,
-    relayout: relayoutMatchingView,
+    relayout,
     interruptViewport,
   } = useGraphLayout({
     graph,
@@ -164,7 +189,6 @@ function CrossplaneMapView() {
     collapsedIds,
     reduceMotion,
     mapElementRef,
-    deferLayout: labelFilterInvalidated,
   });
   const { childrenById, resourceChildrenById, hiddenIds: collapseHiddenIds } = collapseState;
   const animatedVisibility = useAnimatedGraphVisibility(
@@ -175,76 +199,83 @@ function CrossplaneMapView() {
   const visibleHiddenIds = motionHiddenIds ?? animatedVisibility.hiddenIds;
   const visibleExcludedIds = motionHiddenIds ?? collapseHiddenIds;
   const visibleTransparentIds = isAnimating ? null : animatedVisibility.transparentIds;
-  const changeGroups = useCallback(
-    (
-      nextGroups: ResourceGroup[],
-      focus?: { memberIds: string[]; grouped: boolean },
-      cameraAnchor?: { nodeId: string; grouped: boolean }
-    ) => {
-      if (hasSameGroups(groups, nextGroups)) return;
-      prepareGroupTransition(focus, cameraAnchor);
-      setHoveredGroupNodeId(null);
+  const changeAggregates = useCallback(
+    (nextAggregates: ResourceAggregate[], options?: AggregateTransitionOptions) => {
+      if (hasSameAggregates(aggregates, nextAggregates)) return;
+      prepareAggregateTransition(options);
+      setHoveredAggregateNodeId(null);
       setFocusedNodeId(null);
-      setGroups(nextGroups);
+      setAggregates(nextAggregates);
     },
-    [groups, prepareGroupTransition]
+    [aggregates, prepareAggregateTransition]
   );
-  const group = useCallback(
-    (candidate: GroupingCandidate, anchorNodeId: string) => {
+  const aggregate = useCallback(
+    (candidate: AggregationCandidate, anchorNodeId: string) => {
       const memberIds = candidate.members.map(member => member.id);
       const members = new Set(memberIds);
-      setRegroupHistory(current => current.filter(group => !group.some(id => members.has(id))));
-      changeGroups(
+      setReaggregateHistory(current =>
+        current.filter(aggregate => !aggregate.some(id => members.has(id)))
+      );
+      changeAggregates(
         [
-          ...groups
+          ...aggregates
             .map(existing => existing.filter(id => !members.has(id)))
-            .filter(group => group.length > 1),
+            .filter(aggregate => aggregate.length > 1),
           memberIds,
         ],
-        focusedNodeId && candidate.viewNodeIds.includes(focusedNodeId)
-          ? { memberIds, grouped: true }
-          : undefined,
-        { nodeId: anchorNodeId, grouped: true }
+        {
+          focus:
+            focusedNodeId && candidate.viewNodeIds.includes(focusedNodeId)
+              ? { memberIds, aggregated: true }
+              : undefined,
+          cameraAnchor: { nodeId: anchorNodeId, aggregated: true },
+        }
       );
     },
-    [changeGroups, groups, focusedNodeId]
+    [changeAggregates, aggregates, focusedNodeId]
   );
-  const ungroup = useCallback(
+  const disaggregate = useCallback(
     (members: GraphNode[], anchorNodeId: string) => {
       const memberIds = new Set(members.map(member => member.id));
-      setRegroupHistory(current => [
-        ...current.filter(group => !group.some(id => memberIds.has(id))),
+      setReaggregateHistory(current => [
+        ...current.filter(aggregate => !aggregate.some(id => memberIds.has(id))),
         [...memberIds],
       ]);
-      changeGroups(
-        groups
+      changeAggregates(
+        aggregates
           .map(existing => existing.filter(id => !memberIds.has(id)))
-          .filter(group => group.length > 1),
-        focusedNodeId ? { memberIds: [...memberIds], grouped: false } : undefined,
-        { nodeId: anchorNodeId, grouped: false }
+          .filter(aggregate => aggregate.length > 1),
+        {
+          focus: focusedNodeId ? { memberIds: [...memberIds], aggregated: false } : undefined,
+          cameraAnchor: { nodeId: anchorNodeId, aggregated: false },
+        }
       );
     },
-    [changeGroups, groups, focusedNodeId]
+    [changeAggregates, aggregates, focusedNodeId]
   );
-  const groupAll = () => {
+  const aggregateAll = () => {
     if (!graph) return;
-    const next = collectAllGroups(graph.nodes, graph.edges, matchingIds, groups);
+    const next = collectAllAggregates(graph.nodes, graph.edges, matchingIds, aggregates);
     const affected = new Set(next.flat());
-    setRegroupHistory(current => current.filter(group => !group.some(id => affected.has(id))));
-    changeGroups(next);
+    setReaggregateHistory(current =>
+      current.filter(aggregate => !aggregate.some(id => affected.has(id)))
+    );
+    changeAggregates(next);
   };
-  const ungroupAll = () => {
-    const visibleGroups =
+  const disaggregateAll = () => {
+    const visibleAggregates =
       viewGraph?.nodes.flatMap(node =>
         node.type === 'aggregated' ? [node.members.map(member => member.id)] : []
       ) ?? [];
-    const affected = new Set(visibleGroups.flat());
-    setRegroupHistory(current => [
-      ...current.filter(group => !group.some(id => affected.has(id))),
-      ...visibleGroups,
+    const affected = new Set(visibleAggregates.flat());
+    setReaggregateHistory(current => [
+      ...current.filter(aggregate => !aggregate.some(id => affected.has(id))),
+      ...visibleAggregates,
     ]);
-    changeGroups(
-      groups.map(group => group.filter(id => !affected.has(id))).filter(group => group.length > 1)
+    changeAggregates(
+      aggregates
+        .map(aggregate => aggregate.filter(id => !affected.has(id)))
+        .filter(aggregate => aggregate.length > 1)
     );
   };
 
@@ -279,27 +310,38 @@ function CrossplaneMapView() {
   );
   const previewCandidate = layoutPending
     ? undefined
-    : viewGraph?.candidates.get(hoveredGroupNodeId ?? '');
+    : viewGraph?.candidates.get(hoveredAggregateNodeId ?? '');
   const highlightedNodeIds = useMemo(
     () => new Set(previewCandidate?.viewNodeIds ?? []),
     [previewCandidate]
   );
 
-  useEffect(() => {
-    if (!labelFilterInvalidated) return;
-    setCategoryFilter(null);
-    relayoutMatchingView();
-  }, [labelFilterInvalidated, relayoutMatchingView]);
+  const updateFixedFilter = useCallback(
+    (dimension: FixedFilterDimension, values: CategoryKey[] | null) => {
+      relayout();
+      setFixedFilters(current => {
+        if (values === null) {
+          const next = { ...current };
+          delete next[dimension];
+          return next;
+        }
+        return { ...current, [dimension]: values };
+      });
+    },
+    [relayout]
+  );
 
   const sourceIsEmpty = graph?.nodes.length === 0;
   useEffect(() => {
     if (!sourceIsEmpty) return;
     setSelectedId(null);
     setCollapsedIds(new Set());
-    setGroups([]);
-    setRegroupHistory([]);
-    setHoveredGroupNodeId(null);
+    setAggregates([]);
+    setReaggregateHistory([]);
+    setHoveredAggregateNodeId(null);
     setFocusedNodeId(null);
+    setFixedFilters({});
+    setLabelFilters([]);
   }, [sourceIsEmpty]);
 
   const openDetails = useCallback((node: GraphNode) => {
@@ -311,15 +353,15 @@ function CrossplaneMapView() {
     const kind: string = item.kind ?? '';
     const name: string = item.metadata?.name ?? '';
     const namespace: string | undefined = item.metadata?.namespace;
-    const [group = '', version] = (item.apiVersion ?? '').split('/');
-    // customResourceDefinition is "plural.group"; plural is everything before it.
-    const plural: string = crd && group ? crd.slice(0, crd.length - group.length - 1) : '';
+    const [apiGroup = '', version] = (item.apiVersion ?? '').split('/');
+    // customResourceDefinition is "plural.group"; plural is everything before the API group.
+    const plural: string = crd && apiGroup ? crd.slice(0, crd.length - apiGroup.length - 1) : '';
 
-    if (!name || !group || !plural) return;
+    if (!name || !apiGroup || !plural) return;
 
     openManagedDetail({
       providerName: node.providerName,
-      group,
+      group: apiGroup,
       version,
       plural,
       name,
@@ -336,13 +378,13 @@ function CrossplaneMapView() {
         const viewNode = viewNodesById.get(node.id);
         if (!viewNode) return [];
         const candidate = layoutPending ? undefined : viewGraph?.candidates.get(node.id);
-        const grouping = {
+        const aggregation = {
           candidateMemberCount: candidate?.members.length,
-          onGroup: candidate ? () => group(candidate, node.id) : undefined,
-          onGroupMouseEnter: () => setHoveredGroupNodeId(node.id),
-          onGroupMouseLeave: () =>
-            setHoveredGroupNodeId(current => (current === node.id ? null : current)),
-          groupHighlighted: highlightedNodeIds.has(node.id),
+          onAggregate: candidate ? () => aggregate(candidate, node.id) : undefined,
+          onAggregateMouseEnter: () => setHoveredAggregateNodeId(node.id),
+          onAggregateMouseLeave: () =>
+            setHoveredAggregateNodeId(current => (current === node.id ? null : current)),
+          aggregateHighlighted: highlightedNodeIds.has(node.id),
         };
         const presentation = {
           ...node,
@@ -373,8 +415,10 @@ function CrossplaneMapView() {
               ...presentation,
               type: 'aggregated',
               data: {
-                ...grouping,
+                ...aggregation,
                 kind: viewNode.kind,
+                // Aggregates are kind-homogeneous, so the whole card shares the kind color.
+                color: kindColorMap.get(viewNode.kind),
                 apiGroup: apiVersion.includes('/') ? apiVersion.split('/')[0] : '',
                 memberCount: viewNode.members.length,
                 healthyMemberCount: members.filter(member => member.status === 'success').length,
@@ -383,31 +427,25 @@ function CrossplaneMapView() {
                   collapseMembers.length > 0 &&
                   collapseMembers.every(member => collapsedIds.has(member.id)),
                 onToggleCollapse: collapseMembers.length > 0 ? toggleCollapse : undefined,
-                onUngroup: () => ungroup(viewNode.members, node.id),
+                onDisaggregate: () => disaggregate(viewNode.members, node.id),
               },
             },
           ];
         }
         const resource = resourcesById.get(viewNode.id) ?? viewNode.resource;
         const ko = resource.kubeObject ?? {};
-        const key = categoryKeyOf(
-          categoryFieldsFromKubeObject(ko),
-          categoryMode,
-          effectiveLabelKey
-        );
-        const categorized = categoryMode !== 'none';
+        const fields = categoryFieldsFromKubeObject(ko);
         return [
           {
             ...presentation,
             type: 'resource',
             data: {
-              ...grouping,
+              ...aggregation,
               kind: ko.kind ?? ko.jsonData?.kind ?? 'Resource',
               name: ko.metadata?.name ?? ko.jsonData?.metadata?.name ?? node.id,
               namespace: ko.metadata?.namespace ?? ko.jsonData?.metadata?.namespace,
               status: resource.status,
-              color: categorized ? categoryColorMap.get(key) : undefined,
-              categoryLabel: categorized ? categoryLabelOf(key) : undefined,
+              color: kindColorMap.get(fields.kind),
               childNodeCount: childrenById.get(node.id)?.size ?? 0,
               collapsed: collapsedIds.has(node.id),
               onOpenDetails: resource.customResourceDefinition
@@ -423,13 +461,11 @@ function CrossplaneMapView() {
       viewNodesById,
       resourcesById,
       viewGraph,
-      group,
+      aggregate,
       highlightedNodeIds,
       layoutPending,
       selectedId,
-      categoryMode,
-      categoryColorMap,
-      effectiveLabelKey,
+      kindColorMap,
       childrenById,
       resourceChildrenById,
       visibleExcludedIds,
@@ -439,7 +475,7 @@ function CrossplaneMapView() {
       collapsedIds,
       openDetails,
       toggleCollapse,
-      ungroup,
+      disaggregate,
     ]
   );
   // Position updates must not rebuild every card's data and callbacks on each frame.
@@ -449,9 +485,12 @@ function CrossplaneMapView() {
         ? displayNodes.map(node => ({
             ...node,
             position: motionPositions.get(node.id) ?? node.position,
+            style: motionOpacities?.has(node.id)
+              ? { ...node.style, opacity: motionOpacities.get(node.id) }
+              : node.style,
           }))
         : displayNodes,
-    [displayNodes, motionPositions]
+    [displayNodes, motionPositions, motionOpacities]
   );
   const displayEdges = useMemo<Edge[]>(() => {
     const positionedIds = new Set(displayNodes.map(node => node.id));
@@ -548,7 +587,7 @@ function CrossplaneMapView() {
         const node = target.closest<HTMLElement>('.react-flow__node');
         if (!node) return;
         const keyboardFocus = target.matches(':focus-visible');
-        if (keyboardFocus) setHoveredGroupNodeId(null);
+        if (keyboardFocus) setHoveredAggregateNodeId(null);
         setFocusedNodeId(keyboardFocus ? node.dataset.id ?? null : null);
       }}
       onBlurCapture={event => {
@@ -617,12 +656,12 @@ function CrossplaneMapView() {
           maxZoom={4}
           proOptions={{ hideAttribution: true }}
         >
-          {!isAnimating && hoveredGroupNodeId && highlightedNodeIds.size > 1 && (
-            <GroupPreview
+          {!isAnimating && hoveredAggregateNodeId && highlightedNodeIds.size > 1 && (
+            <AggregatePreview
               nodes={positionedNodes.filter(
                 node => highlightedNodeIds.has(node.id) && !visibleExcludedIds.has(node.id)
               )}
-              targetId={hoveredGroupNodeId}
+              targetId={hoveredAggregateNodeId}
               reduceMotion={reduceMotion}
             />
           )}
@@ -653,42 +692,62 @@ function CrossplaneMapView() {
               </Box>
             </Container>
           </Panel>
-          <Panel position="top-right">
+          {/* Reserve the 150px MiniMap, its 16px gap, and the two outer margins. */}
+          <Panel position="top-right" style={{ display: 'flex', maxHeight: 'calc(100% - 198px)' }}>
             <GraphControls
-              hasGroups={hasGroups}
-              canGroup={!!viewGraph?.candidates.size}
-              onGroupAll={groupAll}
-              onUngroupAll={ungroupAll}
-              categoryMode={categoryMode}
-              onCategoryModeChange={mode => {
-                relayoutMatchingView();
-                setCategoryMode(mode);
-                setCategoryFilter(null);
-              }}
-              labelKey={effectiveLabelKey}
-              labelKeys={labelKeys}
-              onLabelKeyChange={key => {
-                relayoutMatchingView();
-                setLabelKey(key);
-                setCategoryFilter(null);
-              }}
-              categoryColorMap={categoryColorMap}
-              categoryOptions={categoryOptions}
-              selectedCategories={selectedCategories}
-              onCategorySelectionChange={values => {
-                relayoutMatchingView();
-                setCategoryFilter(
-                  values === null ? null : { categoryMode, labelKey: effectiveLabelKey, values }
+              hasAggregates={hasAggregates}
+              canAggregate={!!viewGraph?.candidates.size}
+              onAggregateAll={aggregateAll}
+              onDisaggregateAll={disaggregateAll}
+              fluxFilter={
+                hasSelectableDimensionValues(fluxOptions) || fixedFilters.flux !== undefined
+                  ? {
+                      options: fluxOptions,
+                      selected: fixedFilters.flux ?? null,
+                      onChange: values => updateFixedFilter('flux', values),
+                    }
+                  : undefined
+              }
+              kindFilter={
+                hasSelectableDimensionValues(kindOptions) || fixedFilters.kind !== undefined
+                  ? {
+                      options: kindOptions,
+                      selected: fixedFilters.kind ?? null,
+                      onChange: values => updateFixedFilter('kind', values),
+                      colorMap: kindColorMap,
+                    }
+                  : undefined
+              }
+              labelFilters={labelFilters.map(({ key, values }) => ({
+                key,
+                options: optionsForDimension(categoryFields, `label:${key}`),
+                selected: values,
+                onChange: nextValues => {
+                  relayout();
+                  setLabelFilters(current =>
+                    current.map(entry =>
+                      entry.key === key ? { ...entry, values: nextValues } : entry
+                    )
+                  );
+                },
+                onRemove: () => {
+                  if (values !== null) relayout();
+                  setLabelFilters(current => current.filter(entry => entry.key !== key));
+                },
+              }))}
+              addableLabelKeys={addableLabelKeys}
+              onAddLabelFilter={key => {
+                setLabelFilters(current =>
+                  current.some(entry => entry.key === key)
+                    ? current
+                    : [...current, { key, values: null }]
                 );
               }}
               statusFilter={statusFilter}
               onStatusFilterChange={statuses => {
-                relayoutMatchingView();
+                relayout();
                 setStatusFilter(statuses);
               }}
-              hasActiveFilters={hasActiveFilters}
-              matchingCount={matchingNodes.length}
-              totalCount={graph.nodes.length}
             />
           </Panel>
           {graph.nodes.length === 0 && !graph.resourceErrors?.length && (
@@ -726,7 +785,7 @@ function CrossplaneMapView() {
               <Alert
                 severity="error"
                 action={
-                  <Button color="inherit" onClick={relayoutMatchingView}>
+                  <Button color="inherit" onClick={relayout}>
                     Retry
                   </Button>
                 }
@@ -776,7 +835,7 @@ function CrossplaneMapView() {
   );
 }
 
-function hasSameGroups(current: ResourceGroup[], next: ResourceGroup[]) {
+function hasSameAggregates(current: ResourceAggregate[], next: ResourceAggregate[]) {
   if (current.length !== next.length) return false;
   const keys = new Set(current.map(members => JSON.stringify([...members].sort())));
   return next.every(members => keys.has(JSON.stringify([...members].sort())));
