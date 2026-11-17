@@ -54,7 +54,7 @@ registerSidebarEntry({
 registerSidebarEntry({
   parent: 'crossplane',
   name: 'crossplane-map',
-  label: 'Map',
+  label: 'Map (preview)',
   url: '/crossplane/map',
 });
 

@@ -687,7 +687,7 @@ function CrossplaneMapView() {
                     backgroundColor: canvasBackground,
                   }}
                 >
-                  <SectionHeader title="Crossplane Map" noPadding />
+                  <SectionHeader title="Crossplane Map (preview)" noPadding />
                 </Box>
               </Box>
             </Container>

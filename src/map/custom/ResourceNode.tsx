@@ -132,8 +132,8 @@ const ResourceCard = memo(function ResourceCard({
               flexDirection: 'column',
               px: 2,
               pt: 1.5,
-              pb: 0.75,
-              '&:last-child': { pb: 0.75 },
+              pb: 1.5,
+              '&:last-child': { pb: 1.5 },
             }}
           >
             <Box
