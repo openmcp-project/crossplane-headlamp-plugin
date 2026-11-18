@@ -224,7 +224,7 @@ export function GraphControls({
                 displayEmpty: true,
                 // Mimic MUI's placeholder look: dimmed normal text color, italicized.
                 renderValue: () => (
-                  <Box component="span" sx={{ fontStyle: 'italic', opacity: 0.42 }}>
+                  <Box component="span" sx={{ opacity: 0.42 }}>
                     Label
                   </Box>
                 ),

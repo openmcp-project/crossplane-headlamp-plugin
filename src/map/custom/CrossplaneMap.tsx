@@ -94,6 +94,8 @@ function CrossplaneMapView() {
   const edgeStroke = theme.palette.grey[600];
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const fadeDuration = theme.transitions.duration.shortest;
+  const revealPadding = 16;
+  const revealSlantPercent = 20;
   const graph = useManagedGraph();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(null);
   const [fixedFilters, setFixedFilters] = useState<
@@ -609,13 +611,18 @@ function CrossplaneMapView() {
         // React Flow labels capture pointer events even when their edge is inactive.
         '& .react-flow__edge-textwrapper': { pointerEvents: 'none' },
         '& .react-flow__node, & .react-flow__edge, & .react-flow__minimap-node': {
+          // Keep card shadows, aggregate stacks and arrowheads inside the reveal.
+          clipPath: `polygon(-${revealPadding}px -${revealPadding}px, calc(100% + ${revealPadding}px) -${revealPadding}px, calc(100% + ${revealPadding}px) calc(100% + ${revealPadding}px), -${revealPadding}px calc(${
+            100 + revealSlantPercent
+          }% + ${revealPadding}px))`,
           transition: isAnimating
             ? 'none'
-            : theme.transitions.create('opacity', { duration: fadeDuration }),
+            : theme.transitions.create(['opacity', 'clip-path'], { duration: fadeDuration }),
           '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
         },
         '& .crossplane-map-fading': {
           opacity: 0,
+          clipPath: `polygon(-${revealPadding}px -${revealPadding}px, calc(100% + ${revealPadding}px) -${revealPadding}px, calc(100% + ${revealPadding}px) calc(-${revealSlantPercent}% - ${revealPadding}px), -${revealPadding}px -${revealPadding}px)`,
           pointerEvents: 'none',
           '& *': { pointerEvents: 'none' },
         },
