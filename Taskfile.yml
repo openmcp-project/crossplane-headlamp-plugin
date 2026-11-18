@@ -10,19 +10,17 @@ tasks:
   # ── Local desktop development (no cluster needed) ────────────────────────────
 
   mock:
-    desc: "Start mock k8s API server — load in Headlamp as 'crossplane-mock' cluster. Scenario: small (default), medium, large."
+    desc: "Start mock k8s API server — load in Headlamp as 'crossplane-mock' cluster. Scenario: small (default), medium, large, aggregate-filter."
     vars:
       SCENARIO: '{{default "small" .SCENARIO}}'
     cmds:
       - |
         # Kill any previous instance on the same port
-        lsof -ti:9647 | xargs kill -9 2>/dev/null || true
+        lsof -tiTCP:9647 -sTCP:LISTEN | xargs kill -9 2>/dev/null || true
       - |
-        # Add mock cluster to kubeconfig if not already present
-        if ! grep -q "crossplane-mock" ~/.kube/config 2>/dev/null; then
-          node mock-cluster/server.mjs --print-kubeconfig >> ~/.kube/config
-          echo "✓ Added 'crossplane-mock' to ~/.kube/config"
-        fi
+        kubectl --kubeconfig "{{.HOME}}/.kube/config" config set-cluster crossplane-mock --server=http://localhost:9647 --insecure-skip-tls-verify=true
+        kubectl --kubeconfig "{{.HOME}}/.kube/config" config set-credentials crossplane-mock-user
+        kubectl --kubeconfig "{{.HOME}}/.kube/config" config set-context crossplane-mock --cluster=crossplane-mock --user=crossplane-mock-user
       - node mock-cluster/server.mjs --scenario {{.SCENARIO}}
 
   mock:medium:
@@ -36,6 +34,12 @@ tasks:
     cmds:
       - task: mock
         vars: { SCENARIO: large }
+
+  mock:aggregate-filter:
+    desc: "Start mock cluster for aggregation and filter testing (46 resources)"
+    cmds:
+      - task: mock
+        vars: { SCENARIO: aggregate-filter }
 
   dev:desktop:
     desc: "Build plugin and watch for changes — copies into Headlamp desktop app on each rebuild."

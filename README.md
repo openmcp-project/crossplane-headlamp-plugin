@@ -8,7 +8,11 @@ A [Headlamp™](https://headlamp.dev) plugin that adds a Crossplane section to t
 
 - Node.js >= 18
 - npm
-- `kind`, `kubectl`, `helm` (for local cluster)
+- Task v3 (`task`)
+- `kubectl` (for mock registration and local cluster)
+- `lsof` (for replacing a running mock server)
+- Headlamp Desktop (for offline development)
+- `kind`, `helm` (for local cluster)
 
 ```bash
 npm install
@@ -43,12 +47,13 @@ A standalone mock server under `mock-cluster/` mimics the Kubernetes/Crossplane 
 **Start the mock server:**
 
 ```bash
-task mock              # small landscape (~10 resources, default)
-task mock:medium       # ~30 resources
-task mock:large        # ~120 resources, 4 providers
+task mock                   # small landscape (~10 resources, default)
+task mock:medium            # ~30 resources
+task mock:large             # ~120 resources, 4 providers
+task mock:aggregate-filter  # 46 resources for aggregation and filter testing
 ```
 
-On first run the server adds a `crossplane-mock` entry to `~/.kube/config`. Open Headlamp, select the `crossplane-mock` cluster, and the plugin loads against the mock data.
+The mock tasks create `~/.kube/config` if needed and register `crossplane-mock` using `kubectl config set-*`. Registration can be repeated. All four scenarios use the same cluster and port 9647. Starting another scenario replaces the running one.
 
 ### Build for production
 

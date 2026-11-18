@@ -6,14 +6,14 @@
  * the real Headlamp desktop app — all buttons, panels, and navigation work.
  *
  * Usage:
- *   node mock-cluster/server.mjs [--scenario small|medium|large]
+ *   task mock [SCENARIO=small|medium|large|aggregate-filter]
  *
- * Then add to kubeconfig:
- *   node mock-cluster/server.mjs --print-kubeconfig >> ~/.kube/config
+ * The mock tasks register the cluster in kubeconfig. To write a standalone config:
+ *   node mock-cluster/server.mjs --print-kubeconfig > /tmp/crossplane-mock.kubeconfig
  *
- * In Headlamp: switch to the "crossplane-mock" cluster.
+ * In Headlamp: select "crossplane-mock" for any scenario.
  *
- * Server runs on http://localhost:9647 (no TLS — Headlamp connects directly).
+ * Server runs on http://localhost:9647.
  * Headlamp must be configured to allow insecure clusters (or use the kubeconfig
  * entry this script prints which sets insecure-skip-tls-verify).
  */
@@ -21,23 +21,32 @@
 import http from 'http';
 import { URL } from 'url';
 
-const PORT = 9647;
 const SCENARIO = process.argv.includes('--scenario')
   ? process.argv[process.argv.indexOf('--scenario') + 1]
   : 'small';
 
+const CLUSTER_NAME = 'crossplane-mock';
+const PORT = process.argv.includes('--port')
+  ? parseInt(process.argv[process.argv.indexOf('--port') + 1], 10)
+  : 9647;
+
 if (process.argv.includes('--print-kubeconfig')) {
-  console.log(`
+  console.log(`apiVersion: v1
+kind: Config
+clusters:
 - cluster:
     server: http://localhost:${PORT}
     insecure-skip-tls-verify: true
-  name: crossplane-mock
+  name: ${CLUSTER_NAME}
+contexts:
 - context:
-    cluster: crossplane-mock
-    user: crossplane-mock-user
-  name: crossplane-mock
-- name: crossplane-mock-user
+    cluster: ${CLUSTER_NAME}
+    user: ${CLUSTER_NAME}-user
+  name: ${CLUSTER_NAME}
+users:
+- name: ${CLUSTER_NAME}-user
   user: {}
+current-context: ${CLUSTER_NAME}
 `);
   process.exit(0);
 }
@@ -324,6 +333,238 @@ function largeLandscape() {
   return [...anchors, ...bulk];
 }
 
+function aggregateFilterLandscape() {
+  const types = {
+    a: ['Subaccount', 'subaccounts'],
+    b: ['ServiceManager', 'servicemanagers'],
+    c: ['ServiceInstance', 'serviceinstances'],
+    d: ['ServiceBinding', 'servicebindings'],
+    e: ['RoleCollection', 'rolecollections'],
+    f: ['ResourceGroup', 'resourcegroups'],
+    g: ['Account', 'accounts'],
+  };
+
+  function resource(
+    caseName,
+    name,
+    {
+      set = 'x',
+      health = 'ready',
+      config = 'x',
+      flux = 'x',
+      provider = 'a',
+      namespace,
+      labels = {},
+      forProvider = {},
+    } = {}
+  ) {
+    const [kind, plural] = types[name[0]];
+    return makeMR({
+      name,
+      kind,
+      plural,
+      provider: `provider-${provider}`,
+      group: `account.${provider}.example.org`,
+      providerConfig: config,
+      health,
+      namespace,
+      forProvider,
+      labels: {
+        case: caseName,
+        ...(set === null ? {} : { set }),
+        ...(flux === null ? {} : { 'helm.toolkit.fluxcd.io/name': flux }),
+        ...labels,
+      },
+    });
+  }
+
+  return [
+    // The separate API group keeps this exact pair independent of the other Subaccount roots.
+    resource('pair', 'a1', { provider: 'b', labels: { pick: 'single' } }),
+    resource('pair', 'a2', { provider: 'b', set: 'y', health: 'degraded', config: 'y', flux: 'y' }),
+
+    // Siblings: a3 -> {c1, c2, c3}; a three-member aggregate with distinct filter values.
+    resource('siblings', 'a3', { set: 'z', flux: null }),
+    resource('siblings', 'c1', { forProvider: { subaccountRef: { name: 'a3' } } }),
+    resource('siblings', 'c2', {
+      set: 'y',
+      config: 'y',
+      forProvider: { subaccountRef: { name: 'a3' } },
+    }),
+    resource('siblings', 'c3', {
+      set: 'z',
+      health: 'degraded',
+      flux: 'y',
+      forProvider: { subaccountRef: { name: 'a3' } },
+    }),
+
+    // Nested: a4 -> {b1 -> {c4,c5}, b2}; a5 -> {b3 -> {c6,c7}, b4}.
+    resource('nested', 'a4', { set: 'y', health: 'degraded', config: 'y' }),
+    resource('nested', 'a5', { flux: 'y' }),
+    resource('nested', 'b1', { forProvider: { subaccountRef: { name: 'a4' } } }),
+    resource('nested', 'b2', {
+      set: 'y',
+      health: 'degraded',
+      flux: null,
+      forProvider: { subaccountRef: { name: 'a4' } },
+    }),
+    resource('nested', 'b3', {
+      set: 'y',
+      config: 'y',
+      flux: 'y',
+      forProvider: { subaccountRef: { name: 'a5' } },
+    }),
+    resource('nested', 'b4', {
+      health: 'degraded',
+      forProvider: { subaccountRef: { name: 'a5' } },
+    }),
+    resource('nested', 'c4', {
+      set: 'y',
+      health: 'degraded',
+      forProvider: { serviceManagerRef: { name: 'b1' } },
+    }),
+    resource('nested', 'c5', {
+      config: 'y',
+      flux: 'y',
+      forProvider: { serviceManagerRef: { name: 'b1' } },
+    }),
+    resource('nested', 'c6', { forProvider: { serviceManagerRef: { name: 'b3' } } }),
+    resource('nested', 'c7', {
+      set: 'z',
+      health: 'degraded',
+      config: 'y',
+      flux: null,
+      forProvider: { serviceManagerRef: { name: 'b3' } },
+    }),
+
+    // Depth: a6 -> {b5 -> b6 -> c8, b7 -> c9, c10}; equal kinds at unequal depths.
+    resource('depth', 'a6', { labels: { pick: 'gap' } }),
+    resource('depth', 'b5', {
+      set: 'y',
+      health: 'degraded',
+      config: 'y',
+      forProvider: { subaccountRef: { name: 'a6' } },
+    }),
+    resource('depth', 'b6', {
+      labels: { pick: 'gap' },
+      forProvider: { serviceManagerRef: { name: 'b5' } },
+    }),
+    resource('depth', 'b7', {
+      set: 'z',
+      flux: 'y',
+      forProvider: { subaccountRef: { name: 'a6' } },
+    }),
+    resource('depth', 'c8', {
+      set: 'y',
+      health: 'degraded',
+      labels: { pick: 'gap' },
+      forProvider: { serviceManagerRef: { name: 'b6' } },
+    }),
+    resource('depth', 'c9', {
+      config: 'y',
+      flux: null,
+      forProvider: { serviceManagerRef: { name: 'b7' } },
+    }),
+    resource('depth', 'c10', { set: 'z', forProvider: { subaccountRef: { name: 'a6' } } }),
+
+    // Edges: a7 -> b8; a8 -> b9. The diagonal pick retains a7 and b9, with no edge.
+    resource('edges', 'a7', { labels: { pick: 'diagonal' } }),
+    resource('edges', 'a8', { set: 'y', health: 'degraded', config: 'y', flux: 'y' }),
+    resource('edges', 'b8', {
+      set: 'y',
+      config: 'y',
+      forProvider: { subaccountRef: { name: 'a7' } },
+    }),
+    resource('edges', 'b9', {
+      health: 'degraded',
+      flux: 'y',
+      labels: { pick: 'diagonal' },
+      forProvider: { subaccountRef: { name: 'a8' } },
+    }),
+
+    // Mixed: a9 -> {b10 -> {c11,c12,d1,d2}, e1}; auxiliary c11 ~> d1, c12 ~> d2.
+    resource('mixed', 'a9', { set: 'y', config: 'y', flux: null }),
+    resource('mixed', 'b10', { forProvider: { subaccountRef: { name: 'a9' } } }),
+    resource('mixed', 'c11', {
+      labels: { pick: 'crosslink' },
+      forProvider: { serviceManagerRef: { name: 'b10' } },
+    }),
+    resource('mixed', 'c12', {
+      set: 'y',
+      health: 'degraded',
+      config: 'y',
+      flux: 'y',
+      forProvider: { serviceManagerRef: { name: 'b10' } },
+    }),
+    resource('mixed', 'd1', {
+      set: 'y',
+      config: 'y',
+      forProvider: { serviceManagerRef: { name: 'b10' }, serviceInstanceRef: { name: 'c11' } },
+    }),
+    resource('mixed', 'd2', {
+      health: 'degraded',
+      flux: 'y',
+      labels: { pick: 'crosslink' },
+      forProvider: { serviceManagerRef: { name: 'b10' }, serviceInstanceRef: { name: 'c12' } },
+    }),
+    resource('mixed', 'e1', {
+      set: 'z',
+      namespace: 'x',
+      forProvider: { subaccountRef: { name: 'a9' } },
+    }),
+
+    // Missing: a10 -> {b11 -> c13, e2}; missing category values and empty conditions.
+    resource('missing', 'a10', { set: null, health: 'degraded', flux: null }),
+    resource('missing', 'b11', { config: 'y', forProvider: { subaccountRef: { name: 'a10' } } }),
+    resource('missing', 'c13', {
+      set: null,
+      health: 'unknown',
+      flux: null,
+      forProvider: { serviceManagerRef: { name: 'b11' } },
+    }),
+    resource('missing', 'e2', {
+      set: 'z',
+      namespace: 'y',
+      flux: 'y',
+      forProvider: { subaccountRef: { name: 'a10' } },
+    }),
+
+    // Types: a11 -> b12 -> {c14,c15,e3,e4}; c API groups differ, e namespaces differ.
+    resource('types', 'a11', { set: 'z', config: 'y', flux: 'y' }),
+    resource('types', 'b12', { forProvider: { subaccountRef: { name: 'a11' } } }),
+    resource('types', 'c14', { forProvider: { serviceManagerRef: { name: 'b12' } } }),
+    resource('types', 'c15', {
+      provider: 'b',
+      set: 'y',
+      health: 'degraded',
+      config: 'y',
+      flux: 'y',
+      forProvider: { serviceManagerRef: { name: 'b12' } },
+    }),
+    resource('types', 'e3', {
+      namespace: 'x',
+      forProvider: { serviceManagerRef: { name: 'b12' } },
+    }),
+    resource('types', 'e4', {
+      namespace: 'y',
+      set: 'y',
+      health: 'degraded',
+      config: 'y',
+      forProvider: { serviceManagerRef: { name: 'b12' } },
+    }),
+
+    // Isolated: f1 | g1; unique kinds have neither aggregation candidates nor edges.
+    resource('isolated', 'f1', { provider: 'b', set: 'z', flux: null }),
+    resource('isolated', 'g1', {
+      provider: 'b',
+      set: null,
+      health: 'degraded',
+      config: 'y',
+      flux: 'y',
+    }),
+  ];
+}
+
 // ── Build data model from FlatMR items ────────────────────────────────────────
 
 function buildDataModel(items) {
@@ -339,8 +580,8 @@ function buildDataModel(items) {
   const providerRevisions = [];
   const crds = [];
   const crdByName = new Map();
-  const instancesByPlural = new Map();
-  const instanceByName = new Map();
+  const instancesByResource = new Map();
+  const instanceByPath = new Map();
   // providerConfigsByGroup['aws.upbound.io'] = [{ name, apiVersion, ... }, ...]
   const providerConfigsByGroup = new Map();
 
@@ -409,10 +650,13 @@ function buildDataModel(items) {
     }));
     if (!providerConfigsByGroup.has(providerGroup)) providerConfigsByGroup.set(providerGroup, []);
     providerConfigsByGroup.get(providerGroup).push(...pcInstances);
-    for (const pc of pcInstances) instanceByName.set(pc.metadata.name, pc);
+    for (const pc of pcInstances) {
+      instanceByPath.set(`/apis/${pc.apiVersion}/providerconfigs/${pc.metadata.name}`, pc);
+    }
 
-    for (const [, groupItems] of byPlural) {
+    for (const [resourceKey, groupItems] of byPlural) {
       const first = groupItems[0];
+      const version = first.apiVersion.split('/')[1];
       const crdName = `${first._plural}.${first._group}`;
       if (!crdByName.has(crdName)) {
         const crd = {
@@ -423,7 +667,7 @@ function buildDataModel(items) {
             group: first._group,
             names: { kind: first._kind, plural: first._plural, singular: first._plural.replace(/s$/, ''), listKind: `${first._kind}List` },
             scope: first._scope === 'Namespaced' ? 'Namespaced' : 'Cluster',
-            versions: [{ name: 'v1beta1', served: true, storage: true, schema: { openAPIV3Schema: { type: 'object', properties: {} } } }],
+            versions: [{ name: version, served: true, storage: true, schema: { openAPIV3Schema: { type: 'object', properties: {} } } }],
           },
           status: { conditions: [{ type: 'NamesAccepted', status: 'True' }, { type: 'Established', status: 'True' }] },
           jsonData: {
@@ -431,7 +675,7 @@ function buildDataModel(items) {
               group: first._group,
               names: { kind: first._kind, plural: first._plural, singular: first._plural.replace(/s$/, '') },
               scope: first._scope === 'Namespaced' ? 'Namespaced' : 'Cluster',
-              versions: [{ name: 'v1beta1', served: true, storage: true }],
+              versions: [{ name: version, served: true, storage: true }],
             },
           },
         };
@@ -441,9 +685,12 @@ function buildDataModel(items) {
       objectRefs.push({ kind: 'CustomResourceDefinition', name: crdName });
 
       for (const inst of groupItems) {
-        if (!instancesByPlural.has(first._plural)) instancesByPlural.set(first._plural, []);
-        instancesByPlural.get(first._plural).push(inst);
-        instanceByName.set(inst.metadata.name, inst);
+        if (!instancesByResource.has(resourceKey)) instancesByResource.set(resourceKey, []);
+        instancesByResource.get(resourceKey).push(inst);
+        const resourcePath = inst.metadata.namespace
+          ? `/apis/${inst.apiVersion}/namespaces/${inst.metadata.namespace}/${first._plural}`
+          : `/apis/${inst.apiVersion}/${first._plural}`;
+        instanceByPath.set(`${resourcePath}/${inst.metadata.name}`, inst);
       }
     }
 
@@ -485,13 +732,14 @@ function buildDataModel(items) {
     });
   }
 
-  return { providers, providerRevisions, crds, crdByName, instancesByPlural, instanceByName, providerConfigsByGroup };
+  return { providers, providerRevisions, crds, crdByName, instancesByResource, instanceByPath, providerConfigsByGroup };
 }
 
 // ── Pick scenario ─────────────────────────────────────────────────────────────
 
 const scenarioItems = SCENARIO === 'large' ? largeLandscape()
   : SCENARIO === 'medium' ? mediumLandscape()
+  : SCENARIO === 'aggregate-filter' ? aggregateFilterLandscape()
   : smallLandscape();
 
 const DATA = buildDataModel(scenarioItems);
@@ -551,11 +799,18 @@ function route(req, res) {
     { name: 'namespaces', singularName: '', namespaced: false, kind: 'Namespace', verbs: ['list', 'get', 'watch'] },
     { name: 'pods', singularName: '', namespaced: true, kind: 'Pod', verbs: ['list', 'get', 'watch'] },
   ]});
-  if (path === '/api/v1/namespaces') return ok(res, list('Namespace', 'v1', [
-    { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'crossplane-system', uid: 'ns-xp', creationTimestamp: '2024-01-01T00:00:00Z', resourceVersion: '1' }, status: { phase: 'Active' } },
-    { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'production', uid: 'ns-prod', creationTimestamp: '2024-01-01T00:00:00Z', resourceVersion: '2' }, status: { phase: 'Active' } },
-    { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'default', uid: 'ns-def', creationTimestamp: '2024-01-01T00:00:00Z', resourceVersion: '3' }, status: { phase: 'Active' } },
-  ]));
+  if (path === '/api/v1/namespaces') {
+    const names = new Set(['crossplane-system', 'production', 'default']);
+    for (const item of scenarioItems) {
+      if (item.metadata.namespace) names.add(item.metadata.namespace);
+    }
+    return ok(res, list('Namespace', 'v1', [...names].map(name => ({
+      apiVersion: 'v1',
+      kind: 'Namespace',
+      metadata: { name, uid: `ns-${name}`, creationTimestamp: '2024-01-01T00:00:00Z', resourceVersion: '1' },
+      status: { phase: 'Active' },
+    }))));
+  }
   if (path === '/apis') return ok(res, { kind: 'APIGroupList', apiVersion: 'v1', groups: [
     { name: 'pkg.crossplane.io', versions: [{ groupVersion: 'pkg.crossplane.io/v1', version: 'v1' }], preferredVersion: { groupVersion: 'pkg.crossplane.io/v1', version: 'v1' } },
     { name: 'apiextensions.k8s.io', versions: [{ groupVersion: 'apiextensions.k8s.io/v1', version: 'v1' }], preferredVersion: { groupVersion: 'apiextensions.k8s.io/v1', version: 'v1' } },
@@ -610,33 +865,30 @@ function route(req, res) {
   }
 
   // ── Managed resource instances ────────────────────────────────────────────
-  // Match: /apis/{group}/{version}/{plural}
-  const mrListMatch = path.match(/^\/apis\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  // Supports all-namespace lists and lists within a namespace.
+  const mrListMatch = path.match(/^\/apis\/([^/]+)\/([^/]+)\/(?:namespaces\/([^/]+)\/)?([^/]+)$/);
   if (mrListMatch) {
-    const [, group, version, plural] = mrListMatch;
+    const [, group, version, namespace, plural] = mrListMatch;
     const apiVersion = `${group}/${version}`;
     // ProviderConfigs: look up by group
     if (plural === 'providerconfigs') {
       const configs = DATA.providerConfigsByGroup.get(group) ?? [];
       return ok(res, list('ProviderConfig', apiVersion, configs));
     }
-    const instances = DATA.instancesByPlural.get(plural);
+    const instances = DATA.instancesByResource.get(`${group}/${plural}`);
     if (instances) {
-      return ok(res, list(instances[0].kind, apiVersion, instances));
+      const filtered = instances.filter(inst => inst.apiVersion === apiVersion &&
+        (!namespace || inst.metadata.namespace === namespace));
+      return ok(res, list(instances[0].kind, apiVersion, filtered));
     }
     // Unknown plural — return empty list (Headlamp may probe random paths)
     return ok(res, { kind: 'List', apiVersion: 'v1', metadata: {}, items: [] });
   }
 
-  // Match: /apis/{group}/{version}/{plural}/{name}
-  const mrItemMatch = path.match(/^\/apis\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  const mrItemMatch = path.match(/^\/apis\/([^/]+)\/([^/]+)\/(?:namespaces\/([^/]+)\/)?([^/]+)\/([^/]+)$/);
   if (mrItemMatch) {
-    const [, , , , name] = mrItemMatch;
-    const item = DATA.instanceByName.get(name);
+    const item = DATA.instanceByPath.get(path);
     if (item) return ok(res, item);
-    // Try CRD by name
-    const crd = DATA.crdByName.get(name);
-    if (crd) return ok(res, crd);
     return notFound(res, path);
   }
 
@@ -655,10 +907,11 @@ function route(req, res) {
 
 const server = http.createServer(route);
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\nMock k8s cluster listening on http://localhost:${PORT}`);
-  console.log('\nTo add to kubeconfig, run:');
-  console.log(`  node mock-cluster/server.mjs --print-kubeconfig >> ~/.kube/config`);
-  console.log('\nThen in Headlamp: switch cluster → crossplane-mock\n');
+  const port = server.address().port;
+  console.log(`\nMock k8s cluster listening on http://localhost:${port}`);
+  console.log('\nTo write a standalone kubeconfig, run:');
+  console.log(`  node mock-cluster/server.mjs --scenario ${SCENARIO} --port ${port} --print-kubeconfig > /tmp/${CLUSTER_NAME}.kubeconfig`);
+  console.log(`\nThen in Headlamp: switch cluster → ${CLUSTER_NAME}\n`);
 });
 
 server.on('error', err => {
