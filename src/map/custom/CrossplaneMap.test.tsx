@@ -247,7 +247,7 @@ describe('Crossplane map category filtering', () => {
 
     const filterName = mode === 'Flux' ? 'Flux' : key;
     if (mode !== 'Flux') {
-      selectOption('+ Label', key);
+      selectOption('Label', key);
     }
     const filter = screen.getByRole('combobox', { name: filterName });
 
@@ -363,15 +363,15 @@ describe('Crossplane map category filtering', () => {
     render(<CrossplaneMap />);
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('n1,n2,n3'));
 
-    selectOption('+ Label', 'team');
-    selectOption('+ Label', 'env');
-    expect(screen.queryByRole('combobox', { name: '+ Label' })).toBeNull();
+    selectOption('Label', 'team');
+    selectOption('Label', 'env');
+    expect(screen.queryByRole('combobox', { name: 'Label' })).toBeNull();
 
     const layoutsAfterAdd = mocks.layout.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Remove env filter' }));
     expect(mocks.layout).toHaveBeenCalledTimes(layoutsAfterAdd);
-    expect(screen.getByRole('combobox', { name: '+ Label' })).toBeTruthy();
-    selectOption('+ Label', 'env');
+    expect(screen.getByRole('combobox', { name: 'Label' })).toBeTruthy();
+    selectOption('Label', 'env');
 
     fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Kind' }));
     fireEvent.click(screen.getByRole('option', { name: 'Resource' }));
@@ -830,7 +830,7 @@ function selectStatus(status: 'Healthy' | 'Needs Attention' | 'All') {
 
 function selectTeam(team = 'blue') {
   if (!screen.queryByRole('combobox', { name: 'team' })) {
-    selectOption('+ Label', 'team');
+    selectOption('Label', 'team');
   }
   fireEvent.mouseDown(screen.getByRole('combobox', { name: 'team' }));
   fireEvent.click(screen.getByRole('option', { name: team }));
@@ -1004,7 +1004,7 @@ describe('Crossplane map resource filtering', () => {
   it('shows the selected-value count as a badge on each filter dropdown', async () => {
     await renderFilteringGraph();
     // The team label filter must be added before it can be queried.
-    selectOption('+ Label', 'team');
+    selectOption('Label', 'team');
     const team = screen.getByRole('combobox', { name: 'team' });
     // The "all" state carries no badge; the field shows only the filter name.
     expect(team.textContent).toBe('team');

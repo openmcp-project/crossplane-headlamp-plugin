@@ -219,8 +219,16 @@ export function GraphControls({
               fullWidth
               size="small"
               value=""
-              inputProps={{ 'aria-label': '+ Label' }}
-              SelectProps={{ displayEmpty: true, renderValue: () => '+ Label' }}
+              inputProps={{ 'aria-label': 'Label' }}
+              SelectProps={{
+                displayEmpty: true,
+                // Mimic MUI's placeholder look: dimmed normal text color, italicized.
+                renderValue: () => (
+                  <Box component="span" sx={{ fontStyle: 'italic', opacity: 0.42 }}>
+                    Label
+                  </Box>
+                ),
+              }}
               sx={FILTER_FIELD_SX}
               onChange={(e: any) => onAddLabelFilter(e.target.value)}
             >
