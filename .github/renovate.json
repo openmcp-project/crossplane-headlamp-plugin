@@ -2,5 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>openmcp-project/.github:renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Keep React aligned with the React 18 runtime provided by Headlamp.",
+      "matchPackageNames": ["react", "react-dom"],
+      "allowedVersions": "<19",
+      "groupName": "React"
+    }
   ]
 }
