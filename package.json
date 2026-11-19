@@ -29,7 +29,7 @@
   "license": "Apache-2.0",
   "type": "commonjs",
   "dependencies": {
-    "@xyflow/react": "12.12.1",
+    "@xyflow/react": "13.0.0",
     "elkjs": "0.12.1"
   },
   "devDependencies": {
