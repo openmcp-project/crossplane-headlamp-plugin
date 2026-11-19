@@ -30,7 +30,7 @@
   "type": "commonjs",
   "dependencies": {
     "@xyflow/react": "12.12.0",
-    "elkjs": "0.12.0"
+    "elkjs": "0.12.1"
   },
   "devDependencies": {
     "@kinvolk/headlamp-plugin": "0.14.0"
