@@ -84,17 +84,36 @@ jobs:
       - name: Open PR with artifacthub metadata
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.nextVersion }}
         run: |
-          VERSION=${{ github.event.inputs.nextVersion }}
           BRANCH="chore/artifacthub-${VERSION}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "${BRANCH}"
-          git add artifacthub/
-          git diff --staged --quiet || git commit -m "chore: add artifacthub metadata for ${VERSION}"
-          git push --force origin "${BRANCH}"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/heads/${BRANCH}" \
+            -f sha="${GITHUB_SHA}"
+          # GitHub signs API-created commits, satisfying the organization's signature rule.
+          jq -n \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg branch "${BRANCH}" \
+            --arg oid "${GITHUB_SHA}" \
+            --arg message "chore: add artifacthub metadata for ${VERSION}" \
+            --arg pkgPath "${PKGFILE}" \
+            --arg readmePath "artifacthub/${SEMVER}/README.md" \
+            --rawfile pkg "${PKGFILE}" \
+            --rawfile readme "artifacthub/${SEMVER}/README.md" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {
+                branch: {repositoryNameWithOwner: $repository, branchName: $branch},
+                expectedHeadOid: $oid,
+                message: {headline: $message},
+                fileChanges: {additions: [
+                  {path: $pkgPath, contents: ($pkg | @base64)},
+                  {path: $readmePath, contents: ($readme | @base64)}
+                ]}
+              }}
+            }' | gh api graphql --input -
           gh pr create \
             --title "chore: add artifacthub metadata for ${VERSION}" \
             --body "Automated PR created by the release workflow for ${VERSION}. Merge to complete the ArtifactHub publish." \
             --base main \
-            --head "${BRANCH}" || true
+            --head "${BRANCH}"
