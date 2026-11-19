@@ -9,7 +9,11 @@ import { NODE_WIDTH, RESOURCE_NODE_LAYOUT_HEIGHT } from './styles';
 const nodeTypes = { resource: ResourceNode };
 const flowStyles = document.createElement('style');
 beforeAll(() => {
-  flowStyles.textContent = readFileSync('node_modules/@xyflow/react/dist/style.css', 'utf8');
+  // JSDOM cannot parse CSS layers; retain the rules used by the handle geometry assertions.
+  flowStyles.textContent = readFileSync('node_modules/@xyflow/react/dist/style.css', 'utf8')
+    .split('@layer xyflow {')
+    .map(layer => layer.replace(/\}\s*$/, ''))
+    .join('');
   document.head.append(flowStyles);
 });
 beforeEach(() => {

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { NodeChangeset } from '@xyflow/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildManagedGraph } from '../common/buildManagedGraph';
@@ -65,7 +66,9 @@ vi.mock('elkjs/lib/elk.bundled.js', () => ({
   },
 }));
 vi.mock('@xyflow/react', async () => {
-  const { useNodesState } = await vi.importActual<typeof import('@xyflow/react')>('@xyflow/react');
+  const { NodeChangeset, useNodesState } = await vi.importActual<typeof import('@xyflow/react')>(
+    '@xyflow/react'
+  );
   return {
     Background: () => null,
     BackgroundVariant: { Dots: 'dots' },
@@ -164,8 +167,9 @@ vi.mock('@xyflow/react', async () => {
         </div>
       );
     },
+    NodeChangeset,
     useNodesState,
-    useStoreApi: () => mocks.flowStore,
+    useReactFlowStoreApi: () => ({ optionsStore: mocks.flowStore }),
     useNodesInitialized: () => true,
     useReactFlow: () => ({
       fitView: mocks.fitView,
@@ -541,9 +545,11 @@ describe('Crossplane map discovery and layout state', () => {
     const { rerender } = render(<CrossplaneMap />);
     await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('parent,child'));
     act(() =>
-      mocks.onNodesChange([
-        { id: 'parent', type: 'dimensions', dimensions: { width: 300, height: 180 } },
-      ])
+      mocks.onNodesChange(
+        new NodeChangeset([
+          { id: 'parent', type: 'dimensions', dimensions: { width: 300, height: 180 } },
+        ])
+      )
     );
 
     mocks.source.current = {
@@ -623,9 +629,11 @@ describe('Crossplane map discovery and layout state', () => {
       const { rerender } = render(<CrossplaneMap />);
       await waitFor(() => expect(screen.getByTestId('nodes').textContent).toBe('parent,child'));
       act(() =>
-        mocks.onNodesChange([
-          { id: 'parent', type: 'dimensions', dimensions: { width: 300, height: 180 } },
-        ])
+        mocks.onNodesChange(
+          new NodeChangeset([
+            { id: 'parent', type: 'dimensions', dimensions: { width: 300, height: 180 } },
+          ])
+        )
       );
       const graph = loadedGraph();
       mocks.source.current = {

@@ -3,7 +3,7 @@ import {
   useNodesInitialized,
   useNodesState,
   useReactFlow,
-  useStoreApi,
+  useReactFlowStoreApi,
   XYPosition,
 } from '@xyflow/react';
 import {
@@ -95,7 +95,7 @@ export function useGraphLayout({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const nodesInitialized = useNodesInitialized();
   const { fitView, getViewport, setViewport, viewportInitialized } = useReactFlow();
-  const flowStore = useStoreApi();
+  const { optionsStore } = useReactFlowStoreApi();
   const nextLayoutInput = useMemo<GraphLayoutInput | null>(
     () =>
       viewGraph
@@ -128,9 +128,9 @@ export function useGraphLayout({
       const work = viewportWorkRef.current;
       if (!work) return;
       viewportWorkRef.current = null;
-      // React Flow 12.12 has no viewport API for cancelling its measurement-owned fit queue.
-      const { fitViewResolver } = flowStore.getState();
-      flowStore.setState({
+      // React Flow has no viewport API for cancelling its measurement-owned fit queue.
+      const { fitViewResolver } = optionsStore.getState();
+      optionsStore.setState({
         fitViewQueued: false,
         fitViewOptions: undefined,
         fitViewResolver: null,
@@ -138,7 +138,7 @@ export function useGraphLayout({
       fitViewResolver?.resolve(false);
       if (interrupt) void setViewport(getViewport(), { duration: 0 });
     },
-    [flowStore, getViewport, setViewport]
+    [optionsStore, getViewport, setViewport]
   );
   const interruptViewport = useCallback(
     (interrupt = true) => {
@@ -641,9 +641,10 @@ export function useGraphLayout({
       complete();
       return;
     }
-    // React Flow 12.12 queues fitting through node updates and measurement.
+    // React Flow queues fitting through node updates and measurement.
     viewportWorkRef.current = { revision: layoutCommit.revision };
-    void fitView({ nodes: visibleNodes, padding: 0.2, duration }).then(complete);
+    // Round the legacy 0.2 padding upward to preserve whole-pixel margins.
+    void fitView({ nodes: visibleNodes, padding: '8.334%', duration }).then(complete);
   }, [layoutCommit, viewportInitialized, nodes, targetHiddenIds, reduceMotion, fitView]);
 
   return {

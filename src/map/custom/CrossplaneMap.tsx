@@ -1,4 +1,4 @@
-import '@xyflow/react/dist/style.css';
+import '@xyflow/react/style.css';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { SectionHeader } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import {
@@ -635,7 +635,7 @@ function CrossplaneMapView() {
       )}
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
         <ReactFlow<Node<ResourceNodeData | AggregatedNodeData>>
-          colorMode={theme.palette.mode}
+          forceColorMode={theme.palette.mode}
           // Color the canvas itself; an opaque interaction pane would cover the dot grid.
           style={
             {
@@ -652,7 +652,7 @@ function CrossplaneMapView() {
           onPaneClick={() => setSelectedId(null)}
           onMoveStart={event => {
             if (!event) return;
-            // User pan/zoom can interrupt D3 without resolving the viewport promise.
+            // Leave the active user gesture in control of the viewport.
             interruptViewport(false);
           }}
           nodesDraggable={false}
