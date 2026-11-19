@@ -268,7 +268,7 @@ export default function DependencyGraph() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           fitView
-          fitViewOptions={{ padding: '11.54%' }}
+          fitViewOptions={{ padding: '12%' }}
         >
           <Background />
           <Controls />
