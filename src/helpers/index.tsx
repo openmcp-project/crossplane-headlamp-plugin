@@ -117,6 +117,24 @@ export function clusterPrefix(): string {
 // These CRDs are owned by providers but are NOT managed resources.
 // They don't have Ready/Synced conditions and must be excluded from MR counts,
 // health stats, and the Resources view.
+export interface CompositeRefs {
+  composite: string;
+  claimName: string;
+  claimNamespace: string;
+}
+
+/** Reads the owning XR and claim from labels, falling back to annotations. */
+export function getCompositeRefs(resource: any): CompositeRefs {
+  const labels: Record<string, string> = resource?.metadata?.labels ?? {};
+  const annotations: Record<string, string> = resource?.metadata?.annotations ?? {};
+  const read = (key: string) => labels[key] ?? annotations[key] ?? '';
+  return {
+    composite: read('crossplane.io/composite'),
+    claimName: read('crossplane.io/claim-name'),
+    claimNamespace: read('crossplane.io/claim-namespace'),
+  };
+}
+
 export const NON_MANAGED_PLURALS = new Set([
   'providerconfigs',
   'providerconfig',
