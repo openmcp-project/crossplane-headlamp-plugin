@@ -1,5 +1,6 @@
 import React from 'react';
 import { CompositeResourceDefinition, Composition } from '../common/Resources';
+import { openCRDDetailByGroupPlural } from '../crds/CRDList';
 
 const { Typography, Box, Chip, CircularProgress, Paper } = (window as any).pluginLib?.MuiCore ?? {};
 
@@ -115,9 +116,16 @@ export default function CompositionList() {
                 const conditions: any[] = xrd.jsonData?.status?.conditions ?? [];
                 const group = xrd.jsonData?.spec?.group ?? '';
                 const kind = xrd.jsonData?.spec?.names?.kind ?? '';
+                const plural = xrd.jsonData?.spec?.names?.plural ?? '';
                 return (
-                  <tr key={xrd.metadata.name} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 600 }}>{xrd.metadata.name}</td>
+                  <tr
+                    key={xrd.metadata.name}
+                    style={{ borderBottom: '1px solid #f0f0f0', cursor: 'pointer' }}
+                    onClick={() => openCRDDetailByGroupPlural(group, plural)}
+                  >
+                    <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                      <span style={{ textDecoration: 'underline' }}>{xrd.metadata.name}</span>
+                    </td>
                     <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>
                       {group}
                     </td>
