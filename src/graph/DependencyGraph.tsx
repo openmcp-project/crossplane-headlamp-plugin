@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import { useEffect, useState } from 'react';
 import { useHistory, useParams } from 'react-router-dom';
-import { clusterPrefix, getApiProxy } from '../helpers';
+import { clusterPrefix, getApiProxy, getCompositeRefs } from '../helpers';
 
 const { Typography, Box, CircularProgress, Paper, Button } =
   (window as any).pluginLib?.MuiCore ?? {};
@@ -97,11 +97,8 @@ export default function DependencyGraph() {
   useEffect(() => {
     if (!item) return;
 
-    const annotations: Record<string, string> = item.metadata?.annotations ?? {};
     const providerConfigRef: string = item.spec?.providerConfigRef?.name ?? '';
-    const compositeRef: string = annotations['crossplane.io/composite'] ?? '';
-    const claimName: string = annotations['crossplane.io/claim-name'] ?? '';
-    const claimNamespace: string = annotations['crossplane.io/claim-namespace'] ?? '';
+    const { composite: compositeRef, claimName, claimNamespace } = getCompositeRefs(item);
 
     const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
