@@ -103,7 +103,7 @@ export function providerPodLogsUrl(cluster: string, namespace: string, podName: 
 
 export function clusterPrefix(): string {
   // Headlamp may be served under a base path (e.g. /api/headlamp) — strip it first.
-  const base = (window as any).headlampBaseUrl ?? '';
+  const base = ((window as any).headlampBaseUrl ?? '').replace(/\/+$/, '');
   const pathname =
     base && window.location.pathname.startsWith(base)
       ? window.location.pathname.slice(base.length)
