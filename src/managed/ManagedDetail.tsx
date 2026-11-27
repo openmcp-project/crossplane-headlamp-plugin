@@ -3,7 +3,7 @@ import { useHistory, useParams } from 'react-router-dom';
 import { xpColors } from '../common/colors';
 import { ViewYamlButton, YamlSection } from '../common/YamlView';
 import { openCRDDetailByGroupPlural } from '../crds/CRDList';
-import { clusterPrefix, detectExternalManager } from '../helpers';
+import { clusterPrefix, detectExternalManager, getCompositeRefs } from '../helpers';
 import { useCustomResourceList } from '../helpers/useCustomResources';
 
 const {
@@ -206,11 +206,8 @@ function ManagedDetailView({
 
   const conditions: any[] = item?.status?.conditions ?? [];
   const failingConditions = conditions.filter((c: any) => c.status === 'False');
-  const annotations: Record<string, string> = item?.metadata?.annotations ?? {};
   const providerConfigRef: string = item?.spec?.providerConfigRef?.name ?? '';
-  const compositeRef: string = annotations['crossplane.io/composite'] ?? '';
-  const claimName: string = annotations['crossplane.io/claim-name'] ?? '';
-  const claimNamespace: string = annotations['crossplane.io/claim-namespace'] ?? '';
+  const { composite: compositeRef, claimName, claimNamespace } = getCompositeRefs(item);
   const atProvider = item?.status?.atProvider;
 
   const managerInfo = detectExternalManager(item);

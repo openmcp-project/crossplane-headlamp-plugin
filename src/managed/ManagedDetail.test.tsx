@@ -33,6 +33,7 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 vi.mock('../helpers', () => ({
   clusterPrefix: () => '/c/cluster-a',
   detectExternalManager: () => ({ manager: null }),
+  getCompositeRefs: () => ({ composite: '', claimName: '', claimNamespace: '' }),
 }));
 vi.mock('../common/YamlView', () => ({ ViewYamlButton: () => null, YamlSection: () => null }));
 vi.mock('../crds/CRDList', () => ({ openCRDDetailByGroupPlural: vi.fn() }));

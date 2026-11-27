@@ -23,6 +23,7 @@ import {
   clusterPrefix,
   deriveProviderGroupFromImage,
   detectExternalManager,
+  getCompositeRefs,
   getConditionMessage,
   getConditionStatus,
   getReadyStatus,
@@ -218,6 +219,50 @@ describe('clusterPrefix', () => {
     (global as any).headlampBaseUrl = '/headlamp';
     window.location = { pathname: '/c/staging/crossplane/overview' } as any;
     expect(clusterPrefix()).toBe('/c/staging');
+  });
+});
+
+// ── getCompositeRefs ──────────────────────────────────────────────────────────
+
+describe('getCompositeRefs', () => {
+  it('reads the composite and claim from labels', () => {
+    const mr = {
+      metadata: {
+        labels: {
+          'crossplane.io/composite': 'my-app',
+          'crossplane.io/claim-name': 'my-claim',
+          'crossplane.io/claim-namespace': 'team-a',
+        },
+      },
+    };
+    expect(getCompositeRefs(mr)).toEqual({
+      composite: 'my-app',
+      claimName: 'my-claim',
+      claimNamespace: 'team-a',
+    });
+  });
+
+  it('falls back to annotations', () => {
+    const mr = { metadata: { annotations: { 'crossplane.io/composite': 'old-xr' } } };
+    expect(getCompositeRefs(mr)).toEqual({
+      composite: 'old-xr',
+      claimName: '',
+      claimNamespace: '',
+    });
+  });
+
+  it('prefers the label when both are set', () => {
+    const mr = {
+      metadata: {
+        labels: { 'crossplane.io/composite': 'from-label' },
+        annotations: { 'crossplane.io/composite': 'from-annotation' },
+      },
+    };
+    expect(getCompositeRefs(mr).composite).toBe('from-label');
+  });
+
+  it('returns empty strings when nothing is set', () => {
+    expect(getCompositeRefs({})).toEqual({ composite: '', claimName: '', claimNamespace: '' });
   });
 });
 
