@@ -214,6 +214,18 @@ describe('clusterPrefix', () => {
     expect(clusterPrefix()).toBe('/c/staging');
   });
 
+  it('extracts /c/<cluster> when headlampBaseUrl is the root', () => {
+    (global as any).headlampBaseUrl = '/';
+    window.location = { pathname: '/c/staging/crossplane/overview' } as any;
+    expect(clusterPrefix()).toBe('/c/staging');
+  });
+
+  it('strips a headlampBaseUrl with a trailing slash', () => {
+    (global as any).headlampBaseUrl = '/headlamp/';
+    window.location = { pathname: '/headlamp/c/staging/crossplane/overview' } as any;
+    expect(clusterPrefix()).toBe('/c/staging');
+  });
+
   it('does not strip base when path does not start with it', () => {
     (global as any).headlampBaseUrl = '/headlamp';
     window.location = { pathname: '/c/staging/crossplane/overview' } as any;
