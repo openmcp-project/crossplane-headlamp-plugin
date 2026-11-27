@@ -1,6 +1,7 @@
 import { registerRoute, registerSidebarEntry } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 import { crossplaneMonochromeIcon } from './common/crossplaneIcon';
+import CompositionList from './compositions';
 import CRDList, { CRDDetail } from './crds/CRDList';
 import ManagedDetail from './managed/ManagedDetail';
 import ManagedList from './managed/ManagedList';
@@ -42,6 +43,13 @@ registerSidebarEntry({
   name: 'crossplane-resources',
   label: 'Resources',
   url: '/crossplane/resources',
+});
+
+registerSidebarEntry({
+  parent: 'crossplane',
+  name: 'crossplane-compositions',
+  label: 'Compositions',
+  url: '/crossplane/compositions',
 });
 
 registerSidebarEntry({
@@ -125,6 +133,14 @@ registerRoute({
   name: 'crossplaneResources',
   exact: true,
   component: () => React.createElement(ResourceList),
+});
+
+registerRoute({
+  path: '/crossplane/compositions',
+  sidebar: 'crossplane-compositions',
+  name: 'crossplaneCompositions',
+  exact: true,
+  component: () => React.createElement(CompositionList),
 });
 
 registerRoute({
